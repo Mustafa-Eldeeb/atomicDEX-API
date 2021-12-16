@@ -374,6 +374,12 @@ pub async fn start_lightning(
 
     // Sync ChannelMonitors and ChannelManager to chain tip if the node is restarting and has open channels
     if restarting_node && channel_manager_blockhash != best_block_hash {
+        process_txs_unconfirmations(
+            filter.clone().unwrap().clone(),
+            chain_monitor.clone(),
+            channel_manager.clone(),
+        )
+        .await;
         process_txs_confirmations(
             // It's safe to use unwrap here for now until implementing Native Client for Lightning
             filter.clone().unwrap().clone(),
@@ -420,11 +426,10 @@ pub async fn start_lightning(
     ));
 
     // Initialize p2p networking
-    spawn(ln_p2p_loop(ctx.clone(), peer_manager.clone(), listener));
+    spawn(ln_p2p_loop(peer_manager.clone(), listener));
 
     // Update best block whenever there's a new chain tip or a block has been newly disconnected
     spawn(ln_best_block_update_loop(
-        ctx.clone(),
         // It's safe to use unwrap here for now until implementing Native Client for Lightning
         filter.clone().unwrap(),
         chain_monitor.clone(),
@@ -459,12 +464,7 @@ pub async fn start_lightning(
         for (pubkey, node_addr) in nodes_data.drain() {
             for chan_info in channel_manager.list_channels() {
                 if pubkey == chan_info.counterparty.node_id {
-                    spawn(connect_to_node_loop(
-                        ctx.clone(),
-                        pubkey,
-                        node_addr,
-                        peer_manager.clone(),
-                    ));
+                    spawn(connect_to_node_loop(pubkey, node_addr, peer_manager.clone()));
                 }
             }
         }
@@ -472,7 +472,6 @@ pub async fn start_lightning(
 
     // Broadcast Node Announcement
     spawn(ln_node_announcement_loop(
-        ctx.clone(),
         channel_manager.clone(),
         params.node_name,
         params.node_color,
@@ -490,11 +489,8 @@ pub async fn start_lightning(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn ln_p2p_loop(ctx: MmArc, peer_manager: Arc<PeerManager>, listener: TcpListener) {
+async fn ln_p2p_loop(peer_manager: Arc<PeerManager>, listener: TcpListener) {
     loop {
-        if ctx.is_stopping() {
-            break;
-        }
         let peer_mgr = peer_manager.clone();
         let tcp_stream = match listener.accept().await {
             Ok((stream, addr)) => {
@@ -537,7 +533,10 @@ impl ConfirmedTransactionInfo {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn process_tx_for_unconfirmation(txid: Txid, filter: Arc<PlatformFields>, channel_manager: Arc<ChannelManager>) {
+async fn process_tx_for_unconfirmation<T>(txid: Txid, filter: Arc<PlatformFields>, monitor: Arc<T>)
+where
+    T: Confirm,
+{
     if let Err(err) = filter
         .platform_coin
         .as_ref()
@@ -556,7 +555,7 @@ async fn process_tx_for_unconfirmation(txid: Txid, filter: Arc<PlatformFields>, 
                             txid,
                             err
                         );
-                        channel_manager.transaction_unconfirmed(&txid);
+                        monitor.transaction_unconfirmed(&txid);
                     }
                 }
             }
@@ -570,27 +569,32 @@ async fn process_tx_for_unconfirmation(txid: Txid, filter: Arc<PlatformFields>, 
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn process_txs_confirmations(
+async fn process_txs_unconfirmations(
     filter: Arc<PlatformFields>,
-    client: ElectrumClient,
     chain_monitor: Arc<ChainMonitor>,
     channel_manager: Arc<ChannelManager>,
-    current_height: u64,
 ) {
-    // Retrieve transaction IDs to check the chain for un-confirmations
+    // Retrieve channel manager transaction IDs to check the chain for un-confirmations
     let channel_manager_relevant_txids = channel_manager.get_relevant_txids();
-    let chain_monitor_relevant_txids = chain_monitor.get_relevant_txids();
-
     for txid in channel_manager_relevant_txids {
         process_tx_for_unconfirmation(txid, filter.clone(), channel_manager.clone()).await;
     }
 
+    // Retrieve chain monitor transaction IDs to check the chain for un-confirmations
+    let chain_monitor_relevant_txids = chain_monitor.get_relevant_txids();
     for txid in chain_monitor_relevant_txids {
-        process_tx_for_unconfirmation(txid, filter.clone(), channel_manager.clone()).await;
+        process_tx_for_unconfirmation(txid, filter.clone(), chain_monitor.clone()).await;
     }
+}
 
+#[cfg(not(target_arch = "wasm32"))]
+async fn get_confirmed_registered_txs(
+    filter: Arc<PlatformFields>,
+    client: &ElectrumClient,
+    current_height: u64,
+) -> Vec<ConfirmedTransactionInfo> {
     let mut registered_txs = filter.registered_txs.lock().await;
-    let mut transactions_to_confirm = Vec::new();
+    let mut confirmed_registered_txs = Vec::new();
     for (txid, scripts) in registered_txs.clone() {
         let rpc_txid = H256::from(txid.as_hash().into_inner()).reversed();
         match filter
@@ -659,7 +663,7 @@ async fn process_txs_confirmations(
                                         transaction.clone(),
                                         height as u32,
                                     );
-                                    transactions_to_confirm.push(confirmed_transaction_info);
+                                    confirmed_registered_txs.push(confirmed_transaction_info);
                                     registered_txs.remove(&txid);
                                 }
                             }
@@ -673,12 +677,19 @@ async fn process_txs_confirmations(
             },
         };
     }
-    drop(registered_txs);
+    confirmed_registered_txs
+}
 
+#[cfg(not(target_arch = "wasm32"))]
+async fn append_spent_registered_output_txs(
+    transactions_to_confirm: &mut Vec<ConfirmedTransactionInfo>,
+    filter: Arc<PlatformFields>,
+    client: &ElectrumClient,
+) {
     let mut outputs_to_remove = Vec::new();
     let mut registered_outputs = filter.registered_outputs.lock().await;
     for output in registered_outputs.clone() {
-        let result = match ln_rpc::find_watched_output_spend_with_header(&client, &output).await {
+        let result = match ln_rpc::find_watched_output_spend_with_header(client, &output).await {
             Ok(res) => res,
             Err(e) => {
                 log::error!(
@@ -711,7 +722,18 @@ async fn process_txs_confirmations(
         }
     }
     registered_outputs.retain(|output| !outputs_to_remove.contains(output));
-    drop(registered_outputs);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn process_txs_confirmations(
+    filter: Arc<PlatformFields>,
+    client: ElectrumClient,
+    chain_monitor: Arc<ChainMonitor>,
+    channel_manager: Arc<ChannelManager>,
+    current_height: u64,
+) {
+    let mut transactions_to_confirm = get_confirmed_registered_txs(filter.clone(), &client, current_height).await;
+    append_spent_registered_output_txs(&mut transactions_to_confirm, filter.clone(), &client).await;
 
     transactions_to_confirm.sort_by(|a, b| {
         let block_order = a.height.cmp(&b.height);
@@ -809,7 +831,6 @@ async fn update_best_block(
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn ln_best_block_update_loop(
-    ctx: MmArc,
     filter: Arc<PlatformFields>,
     chain_monitor: Arc<ChainMonitor>,
     channel_manager: Arc<ChannelManager>,
@@ -818,9 +839,6 @@ async fn ln_best_block_update_loop(
 ) {
     let mut current_best_block = best_block;
     loop {
-        if ctx.is_stopping() {
-            break;
-        }
         let best_header = match get_best_header(&best_header_listener).await {
             Ok(h) => h,
             Err(e) => {
@@ -830,6 +848,7 @@ async fn ln_best_block_update_loop(
             },
         };
         if current_best_block != best_header.clone().into() {
+            process_txs_unconfirmations(filter.clone(), chain_monitor.clone(), channel_manager.clone()).await;
             process_txs_confirmations(
                 filter.clone(),
                 best_header_listener.clone(),
@@ -847,7 +866,6 @@ async fn ln_best_block_update_loop(
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn ln_node_announcement_loop(
-    ctx: MmArc,
     channel_manager: Arc<ChannelManager>,
     node_name: [u8; 32],
     node_color: [u8; 3],
@@ -856,10 +874,6 @@ async fn ln_node_announcement_loop(
 ) {
     let addresses = netaddress_from_ipaddr(addr, port);
     loop {
-        if ctx.is_stopping() {
-            break;
-        }
-
         let addresses_to_announce = if addresses.is_empty() {
             // Right now if the node is behind NAT the external ip is fetched on every loop
             // If the node does not announce a public IP, it will not be displayed on the network graph,
@@ -1004,7 +1018,7 @@ pub async fn connect_to_node(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn connect_to_node_loop(ctx: MmArc, pubkey: PublicKey, node_addr: SocketAddr, peer_manager: Arc<PeerManager>) {
+async fn connect_to_node_loop(pubkey: PublicKey, node_addr: SocketAddr, peer_manager: Arc<PeerManager>) {
     for node_pubkey in peer_manager.get_peer_node_ids() {
         if node_pubkey == pubkey {
             log::info!("Already connected to node: {}", node_pubkey);
@@ -1013,10 +1027,6 @@ async fn connect_to_node_loop(ctx: MmArc, pubkey: PublicKey, node_addr: SocketAd
     }
 
     loop {
-        if ctx.is_stopping() {
-            break;
-        }
-
         match connect_to_node(pubkey, node_addr, peer_manager.clone()).await {
             Ok(res) => {
                 log::info!("{}", res.to_string());
