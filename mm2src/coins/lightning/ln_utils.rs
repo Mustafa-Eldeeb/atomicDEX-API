@@ -1,6 +1,5 @@
 use super::*;
 use crate::utxo::utxo_standard::UtxoStandardCoin;
-use bitcoin::network::constants::Network;
 use common::mm_ctx::MmArc;
 use derive_more::Display;
 use secp256k1::PublicKey;
@@ -223,7 +222,6 @@ pub async fn start_lightning(
     _platform_coin: UtxoStandardCoin,
     _ticker: String,
     _params: LightningParams,
-    _network: Network,
 ) -> EnableLightningResult<LightningCoin> {
     MmError::err(EnableLightningError::UnsupportedMode(
         "'connect_to_lightning_node'".into(),
@@ -237,8 +235,8 @@ pub async fn start_lightning(
     platform_coin: UtxoStandardCoin,
     ticker: String,
     params: LightningParams,
-    network: Network,
 ) -> EnableLightningResult<LightningCoin> {
+    let network = platform_coin.as_ref().network.clone().into();
     // The set (possibly empty) of socket addresses on which this node accepts incoming connections.
     // If the user wishes to preserve privacy, addresses should likely contain only Tor Onion addresses.
     let listening_addr = myipaddr(ctx.clone())
@@ -485,6 +483,7 @@ pub async fn start_lightning(
         peer_manager,
         background_processor: Arc::new(background_processor),
         channel_manager,
+        keys_manager,
     })
 }
 

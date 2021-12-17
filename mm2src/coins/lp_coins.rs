@@ -94,7 +94,7 @@ use utxo::qtum::{self, qtum_coin_from_with_priv_key, QtumCoin};
 use utxo::slp::SlpToken;
 use utxo::utxo_common::big_decimal_from_sat_unsigned;
 use utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
-use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
+use utxo::{GenerateTxError, UtxoFeeDetails, UtxoTx};
 
 pub mod qrc20;
 use crate::utxo::qtum::{QtumDelegationOps, QtumDelegationRequest, QtumStakingInfosDetails};
@@ -1537,8 +1537,6 @@ pub enum CoinProtocol {
     },
     LIGHTNING {
         platform: String,
-        // Mainnet/Testnet/Signet/RegTest
-        network: BlockchainNetwork,
     },
     #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
     ZHTLC,

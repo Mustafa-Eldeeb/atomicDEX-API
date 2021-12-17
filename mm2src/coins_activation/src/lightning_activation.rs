@@ -33,9 +33,8 @@ impl TryFromCoinProtocol for LightningProtocolConf {
         Self: Sized,
     {
         match proto {
-            CoinProtocol::LIGHTNING { platform, network } => Ok(LightningProtocolConf {
+            CoinProtocol::LIGHTNING { platform } => Ok(LightningProtocolConf {
                 platform_coin_ticker: platform,
-                network,
             }),
             proto => MmError::err(proto),
         }
@@ -156,16 +155,9 @@ impl L2ActivationOps for LightningCoin {
         ticker: String,
         platform_coin: Self::PlatformCoin,
         validated_params: Self::ValidatedParams,
-        protocol_conf: Self::ProtocolInfo,
+        _protocol_conf: Self::ProtocolInfo,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>> {
-        let lightning_coin = start_lightning(
-            ctx,
-            platform_coin.clone(),
-            ticker,
-            validated_params,
-            protocol_conf.network.into(),
-        )
-        .await?;
+        let lightning_coin = start_lightning(ctx, platform_coin.clone(), ticker, validated_params).await?;
         let init_result = LightningInitResult {
             platform_coin: platform_coin.ticker().into(),
         };

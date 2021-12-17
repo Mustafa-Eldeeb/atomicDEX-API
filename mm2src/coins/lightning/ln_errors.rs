@@ -5,11 +5,13 @@ use common::mm_error::prelude::*;
 use common::HttpStatusCode;
 use derive_more::Display;
 use http::StatusCode;
+use lightning_invoice::SignOrCreationError;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
 
 pub type EnableLightningResult<T> = Result<T, MmError<EnableLightningError>>;
 pub type ConnectToNodeResult<T> = Result<T, MmError<ConnectToNodeError>>;
 pub type OpenChannelResult<T> = Result<T, MmError<OpenChannelError>>;
+pub type GenerateInvoiceResult<T> = Result<T, MmError<GenerateInvoiceError>>;
 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -178,4 +180,40 @@ impl From<UtxoSignWithKeyPairError> for OpenChannelError {
 
 impl From<PrivKeyNotAllowed> for OpenChannelError {
     fn from(e: PrivKeyNotAllowed) -> Self { OpenChannelError::PrivKeyNotAllowed(e.to_string()) }
+}
+
+#[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
+pub enum GenerateInvoiceError {
+    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
+    UnsupportedMode(String, String),
+    #[display(fmt = "Lightning network is not supported for {}", _0)]
+    UnsupportedCoin(String),
+    #[display(fmt = "No such coin {}", _0)]
+    NoSuchCoin(String),
+    #[display(fmt = "Invoice signing or creation error: {}", _0)]
+    SignOrCreationError(String),
+}
+
+impl HttpStatusCode for GenerateInvoiceError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            GenerateInvoiceError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
+            GenerateInvoiceError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
+            GenerateInvoiceError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
+            GenerateInvoiceError::SignOrCreationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+impl From<CoinFindError> for GenerateInvoiceError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => GenerateInvoiceError::NoSuchCoin(coin),
+        }
+    }
+}
+
+impl From<SignOrCreationError> for GenerateInvoiceError {
+    fn from(e: SignOrCreationError) -> Self { GenerateInvoiceError::SignOrCreationError(e.to_string()) }
 }

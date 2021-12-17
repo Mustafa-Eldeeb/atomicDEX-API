@@ -59,6 +59,7 @@ use futures01::Future;
 use keys::bytes::Bytes;
 pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, KeyPair, Private, Public, Secret,
                Type as ScriptType};
+use lightning_invoice::Currency as LightningCurrency;
 #[cfg(test)] use mocktopus::macros::*;
 use num_traits::ToPrimitive;
 use primitives::hash::{H256, H264};
@@ -138,7 +139,6 @@ pub enum UtxoConfError {
     InvalidConsensusBranchId(String),
     InvalidVersionGroupId(String),
     InvalidAddressFormat(String),
-    InvalidBlockchainNetwork(String),
     InvalidDecimals(String),
 }
 
@@ -156,6 +156,7 @@ pub enum UtxoCoinBuildError {
     RpcPortIsNotSet,
     ErrorDetectingFeeMethod(String),
     ErrorDetectingDecimals(String),
+    InvalidBlockchainNetwork(String),
     #[display(
         fmt = "Failed to connect to at least 1 of {:?} in {} seconds.",
         electrum_servers,
@@ -441,7 +442,7 @@ impl RecentlySpentOutPoints {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum BlockchainNetwork {
     #[serde(rename = "mainnet")]
     Mainnet,
@@ -457,6 +458,16 @@ impl From<BlockchainNetwork> for BitcoinNetwork {
             BlockchainNetwork::Mainnet => BitcoinNetwork::Bitcoin,
             BlockchainNetwork::Testnet => BitcoinNetwork::Testnet,
             BlockchainNetwork::Regtest => BitcoinNetwork::Regtest,
+        }
+    }
+}
+
+impl From<BlockchainNetwork> for LightningCurrency {
+    fn from(network: BlockchainNetwork) -> Self {
+        match network {
+            BlockchainNetwork::Mainnet => LightningCurrency::Bitcoin,
+            BlockchainNetwork::Testnet => LightningCurrency::BitcoinTestnet,
+            BlockchainNetwork::Regtest => LightningCurrency::Regtest,
         }
     }
 }
@@ -528,11 +539,6 @@ pub struct UtxoCoinConf {
     pub mature_confirmations: u32,
     /// The number of blocks used for estimate_fee/estimate_smart_fee RPC calls
     pub estimate_fee_blocks: u32,
-    /// Defines if the coin can be used in the lightning network
-    /// For now BTC is only supported by LDK but in the future any segwit coins can be supported in lightning network
-    pub lightning: bool,
-    /// bitcoin/testnet/signet/regtest Needed for lightning node to know which network to connect to
-    pub network: Option<String>,
     /// The name of the coin with which Trezor wallet associates this asset.
     pub trezor_coin: Option<TrezorCoin>,
     /// Derivation path used to derive addresses from a master key.
@@ -549,6 +555,8 @@ pub struct UtxoCoinFields {
     /// Emercoin has 6
     /// Bitcoin Diamond has 7
     pub decimals: u8,
+    /// Main/testnet/signet/regtest Needed for lightning node to know which network to connect to
+    pub network: BlockchainNetwork,
     pub tx_fee: TxFee,
     /// Minimum transaction value at which the value is not less than fee
     pub dust_amount: u64,
@@ -1139,8 +1147,6 @@ impl<'a> UtxoConfBuilder<'a> {
         let mtp_block_count = self.mtp_block_count();
         let estimate_fee_mode = self.estimate_fee_mode();
         let estimate_fee_blocks = self.estimate_fee_blocks();
-        let lightning = self.lightning();
-        let network = self.network();
         let trezor_coin = self.trezor_coin();
         let derivation_path = self.derivation_path()?;
 
@@ -1172,8 +1178,6 @@ impl<'a> UtxoConfBuilder<'a> {
             estimate_fee_mode,
             mature_confirmations,
             estimate_fee_blocks,
-            lightning,
-            network,
             trezor_coin,
             derivation_path,
         })
@@ -1325,16 +1329,6 @@ impl<'a> UtxoConfBuilder<'a> {
 
     fn estimate_fee_blocks(&self) -> u32 { json::from_value(self.conf["estimate_fee_blocks"].clone()).unwrap_or(1) }
 
-    fn lightning(&self) -> bool {
-        if self.segwit() && self.bech32_hrp().is_some() {
-            self.conf["lightning"].as_bool().unwrap_or(false)
-        } else {
-            false
-        }
-    }
-
-    fn network(&self) -> Option<String> { json::from_value(self.conf["network"].clone()).unwrap_or(None) }
-
     fn trezor_coin(&self) -> Option<TrezorCoin> {
         json::from_value(self.conf["trezor_coin"].clone()).unwrap_or_default()
     }
@@ -1462,6 +1456,7 @@ pub trait UtxoCoinBuilder {
         let rpc_client = self.rpc_client().await?;
         let tx_fee = self.tx_fee(&rpc_client).await?;
         let decimals = self.decimals(&rpc_client).await?;
+        let network = self.network()?;
         let dust_amount = self.dust_amount();
 
         let initial_history_state = self.initial_history_state();
@@ -1471,6 +1466,7 @@ pub trait UtxoCoinBuilder {
         let coin = UtxoCoinFields {
             conf,
             decimals,
+            network,
             dust_amount,
             rpc_client,
             priv_key_policy,
@@ -1495,6 +1491,7 @@ pub trait UtxoCoinBuilder {
         let rpc_client = self.rpc_client().await?;
         let tx_fee = self.tx_fee(&rpc_client).await?;
         let decimals = self.decimals(&rpc_client).await?;
+        let network = self.network()?;
         let dust_amount = self.dust_amount();
 
         let initial_history_state = self.initial_history_state();
@@ -1504,6 +1501,7 @@ pub trait UtxoCoinBuilder {
         let coin = UtxoCoinFields {
             conf,
             decimals,
+            network,
             dust_amount,
             rpc_client,
             priv_key_policy: PrivKeyPolicy::HardwareWallet,
@@ -1572,11 +1570,11 @@ pub trait UtxoCoinBuilder {
 
     fn dust_amount(&self) -> u64 { json::from_value(self.conf()["dust"].clone()).unwrap_or(UTXO_DUST_AMOUNT) }
 
-    fn network(&self) -> UtxoConfResult<BlockchainNetwork> {
+    fn network(&self) -> UtxoCoinBuildResult<BlockchainNetwork> {
         let conf = self.conf();
         if !conf["network"].is_null() {
             return json::from_value(conf["network"].clone())
-                .map_to_mm(|e| UtxoConfError::InvalidBlockchainNetwork(e.to_string()));
+                .map_to_mm(|e| UtxoCoinBuildError::InvalidBlockchainNetwork(e.to_string()));
         }
         Ok(BlockchainNetwork::Mainnet)
     }

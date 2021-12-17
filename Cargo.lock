@@ -817,6 +817,7 @@ dependencies = [
  "libc",
  "lightning",
  "lightning-background-processor",
+ "lightning-invoice",
  "lightning-net-tokio",
  "lightning-persister",
  "metrics",
@@ -2924,6 +2925,19 @@ dependencies = [
  "bitcoin",
  "lightning",
  "lightning-persister",
+]
+
+[[package]]
+name = "lightning-invoice"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f7cc25650f634e074b0b64a793ac535f7ad2ae418dd7f0ac88972832d2f22bc"
+dependencies = [
+ "bech32",
+ "bitcoin_hashes",
+ "lightning",
+ "num-traits 0.2.12",
+ "secp256k1",
 ]
 
 [[package]]

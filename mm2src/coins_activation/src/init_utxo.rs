@@ -145,6 +145,7 @@ impl From<UtxoCoinBuildError> for InitUtxoError {
             UtxoCoinBuildError::RpcPortIsNotSet => InitUtxoError::RpcPortIsNotSet,
             UtxoCoinBuildError::ErrorDetectingFeeMethod(error) => InitUtxoError::ErrorDetectingFeeMethod(error),
             UtxoCoinBuildError::ErrorDetectingDecimals(error) => InitUtxoError::ErrorDetectingDecimals(error),
+            UtxoCoinBuildError::InvalidBlockchainNetwork(error) => InitUtxoError::InvalidBlockchainNetwork(error),
             UtxoCoinBuildError::FailedToConnectToElectrums {
                 electrum_servers,
                 seconds,
@@ -177,7 +178,6 @@ impl From<UtxoConfError> for InitUtxoError {
             UtxoConfError::InvalidConsensusBranchId(error) => InitUtxoError::InvalidConsensusBranchId(error),
             UtxoConfError::InvalidVersionGroupId(error) => InitUtxoError::InvalidVersionGroupId(error),
             UtxoConfError::InvalidAddressFormat(error) => InitUtxoError::InvalidAddressFormat(error),
-            UtxoConfError::InvalidBlockchainNetwork(error) => InitUtxoError::InvalidBlockchainNetwork(error),
             UtxoConfError::InvalidDecimals(error) => InitUtxoError::InvalidDecimals(error),
         }
     }

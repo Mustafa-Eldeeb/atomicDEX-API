@@ -4,7 +4,6 @@ use super::{lp_coinfind_or_err, MmCoinEnum};
 use crate::utxo::rpc_clients::UtxoRpcClientEnum;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::utxo_common::UtxoTxBuilder;
-use crate::utxo::BlockchainNetwork;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::{sat_from_big_decimal, FeePolicy, UtxoCommonOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
@@ -22,11 +21,14 @@ use common::mm_number::MmNumber;
 use futures::lock::Mutex as AsyncMutex;
 use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
+use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_background_processor::BackgroundProcessor;
+#[cfg(not(target_arch = "wasm32"))]
+use lightning_invoice::utils::create_invoice_from_channelmanager;
 use ln_errors::{ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
-                OpenChannelError, OpenChannelResult};
+                GenerateInvoiceError, GenerateInvoiceResult, OpenChannelError, OpenChannelResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_utils::{connect_to_node, last_request_id_path, nodes_data_path, open_ln_channel, parse_node_info,
                read_last_request_id_from_file, read_nodes_data_from_file, save_last_request_id_to_file,
@@ -46,7 +48,6 @@ pub mod ln_utils;
 #[derive(Debug)]
 pub struct LightningProtocolConf {
     pub platform_coin_ticker: String,
-    pub network: BlockchainNetwork,
 }
 
 #[derive(Debug)]
@@ -100,6 +101,8 @@ pub struct LightningCoin {
     /// channel, also tracks HTLC preimages and forwards onion packets appropriately.
     #[cfg(not(target_arch = "wasm32"))]
     pub channel_manager: Arc<ChannelManager>,
+    /// The lightning node keys manager that takes care of signing invoices.
+    pub keys_manager: Arc<KeysManager>,
 }
 
 impl fmt::Debug for LightningCoin {
@@ -504,4 +507,50 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
         node_id: req.node_id,
         request_id,
     })
+}
+
+#[derive(Deserialize)]
+pub struct GenerateInvoiceRequest {
+    pub coin: String,
+    pub amount_in_msat: Option<u64>,
+    pub description: String,
+}
+
+#[derive(Serialize)]
+pub struct GenerateInvoiceResponse {
+    invoice: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn generate_invoice(
+    _ctx: MmArc,
+    _req: GenerateInvoiceRequest,
+) -> GenerateInvoiceResult<GenerateInvoiceResponse> {
+    MmError::err(GenerateInvoiceError::UnsupportedMode(
+        "'generate_invoice'".into(),
+        "native".into(),
+    ))
+}
+
+/// Generates an invoice (request for payment) that can be paid on the lightning network using send_payment (another RPC that will be implemented).
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn generate_invoice(
+    ctx: MmArc,
+    req: GenerateInvoiceRequest,
+) -> GenerateInvoiceResult<GenerateInvoiceResponse> {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(GenerateInvoiceError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let network = ln_coin.platform_coin().as_ref().network.clone().into();
+    let invoice = create_invoice_from_channelmanager(
+        &ln_coin.channel_manager,
+        ln_coin.keys_manager,
+        network,
+        req.amount_in_msat,
+        req.description,
+    )?
+    .to_string();
+    Ok(GenerateInvoiceResponse { invoice })
 }
