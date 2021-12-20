@@ -42,6 +42,7 @@ use std::fmt;
 use std::sync::Arc;
 
 pub mod ln_errors;
+#[cfg(not(target_arch = "wasm32"))] mod ln_events;
 mod ln_rpc;
 pub mod ln_utils;
 

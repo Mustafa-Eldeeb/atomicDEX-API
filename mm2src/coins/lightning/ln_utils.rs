@@ -15,42 +15,37 @@ cfg_native! {
                                    ElectrumNonce, UtxoRpcError};
     use bitcoin::blockdata::block::BlockHeader;
     use bitcoin::blockdata::constants::genesis_block;
-    use bitcoin::blockdata::script::Script;
-    use bitcoin::blockdata::transaction::{Transaction, TxOut};
+    use bitcoin::blockdata::transaction::{Transaction};
     use bitcoin::consensus::encode::deserialize;
     use bitcoin::hash_types::{BlockHash, TxMerkleNode, Txid};
     use bitcoin_hashes::{sha256d, Hash};
     use common::executor::{spawn, Timer};
     use common::ip_addr::fetch_external_ip;
     use common::jsonrpc_client::JsonRpcErrorType;
-    use common::{block_on, log};
+    use common::log;
     use common::log::LogState;
     use futures::compat::Future01CompatExt;
     use futures::lock::Mutex as AsyncMutex;
     use lightning::chain::keysinterface::{InMemorySigner, KeysInterface, KeysManager};
-    use lightning::chain::transaction::OutPoint;
-    use lightning::chain::{chainmonitor, Access, BestBlock, Confirm, Filter, Watch, WatchedOutput};
+    use lightning::chain::{chainmonitor, Access, BestBlock, Confirm, Watch};
     use lightning::ln::channelmanager;
     use lightning::ln::channelmanager::{ChainParameters, ChannelManagerReadArgs, SimpleArcChannelManager};
     use lightning::ln::msgs::NetAddress;
     use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleArcPeerManager};
     use lightning::routing::network_graph::{NetGraphMsgHandler, NetworkGraph};
     use lightning::util::config::UserConfig;
-    use lightning::util::events::{Event, EventHandler};
     use lightning::util::ser::ReadableArgs;
     use lightning_background_processor::BackgroundProcessor;
     use lightning_net_tokio::SocketDescriptor;
     use lightning_persister::FilesystemPersister;
     use rand::RngCore;
     use rpc::v1::types::H256;
-    use script::{Builder, SignatureVersion};
     use std::cmp::Ordering;
-    use std::convert::{TryFrom, TryInto};
+    use std::convert::TryInto;
     use std::net::{IpAddr, Ipv4Addr};
     use std::sync::Arc;
     use std::time::SystemTime;
     use tokio::net::TcpListener;
-    use utxo_signer::with_key_pair::sign_tx;
 }
 
 cfg_native! {
@@ -109,119 +104,6 @@ pub fn nodes_data_path(ctx: &MmArc, ticker: &str) -> PathBuf { my_ln_data_dir(ct
 
 pub fn last_request_id_path(ctx: &MmArc, ticker: &str) -> PathBuf {
     my_ln_data_dir(ctx, ticker).join("LAST_REQUEST_ID")
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-struct LightningEventHandler {
-    filter: Arc<PlatformFields>,
-    channel_manager: Arc<ChannelManager>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl LightningEventHandler {
-    fn handle_funding_generation_ready(
-        &self,
-        temporary_channel_id: [u8; 32],
-        channel_value_satoshis: u64,
-        output_script: &Script,
-        user_channel_id: u64,
-    ) {
-        let funding_tx = match block_on(sign_funding_transaction(
-            user_channel_id,
-            output_script,
-            self.filter.clone(),
-        )) {
-            Ok(tx) => tx,
-            Err(e) => {
-                log::error!(
-                    "Error generating funding transaction for temporary channel id {:?}: {}",
-                    temporary_channel_id,
-                    e.to_string()
-                );
-                // TODO: use issue_channel_close_events here when implementing channel closure this will push a Event::DiscardFunding
-                // event for the other peer
-                return;
-            },
-        };
-        // Give the funding transaction back to LDK for opening the channel.
-        match self
-            .channel_manager
-            .funding_transaction_generated(&temporary_channel_id, funding_tx.clone())
-        {
-            Ok(_) => {
-                let txid = funding_tx.txid();
-                self.filter.register_tx(&txid, output_script);
-                let output_to_be_registered = TxOut {
-                    value: channel_value_satoshis,
-                    script_pubkey: output_script.clone(),
-                };
-                let output_index = match funding_tx
-                    .output
-                    .iter()
-                    .position(|tx_out| tx_out == &output_to_be_registered)
-                {
-                    Some(i) => i,
-                    None => {
-                        log::error!(
-                            "Output to register is not found in the output of the transaction: {}",
-                            txid
-                        );
-                        return;
-                    },
-                };
-                self.filter.register_output(WatchedOutput {
-                    block_hash: None,
-                    outpoint: OutPoint {
-                        txid,
-                        index: output_index as u16,
-                    },
-                    script_pubkey: output_script.clone(),
-                });
-            },
-            // When transaction is unconfirmed by process_txs_confirmations LDK will try to rebroadcast the tx
-            Err(e) => log::error!("{:?}", e),
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl LightningEventHandler {
-    fn new(filter: Arc<PlatformFields>, channel_manager: Arc<ChannelManager>) -> Self {
-        LightningEventHandler {
-            filter,
-            channel_manager,
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl EventHandler for LightningEventHandler {
-    // TODO: Implement all the cases
-    fn handle_event(&self, event: &Event) {
-        match event {
-            Event::FundingGenerationReady {
-                temporary_channel_id,
-                channel_value_satoshis,
-                output_script,
-                user_channel_id,
-            } => self.handle_funding_generation_ready(
-                *temporary_channel_id,
-                *channel_value_satoshis,
-                output_script,
-                *user_channel_id,
-            ),
-            Event::PaymentReceived { .. } => (),
-            Event::PaymentSent { .. } => (),
-            Event::PaymentPathFailed { .. } => (),
-            Event::PaymentFailed { .. } => (),
-            Event::PendingHTLCsForwardable { .. } => (),
-            Event::SpendableOutputs { .. } => (),
-            Event::PaymentForwarded { .. } => (),
-            Event::ChannelClosed { .. } => (),
-            Event::DiscardFunding { .. } => (),
-            Event::PaymentPathSuccessful { .. } => (),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -466,7 +348,7 @@ pub async fn start_lightning(
     let background_processor = BackgroundProcessor::start(
         persist_channel_manager_callback,
         // It's safe to use unwrap here for now until implementing Native Client for Lightning
-        LightningEventHandler::new(filter.clone().unwrap(), channel_manager.clone()),
+        ln_events::LightningEventHandler::new(filter.clone().unwrap(), channel_manager.clone()),
         chain_monitor,
         channel_manager.clone(),
         Some(router),
@@ -1075,40 +957,6 @@ pub fn open_ln_channel(
     channel_manager
         .create_channel(node_pubkey, amount_in_sat, 0, events_id, Some(user_config))
         .map_to_mm(|e| OpenChannelError::FailureToOpenChannel(node_pubkey.to_string(), format!("{:?}", e)))
-}
-
-// Generates the raw funding transaction with one output equal to the channel value.
-#[cfg(not(target_arch = "wasm32"))]
-async fn sign_funding_transaction(
-    request_id: u64,
-    output_script: &Script,
-    filter: Arc<PlatformFields>,
-) -> OpenChannelResult<Transaction> {
-    let coin = &filter.platform_coin;
-    let mut unsigned = {
-        let unsigned_funding_txs = filter.unsigned_funding_txs.lock().await;
-        unsigned_funding_txs
-            .get(&request_id)
-            .ok_or_else(|| {
-                OpenChannelError::InternalError(format!("Unsigned funding tx not found for request id: {}", request_id))
-            })?
-            .clone()
-    };
-    unsigned.outputs[0].script_pubkey = output_script.to_bytes().into();
-
-    let my_address = coin.as_ref().derivation_method.iguana_or_err()?;
-    let key_pair = coin.as_ref().priv_key_policy.key_pair_or_err()?;
-
-    let prev_script = Builder::build_p2pkh(&my_address.hash);
-    let signed = sign_tx(
-        unsigned,
-        key_pair,
-        prev_script,
-        SignatureVersion::WitnessV0,
-        coin.as_ref().conf.fork_id,
-    )?;
-
-    Transaction::try_from(signed).map_to_mm(|e| OpenChannelError::ConvertTxErr(e.to_string()))
 }
 
 pub fn save_last_request_id_to_file(path: &Path, last_request_id: u64) -> OpenChannelResult<()> {
