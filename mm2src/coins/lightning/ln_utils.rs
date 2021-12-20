@@ -119,6 +119,73 @@ struct LightningEventHandler {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl LightningEventHandler {
+    fn handle_funding_generation_ready(
+        &self,
+        temporary_channel_id: [u8; 32],
+        channel_value_satoshis: u64,
+        output_script: &Script,
+        user_channel_id: u64,
+    ) {
+        let funding_tx = match block_on(sign_funding_transaction(
+            user_channel_id,
+            output_script,
+            self.filter.clone(),
+        )) {
+            Ok(tx) => tx,
+            Err(e) => {
+                log::error!(
+                    "Error generating funding transaction for temporary channel id {:?}: {}",
+                    temporary_channel_id,
+                    e.to_string()
+                );
+                // TODO: use issue_channel_close_events here when implementing channel closure this will push a Event::DiscardFunding
+                // event for the other peer
+                return;
+            },
+        };
+        // Give the funding transaction back to LDK for opening the channel.
+        match self
+            .channel_manager
+            .funding_transaction_generated(&temporary_channel_id, funding_tx.clone())
+        {
+            Ok(_) => {
+                let txid = funding_tx.txid();
+                self.filter.register_tx(&txid, output_script);
+                let output_to_be_registered = TxOut {
+                    value: channel_value_satoshis,
+                    script_pubkey: output_script.clone(),
+                };
+                let output_index = match funding_tx
+                    .output
+                    .iter()
+                    .position(|tx_out| tx_out == &output_to_be_registered)
+                {
+                    Some(i) => i,
+                    None => {
+                        log::error!(
+                            "Output to register is not found in the output of the transaction: {}",
+                            txid
+                        );
+                        return;
+                    },
+                };
+                self.filter.register_output(WatchedOutput {
+                    block_hash: None,
+                    outpoint: OutPoint {
+                        txid,
+                        index: output_index as u16,
+                    },
+                    script_pubkey: output_script.clone(),
+                });
+            },
+            // When transaction is unconfirmed by process_txs_confirmations LDK will try to rebroadcast the tx
+            Err(e) => log::error!("{:?}", e),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl LightningEventHandler {
     fn new(filter: Arc<PlatformFields>, channel_manager: Arc<ChannelManager>) -> Self {
         LightningEventHandler {
             filter,
@@ -137,71 +204,22 @@ impl EventHandler for LightningEventHandler {
                 channel_value_satoshis,
                 output_script,
                 user_channel_id,
-            } => {
-                let funding_tx = match block_on(sign_funding_transaction(
-                    user_channel_id,
-                    output_script.clone(),
-                    self.filter.clone(),
-                )) {
-                    Ok(tx) => tx,
-                    Err(e) => {
-                        log::error!(
-                            "Error generating funding transaction for temporary channel id {:?}: {}",
-                            temporary_channel_id,
-                            e.to_string()
-                        );
-                        // TODO: use issue_channel_close_events here when implementing channel closure this will push a Event::DiscardFunding
-                        // event for the other peer
-                        return;
-                    },
-                };
-                // Give the funding transaction back to LDK for opening the channel.
-                match self
-                    .channel_manager
-                    .funding_transaction_generated(&temporary_channel_id, funding_tx.clone())
-                {
-                    Ok(_) => {
-                        let txid = funding_tx.txid();
-                        self.filter.register_tx(&txid, &output_script);
-                        let output_to_be_registered = TxOut {
-                            value: *channel_value_satoshis,
-                            script_pubkey: output_script.clone(),
-                        };
-                        let output_index = match funding_tx
-                            .output
-                            .iter()
-                            .position(|tx_out| tx_out == &output_to_be_registered)
-                        {
-                            Some(i) => i,
-                            None => {
-                                log::error!(
-                                    "Output to register is not found in the output of the transaction: {}",
-                                    txid
-                                );
-                                return;
-                            },
-                        };
-                        self.filter.register_output(WatchedOutput {
-                            block_hash: None,
-                            outpoint: OutPoint {
-                                txid,
-                                index: output_index as u16,
-                            },
-                            script_pubkey: output_script.clone(),
-                        });
-                    },
-                    // When transaction is unconfirmed by process_txs_confirmations LDK will try to rebroadcast the tx
-                    Err(e) => log::error!("{:?}", e),
-                }
-            },
+            } => self.handle_funding_generation_ready(
+                *temporary_channel_id,
+                *channel_value_satoshis,
+                output_script,
+                *user_channel_id,
+            ),
             Event::PaymentReceived { .. } => (),
             Event::PaymentSent { .. } => (),
             Event::PaymentPathFailed { .. } => (),
+            Event::PaymentFailed { .. } => (),
             Event::PendingHTLCsForwardable { .. } => (),
             Event::SpendableOutputs { .. } => (),
             Event::PaymentForwarded { .. } => (),
             Event::ChannelClosed { .. } => (),
             Event::DiscardFunding { .. } => (),
+            Event::PaymentPathSuccessful { .. } => (),
         }
     }
 }
@@ -1062,15 +1080,15 @@ pub fn open_ln_channel(
 // Generates the raw funding transaction with one output equal to the channel value.
 #[cfg(not(target_arch = "wasm32"))]
 async fn sign_funding_transaction(
-    request_id: &u64,
-    output_script: Script,
+    request_id: u64,
+    output_script: &Script,
     filter: Arc<PlatformFields>,
 ) -> OpenChannelResult<Transaction> {
     let coin = &filter.platform_coin;
     let mut unsigned = {
         let unsigned_funding_txs = filter.unsigned_funding_txs.lock().await;
         unsigned_funding_txs
-            .get(request_id)
+            .get(&request_id)
             .ok_or_else(|| {
                 OpenChannelError::InternalError(format!("Unsigned funding tx not found for request id: {}", request_id))
             })?

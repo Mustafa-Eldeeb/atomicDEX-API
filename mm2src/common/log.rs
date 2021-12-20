@@ -967,6 +967,8 @@ impl LogState {
 impl LightningLogger for LogState {
     fn log(&self, record: &LightningRecord) {
         let level = match record.level {
+            // TODO: Maybe implement a gossip level logs for mm2 too
+            LightningLevel::Gossip => Level::Trace,
             LightningLevel::Trace => Level::Trace,
             LightningLevel::Debug => Level::Debug,
             LightningLevel::Info => Level::Info,

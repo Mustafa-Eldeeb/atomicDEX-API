@@ -532,7 +532,7 @@ pub async fn generate_invoice(
     ))
 }
 
-/// Generates an invoice (request for payment) that can be paid on the lightning network using send_payment (another RPC that will be implemented).
+/// Generates an invoice (request for payment) that can be paid on the lightning network by another node using send_payment.
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn generate_invoice(
     ctx: MmArc,
