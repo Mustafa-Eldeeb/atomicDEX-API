@@ -6,15 +6,15 @@ use crate::utxo::rpc_clients::{ElectrumClient, NativeClient, UnspentInfo, UtxoRp
                                UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
 use crate::utxo::utxo_common::{self, big_decimal_from_sat, check_all_inputs_signed_by_pub, UtxoTxBuilder};
 use crate::utxo::{qtum, ActualTxFee, AdditionalTxData, BroadcastTxErr, FeePolicy, GenerateTxError, HistoryUtxoTx,
-                  HistoryUtxoTxMap, PrivKeyBuildPolicy, RecentlySpentOutPoints, UtxoActivationParams,
-                  UtxoAddressFormat, UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoinBuilder, UtxoCoinFields,
-                  UtxoCommonOps, UtxoFromLegacyReqErr, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps,
-                  VerboseTransactionFrom, UTXO_LOCK};
+                  HistoryUtxoTxMap, RecentlySpentOutPoints, UtxoActivationParams, UtxoAddressFormat,
+                  UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoinBuilder, UtxoCoinFields, UtxoCommonOps,
+                  UtxoFromLegacyReqErr, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom,
+                  UTXO_LOCK};
 use crate::{BalanceError, BalanceFut, CoinBalance, DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend,
-            HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PrivKeyNotAllowed, SwapOps,
-            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
-            TransactionDetails, TransactionEnum, TransactionFut, TransactionType, ValidateAddressResult,
-            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
+            HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy,
+            PrivKeyNotAllowed, SwapOps, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
+            TradePreimageValue, TransactionDetails, TransactionEnum, TransactionFut, TransactionType,
+            ValidateAddressResult, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcrypto::{dhash160, sha256};

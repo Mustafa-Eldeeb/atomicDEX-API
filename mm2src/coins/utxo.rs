@@ -89,10 +89,10 @@ use self::rpc_clients::{ElectrumClient, ElectrumClientImpl, ElectrumRpcRequest, 
                         UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
 use super::{BalanceError, BalanceFut, BalanceResult, CoinTransportMetrics, CoinsContext, DerivationMethod,
             DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails,
-            MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy, RpcClientType,
-            RpcTransportEventHandler, RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut,
-            TradePreimageResult, Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError,
-            WithdrawRequest};
+            MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyBuildPolicy, PrivKeyNotAllowed,
+            PrivKeyPolicy, RpcClientType, RpcTransportEventHandler, RpcTransportEventHandlerShared, TradeFee,
+            TradePreimageError, TradePreimageFut, TradePreimageResult, Transaction, TransactionDetails,
+            TransactionEnum, TransactionFut, WithdrawError, WithdrawRequest};
 use std::array::TryFromSliceError;
 
 #[cfg(test)] pub mod utxo_tests;
@@ -441,7 +441,7 @@ impl RecentlySpentOutPoints {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum BlockchainNetwork {
     #[serde(rename = "mainnet")]
     Mainnet,
@@ -1381,12 +1381,6 @@ impl Default for ElectrumBuilderArgs {
             collect_metrics: true,
         }
     }
-}
-
-#[derive(Clone)]
-pub enum PrivKeyBuildPolicy<'a> {
-    PrivKey(&'a [u8]),
-    HardwareWallet,
 }
 
 #[derive(Debug)]

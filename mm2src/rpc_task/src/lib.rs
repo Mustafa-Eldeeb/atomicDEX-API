@@ -22,6 +22,7 @@ type UserActionSender<UserAction> = oneshot::Sender<UserAction>;
 type TaskAbortHandle = oneshot::Sender<()>;
 type TaskAbortHandler = oneshot::Receiver<()>;
 
+/// TODO split this error enum into `RpcTaskError` and `RpcTaskApiError`.
 #[derive(Display)]
 pub enum RpcTaskError {
     #[display(fmt = "RPC task timeout '{:?}'", _0)]
@@ -64,6 +65,24 @@ where
     Ready(FinishedTaskResult<Item, Error>),
     InProgress(InProgressStatus),
     UserActionRequired(AwaitingStatus),
+}
+
+impl<Item, Error, InProgressStatus, AwaitingStatus> RpcTaskStatus<Item, Error, InProgressStatus, AwaitingStatus>
+where
+    Item: Serialize,
+    Error: SerMmErrorType,
+{
+    pub fn map_err<NewError, F>(self, f: F) -> RpcTaskStatus<Item, NewError, InProgressStatus, AwaitingStatus>
+    where
+        F: FnOnce(Error) -> NewError,
+        NewError: SerMmErrorType,
+    {
+        match self {
+            RpcTaskStatus::Ready(result) => RpcTaskStatus::Ready(result.map_err(f)),
+            RpcTaskStatus::InProgress(in_progress) => RpcTaskStatus::InProgress(in_progress),
+            RpcTaskStatus::UserActionRequired(awaiting) => RpcTaskStatus::UserActionRequired(awaiting),
+        }
+    }
 }
 
 enum TaskStatus<Item, Error, InProgressStatus, AwaitingStatus, UserAction>

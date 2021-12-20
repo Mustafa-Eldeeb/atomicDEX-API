@@ -38,7 +38,7 @@ impl TokenInitializer for SlpTokenInitializer {
         platform_params.slp_tokens_requests.clone()
     }
 
-    async fn init_tokens(
+    async fn enable_tokens(
         &self,
         activation_params: Vec<TokenActivationParams<SlpActivationRequest, SlpProtocolConf>>,
     ) -> Result<Vec<SlpToken>, MmError<std::convert::Infallible>> {
@@ -165,7 +165,7 @@ impl PlatformWithTokensActivationOps for BchCoin {
     type ActivationResult = BchWithTokensActivationResult;
     type ActivationError = BchWithTokensActivationError;
 
-    async fn init_platform_coin(
+    async fn enable_platform_coin(
         ctx: MmArc,
         ticker: String,
         platform_conf: Json,

@@ -10,8 +10,10 @@ use coins::init_withdraw::{init_withdraw, withdraw_status, withdraw_user_action}
 use coins::lightning::{connect_to_lightning_node, open_channel, LightningCoin};
 use coins::utxo::bch::BchCoin;
 use coins::utxo::slp::SlpToken;
+use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::{add_delegation, get_staking_infos, remove_delegation, withdraw};
-use coins_activation::{enable_l2, enable_platform_coin_with_tokens, enable_token, init_utxo, init_utxo_status};
+use coins_activation::{enable_l2, enable_platform_coin_with_tokens, enable_token, init_standalone_coin,
+                       init_standalone_coin_status, init_standalone_coin_user_action};
 use common::log::{error, warn};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
@@ -110,8 +112,11 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "enable_slp" => handle_mmrpc(ctx, request, enable_token::<SlpToken>).await,
         "get_public_key" => handle_mmrpc(ctx, request, get_public_key).await,
         "get_staking_infos" => handle_mmrpc(ctx, request, get_staking_infos).await,
-        "init_utxo" => handle_mmrpc(ctx, request, init_utxo).await,
-        "init_utxo_status" => handle_mmrpc(ctx, request, init_utxo_status).await,
+        "init_utxo" => handle_mmrpc(ctx, request, init_standalone_coin::<UtxoStandardCoin>).await,
+        "init_utxo_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<UtxoStandardCoin>).await,
+        "init_utxo_user_action" => {
+            handle_mmrpc(ctx, request, init_standalone_coin_user_action::<UtxoStandardCoin>).await
+        },
         "init_withdraw" => handle_mmrpc(ctx, request, init_withdraw).await,
         "mm_init_status" => handle_mmrpc(ctx, request, mm_init_status).await,
         "mm_init_user_action" => handle_mmrpc(ctx, request, mm_init_user_action).await,

@@ -38,7 +38,7 @@ pub trait TokenInitializer {
         platform_request: &<<Self::Token as TokenOf>::PlatformCoin as PlatformWithTokensActivationOps>::ActivationRequest,
     ) -> Vec<TokenActivationRequest<Self::TokenActivationRequest>>;
 
-    async fn init_tokens(
+    async fn enable_tokens(
         &self,
         params: Vec<TokenActivationParams<Self::TokenActivationRequest, Self::TokenProtocol>>,
     ) -> Result<Vec<Self::Token>, MmError<Self::InitTokensError>>;
@@ -51,7 +51,7 @@ pub trait TokenAsMmCoinInitializer: Send + Sync {
     type PlatformCoin;
     type ActivationRequest;
 
-    async fn init_tokens_as_mm_coins(
+    async fn enable_tokens_as_mm_coins(
         &self,
         ctx: MmArc,
         request: &Self::ActivationRequest,
@@ -99,7 +99,7 @@ where
     type PlatformCoin = <T::Token as TokenOf>::PlatformCoin;
     type ActivationRequest = <Self::PlatformCoin as PlatformWithTokensActivationOps>::ActivationRequest;
 
-    async fn init_tokens_as_mm_coins(
+    async fn enable_tokens_as_mm_coins(
         &self,
         ctx: MmArc,
         request: &Self::ActivationRequest,
@@ -117,7 +117,7 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let tokens = self.init_tokens(token_params).await?;
+        let tokens = self.enable_tokens(token_params).await?;
         for token in tokens.iter() {
             self.platform_coin().register_token_info(token);
         }
@@ -133,7 +133,7 @@ pub trait PlatformWithTokensActivationOps: Into<MmCoinEnum> {
     type ActivationError: NotMmError;
 
     /// Initializes the platform coin itself
-    async fn init_platform_coin(
+    async fn enable_platform_coin(
         ctx: MmArc,
         ticker: String,
         coin_conf: Json,
@@ -270,7 +270,7 @@ where
 
     let priv_key = &*ctx.secp256k1_key_pair().private().secret;
 
-    let platform_coin = Platform::init_platform_coin(
+    let platform_coin = Platform::enable_platform_coin(
         ctx.clone(),
         req.ticker,
         platform_conf,
@@ -281,7 +281,7 @@ where
     .await?;
     let mut mm_tokens = Vec::new();
     for initializer in platform_coin.token_initializers() {
-        let tokens = initializer.init_tokens_as_mm_coins(ctx.clone(), &req.request).await?;
+        let tokens = initializer.enable_tokens_as_mm_coins(ctx.clone(), &req.request).await?;
         mm_tokens.extend(tokens);
     }
 

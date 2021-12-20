@@ -5,7 +5,7 @@ use serde_derive::Serialize;
 use serde_json::{self as json, Value as Json};
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum DerivationMethod {
     /// Legacy iguana's privkey derivation, used by default
@@ -15,7 +15,7 @@ pub enum DerivationMethod {
     HDWallet(String),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CoinAddressInfo<Balance> {
     pub(crate) derivation_method: DerivationMethod,
     pub(crate) pubkey: String,

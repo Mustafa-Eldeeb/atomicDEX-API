@@ -2,13 +2,13 @@ use crate::utxo::rpc_clients::{UnspentInfo, UtxoRpcClientEnum, UtxoRpcClientOps,
                                UtxoRpcResult};
 use crate::utxo::utxo_common::{big_decimal_from_sat_unsigned, payment_script, UtxoArcBuilder};
 use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxData, Address, BroadcastTxErr,
-                  FeePolicy, HistoryUtxoTx, HistoryUtxoTxMap, PrivKeyBuildPolicy, RecentlySpentOutPoints,
-                  UtxoActivationParams, UtxoAddressFormat, UtxoArc, UtxoCoinBuilder, UtxoCoinFields, UtxoCommonOps,
-                  UtxoFeeDetails, UtxoTxBroadcastOps, UtxoTxGenerationOps, UtxoWeak, VerboseTransactionFrom};
+                  FeePolicy, HistoryUtxoTx, HistoryUtxoTxMap, RecentlySpentOutPoints, UtxoActivationParams,
+                  UtxoAddressFormat, UtxoArc, UtxoCoinBuilder, UtxoCoinFields, UtxoCommonOps, UtxoFeeDetails,
+                  UtxoTxBroadcastOps, UtxoTxGenerationOps, UtxoWeak, VerboseTransactionFrom};
 use crate::{BalanceFut, CoinBalance, DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
-            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, SwapOps, TradeFee, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum, TransactionFut,
-            TxFeeDetails, ValidateAddressResult, WithdrawFut, WithdrawRequest};
+            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, PrivKeyBuildPolicy, SwapOps,
+            TradeFee, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
+            TransactionFut, TxFeeDetails, ValidateAddressResult, WithdrawFut, WithdrawRequest};
 use crate::{Transaction, WithdrawError};
 use async_trait::async_trait;
 use bitcrypto::dhash160;

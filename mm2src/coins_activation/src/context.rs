@@ -1,9 +1,10 @@
-use crate::init_utxo::{UtxoInitTaskManager, UtxoInitTaskManagerShared};
+use crate::utxo_activation::UtxoStandardTaskManagerShared;
 use common::mm_ctx::{from_ctx, MmArc};
+use rpc_task::RpcTaskManager;
 use std::sync::Arc;
 
 pub struct CoinsActivationContext {
-    pub(crate) init_utxo_task_manager: UtxoInitTaskManagerShared,
+    pub(crate) init_utxo_standard_task_manager: UtxoStandardTaskManagerShared,
 }
 
 impl CoinsActivationContext {
@@ -11,7 +12,7 @@ impl CoinsActivationContext {
     pub fn from_ctx(ctx: &MmArc) -> Result<Arc<CoinsActivationContext>, String> {
         from_ctx(&ctx.coins_activation_ctx, move || {
             Ok(CoinsActivationContext {
-                init_utxo_task_manager: UtxoInitTaskManager::new_shared(),
+                init_utxo_standard_task_manager: RpcTaskManager::new_shared(),
             })
         })
     }

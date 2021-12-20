@@ -1486,6 +1486,21 @@ impl<T> PrivKeyPolicy<T> {
     }
 }
 
+#[derive(Clone)]
+pub enum PrivKeyBuildPolicy<'a> {
+    PrivKey(&'a [u8]),
+    HardwareWallet,
+}
+
+impl<'a> PrivKeyBuildPolicy<'a> {
+    pub fn from_crypto_ctx(crypto_ctx: &'a CryptoCtx) -> PrivKeyBuildPolicy<'a> {
+        match crypto_ctx {
+            CryptoCtx::KeyPair(key_pair_ctx) => PrivKeyBuildPolicy::PrivKey(&key_pair_ctx.secp256k1_privkey_bytes()),
+            CryptoCtx::HardwareWallet(_) => PrivKeyBuildPolicy::HardwareWallet,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum DerivationMethod<Address, HDWallet> {
     Iguana(Address),
@@ -1512,7 +1527,7 @@ impl<Address, HDWallet> DerivationMethod<Address, HDWallet> {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "protocol_data")]
 pub enum CoinProtocol {
     UTXO,

@@ -2,8 +2,8 @@ use super::*;
 use crate::utxo::rpc_clients::UtxoRpcFut;
 use crate::utxo::slp::{parse_slp_script, SlpTokenInfo, SlpTransaction, SlpUnspent};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
-use crate::{CanRefundHtlc, CoinBalance, CoinProtocol, NegotiateSwapContractAddrErr, SwapOps, TradePreimageValue,
-            ValidateAddressResult, WithdrawFut};
+use crate::{CanRefundHtlc, CoinBalance, CoinProtocol, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, SwapOps,
+            TradePreimageValue, ValidateAddressResult, WithdrawFut};
 use common::log::warn;
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
