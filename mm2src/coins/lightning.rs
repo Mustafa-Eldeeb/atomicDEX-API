@@ -23,12 +23,14 @@ use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
 use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
+use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_background_processor::BackgroundProcessor;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::utils::create_invoice_from_channelmanager;
 use ln_errors::{ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
-                GenerateInvoiceError, GenerateInvoiceResult, OpenChannelError, OpenChannelResult};
+                GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, OpenChannelError,
+                OpenChannelResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_utils::{connect_to_node, last_request_id_path, nodes_data_path, open_ln_channel, parse_node_info,
                read_last_request_id_from_file, read_nodes_data_from_file, save_last_request_id_to_file,
@@ -88,6 +90,19 @@ pub struct LightningCoinConf {
     ticker: String,
 }
 
+pub enum HTLCStatus {
+    Pending,
+    Succeeded,
+    Failed,
+}
+
+pub struct PaymentInfo {
+    pub preimage: PaymentPreimage,
+    pub secret: Option<PaymentSecret>,
+    pub status: HTLCStatus,
+    pub amt_msat: u64,
+}
+
 #[derive(Clone)]
 pub struct LightningCoin {
     pub platform_fields: Arc<PlatformFields>,
@@ -104,6 +119,8 @@ pub struct LightningCoin {
     pub channel_manager: Arc<ChannelManager>,
     /// The lightning node keys manager that takes care of signing invoices.
     pub keys_manager: Arc<KeysManager>,
+    /// The mutex storing the inbound payments info.
+    pub inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
 }
 
 impl fmt::Debug for LightningCoin {
@@ -409,6 +426,11 @@ pub struct OpenChannelRequest {
     pub coin: String,
     pub node_id: String,
     pub amount: ChannelOpenAmount,
+    /// The amount to push to the counterparty as part of the open, in milli-satoshi. Creates inbound liquidity for the channel.
+    /// By setting push_msat to a value, opening channel request will be equivalent to opening a channel then sending a payment with
+    /// the push_msat amount.
+    #[serde(default)]
+    pub push_msat: u64,
     #[serde(default = "get_true")]
     pub announce_channel: bool,
 }
@@ -495,6 +517,7 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
     let temporary_channel_id = open_ln_channel(
         node_pubkey,
         unsigned.outputs[0].value,
+        req.push_msat,
         request_id,
         req.announce_channel,
         ln_coin.channel_manager.clone(),
@@ -554,4 +577,33 @@ pub async fn generate_invoice(
     )?
     .to_string();
     Ok(GenerateInvoiceResponse { invoice })
+}
+
+#[derive(Deserialize)]
+pub struct GetNodeIdReq {
+    pub coin: String,
+}
+
+#[derive(Serialize)]
+pub struct GetNodeIdResponse {
+    node_id: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_ln_node_id(_ctx: MmArc, _req: GetNodeIdReq) -> GetNodeIdResult<GetNodeIdResponse> {
+    MmError::err(GetNodeIdError::UnsupportedMode(
+        "'get_ln_node_id'".into(),
+        "native".into(),
+    ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn get_ln_node_id(ctx: MmArc, req: GetNodeIdReq) -> GetNodeIdResult<GetNodeIdResponse> {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(GetNodeIdError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let node_id = ln_coin.channel_manager.get_our_node_id().to_string();
+    Ok(GetNodeIdResponse { node_id })
 }

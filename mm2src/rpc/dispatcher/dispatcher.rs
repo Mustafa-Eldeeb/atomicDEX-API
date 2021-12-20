@@ -7,7 +7,7 @@ use crate::{mm2::lp_stats::{add_node_to_version_stat, remove_node_from_version_s
             mm2::lp_swap::{recreate_swap_data, trade_preimage_rpc},
             mm2::rpc::get_public_key::get_public_key};
 use coins::init_withdraw::{init_withdraw, withdraw_status, withdraw_user_action};
-use coins::lightning::{connect_to_lightning_node, generate_invoice, open_channel, LightningCoin};
+use coins::lightning::{connect_to_lightning_node, generate_invoice, get_ln_node_id, open_channel, LightningCoin};
 use coins::utxo::bch::BchCoin;
 use coins::utxo::slp::SlpToken;
 use coins::{add_delegation, get_staking_infos, remove_delegation, withdraw};
@@ -109,6 +109,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "enable_lightning" => handle_mmrpc(ctx, request, enable_l2::<LightningCoin>).await,
         "enable_slp" => handle_mmrpc(ctx, request, enable_token::<SlpToken>).await,
         "generate_invoice" => handle_mmrpc(ctx, request, generate_invoice).await,
+        "get_ln_node_id" => handle_mmrpc(ctx, request, get_ln_node_id).await,
         "get_public_key" => handle_mmrpc(ctx, request, get_public_key).await,
         "get_staking_infos" => handle_mmrpc(ctx, request, get_staking_infos).await,
         "init_utxo" => handle_mmrpc(ctx, request, init_utxo).await,

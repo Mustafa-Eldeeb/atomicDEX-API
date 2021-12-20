@@ -344,11 +344,17 @@ pub async fn start_lightning(
     let persist_channel_manager_callback =
         move |node: &ChannelManager| FilesystemPersister::persist_manager(ln_data_dir.clone(), &*node);
 
+    let inbound_payments = Arc::new(AsyncMutex::new(HashMap::new()));
+
     // Start Background Processing. Runs tasks periodically in the background to keep LN node operational
     let background_processor = BackgroundProcessor::start(
         persist_channel_manager_callback,
         // It's safe to use unwrap here for now until implementing Native Client for Lightning
-        ln_events::LightningEventHandler::new(filter.clone().unwrap(), channel_manager.clone()),
+        ln_events::LightningEventHandler::new(
+            filter.clone().unwrap(),
+            channel_manager.clone(),
+            inbound_payments.clone(),
+        ),
         chain_monitor,
         channel_manager.clone(),
         Some(router),
@@ -384,6 +390,7 @@ pub async fn start_lightning(
         background_processor: Arc::new(background_processor),
         channel_manager,
         keys_manager,
+        inbound_payments,
     })
 }
 
@@ -942,6 +949,7 @@ async fn connect_to_node_loop(pubkey: PublicKey, node_addr: SocketAddr, peer_man
 pub fn open_ln_channel(
     node_pubkey: PublicKey,
     amount_in_sat: u64,
+    push_msat: u64,
     events_id: u64,
     announce_channel: bool,
     channel_manager: Arc<ChannelManager>,
@@ -953,9 +961,8 @@ pub fn open_ln_channel(
         .force_announced_channel_preference = false;
     user_config.channel_options.announced_channel = announce_channel;
 
-    // TODO: push_msat parameter
     channel_manager
-        .create_channel(node_pubkey, amount_in_sat, 0, events_id, Some(user_config))
+        .create_channel(node_pubkey, amount_in_sat, push_msat, events_id, Some(user_config))
         .map_to_mm(|e| OpenChannelError::FailureToOpenChannel(node_pubkey.to_string(), format!("{:?}", e)))
 }
 

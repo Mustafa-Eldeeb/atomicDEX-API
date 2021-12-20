@@ -4,8 +4,9 @@ use bitcoin::blockdata::transaction::{Transaction, TxOut};
 use common::{block_on, log};
 use lightning::chain::transaction::OutPoint;
 use lightning::chain::Filter;
-use lightning::util::events::{Event, EventHandler};
+use lightning::util::events::{Event, EventHandler, PaymentPurpose};
 use script::{Builder, SignatureVersion};
+use std::collections::hash_map::Entry;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use utxo_signer::with_key_pair::sign_tx;
@@ -13,6 +14,7 @@ use utxo_signer::with_key_pair::sign_tx;
 pub struct LightningEventHandler {
     filter: Arc<PlatformFields>,
     channel_manager: Arc<ChannelManager>,
+    inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
 }
 
 impl EventHandler for LightningEventHandler {
@@ -30,7 +32,11 @@ impl EventHandler for LightningEventHandler {
                 output_script,
                 *user_channel_id,
             ),
-            Event::PaymentReceived { .. } => (),
+            Event::PaymentReceived {
+                payment_hash,
+                amt,
+                purpose,
+            } => self.handle_payment_received(*payment_hash, *amt, purpose),
             Event::PaymentSent { .. } => (),
             Event::PaymentPathFailed { .. } => (),
             Event::PaymentFailed { .. } => (),
@@ -78,10 +84,15 @@ async fn sign_funding_transaction(
 }
 
 impl LightningEventHandler {
-    pub fn new(filter: Arc<PlatformFields>, channel_manager: Arc<ChannelManager>) -> Self {
+    pub fn new(
+        filter: Arc<PlatformFields>,
+        channel_manager: Arc<ChannelManager>,
+        inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
+    ) -> Self {
         LightningEventHandler {
             filter,
             channel_manager,
+            inbound_payments,
         }
     }
 
@@ -146,6 +157,47 @@ impl LightningEventHandler {
             },
             // When transaction is unconfirmed by process_txs_confirmations LDK will try to rebroadcast the tx
             Err(e) => log::error!("{:?}", e),
+        }
+    }
+
+    fn handle_payment_received(&self, payment_hash: PaymentHash, amt: u64, purpose: &PaymentPurpose) {
+        let (payment_preimage, payment_secret) = match purpose {
+            PaymentPurpose::InvoicePayment {
+                payment_preimage,
+                payment_secret,
+            } => match payment_preimage {
+                Some(preimage) => (*preimage, Some(*payment_secret)),
+                None => return,
+            },
+            PaymentPurpose::SpontaneousPayment(preimage) => (*preimage, None),
+        };
+        let status = match self.channel_manager.claim_funds(payment_preimage) {
+            true => {
+                log::info!(
+                    "Received an amount of {} millisatoshis for payment hash {}",
+                    amt,
+                    hex::encode(payment_hash.0)
+                );
+                HTLCStatus::Succeeded
+            },
+            false => HTLCStatus::Failed,
+        };
+        let mut payments = block_on(self.inbound_payments.lock());
+        match payments.entry(payment_hash) {
+            Entry::Occupied(mut e) => {
+                let payment = e.get_mut();
+                payment.status = status;
+                payment.preimage = payment_preimage;
+                payment.secret = payment_secret;
+            },
+            Entry::Vacant(e) => {
+                e.insert(PaymentInfo {
+                    preimage: payment_preimage,
+                    secret: payment_secret,
+                    status,
+                    amt_msat: amt,
+                });
+            },
         }
     }
 }
