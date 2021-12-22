@@ -28,19 +28,24 @@ use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
 use lightning_background_processor::BackgroundProcessor;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::utils::create_invoice_from_channelmanager;
+#[cfg(not(target_arch = "wasm32"))]
+use lightning_invoice::Invoice;
 use ln_errors::{ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
                 GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, OpenChannelError,
-                OpenChannelResult};
+                OpenChannelResult, SendPaymentError, SendPaymentResult};
+#[cfg(not(target_arch = "wasm32"))]
+use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
 use ln_utils::{connect_to_node, last_request_id_path, nodes_data_path, open_ln_channel, parse_node_info,
                read_last_request_id_from_file, read_nodes_data_from_file, save_last_request_id_to_file,
-               save_node_data_to_file, ChannelManager, PeerManager};
+               save_node_data_to_file, ChannelManager, InvoicePayer, PeerManager};
 use rpc::v1::types::Bytes as BytesJson;
 #[cfg(not(target_arch = "wasm32"))] use script::Builder;
 use script::TransactionInputSigner;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+#[cfg(not(target_arch = "wasm32"))] use std::str::FromStr;
 use std::sync::Arc;
 
 pub mod ln_errors;
@@ -119,6 +124,9 @@ pub struct LightningCoin {
     pub channel_manager: Arc<ChannelManager>,
     /// The lightning node keys manager that takes care of signing invoices.
     pub keys_manager: Arc<KeysManager>,
+    /// The lightning node invoice payer.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub invoice_payer: Arc<InvoicePayer<Arc<LightningEventHandler>>>,
     /// The mutex storing the inbound payments info.
     pub inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
 }
@@ -606,4 +614,41 @@ pub async fn get_ln_node_id(ctx: MmArc, req: GetNodeIdReq) -> GetNodeIdResult<Ge
     };
     let node_id = ln_coin.channel_manager.get_our_node_id().to_string();
     Ok(GetNodeIdResponse { node_id })
+}
+
+#[derive(Deserialize)]
+pub struct SendPaymentReq {
+    pub coin: String,
+    pub invoice: String,
+}
+
+#[derive(Serialize)]
+pub struct SendPaymentResponse {
+    payment_id: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn send_payment(_ctx: MmArc, _req: SendPaymentReq) -> SendPaymentResult<()> {
+    MmError::err(SendPaymentError::UnsupportedMode(
+        "'send_payment'".into(),
+        "native".into(),
+    ))
+}
+
+// TODO: Implement spontaneous payment (payment by node id).
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn send_payment(ctx: MmArc, req: SendPaymentReq) -> SendPaymentResult<SendPaymentResponse> {
+    let invoice = Invoice::from_str(&req.invoice).map_to_mm(|e| SendPaymentError::InvalidInvoice(e.to_string()))?;
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(SendPaymentError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let payment_id = ln_coin
+        .invoice_payer
+        .pay_invoice(&invoice)
+        .map_to_mm(|e| SendPaymentError::PaymentError(format!("{:?}", e)))?;
+    Ok(SendPaymentResponse {
+        payment_id: hex::encode(payment_id.0),
+    })
 }

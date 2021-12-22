@@ -13,6 +13,7 @@ pub type ConnectToNodeResult<T> = Result<T, MmError<ConnectToNodeError>>;
 pub type OpenChannelResult<T> = Result<T, MmError<OpenChannelError>>;
 pub type GenerateInvoiceResult<T> = Result<T, MmError<GenerateInvoiceError>>;
 pub type GetNodeIdResult<T> = Result<T, MmError<GetNodeIdError>>;
+pub type SendPaymentResult<T> = Result<T, MmError<SendPaymentError>>;
 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -244,6 +245,42 @@ impl From<CoinFindError> for GetNodeIdError {
     fn from(e: CoinFindError) -> Self {
         match e {
             CoinFindError::NoSuchCoin { coin } => GetNodeIdError::NoSuchCoin(coin),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
+pub enum SendPaymentError {
+    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
+    UnsupportedMode(String, String),
+    #[display(fmt = "Lightning network is not supported for {}", _0)]
+    UnsupportedCoin(String),
+    #[display(fmt = "No such coin {}", _0)]
+    NoSuchCoin(String),
+    #[display(fmt = "Couldn't parse invoice: {}", _0)]
+    InvalidInvoice(String),
+    #[display(fmt = "Payment error: {}", _0)]
+    PaymentError(String),
+}
+
+impl HttpStatusCode for SendPaymentError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            SendPaymentError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
+            SendPaymentError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
+            SendPaymentError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
+            SendPaymentError::InvalidInvoice(_) | SendPaymentError::PaymentError(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
+        }
+    }
+}
+
+impl From<CoinFindError> for SendPaymentError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => SendPaymentError::NoSuchCoin(coin),
         }
     }
 }

@@ -33,9 +33,12 @@ cfg_native! {
     use lightning::ln::msgs::NetAddress;
     use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleArcPeerManager};
     use lightning::routing::network_graph::{NetGraphMsgHandler, NetworkGraph};
+    use lightning::routing::scoring::Scorer;
     use lightning::util::config::UserConfig;
     use lightning::util::ser::ReadableArgs;
     use lightning_background_processor::BackgroundProcessor;
+    use lightning_invoice::payment;
+    use lightning_invoice::utils::DefaultRouter;
     use lightning_net_tokio::SocketDescriptor;
     use lightning_persister::FilesystemPersister;
     use rand::RngCore;
@@ -43,7 +46,7 @@ cfg_native! {
     use std::cmp::Ordering;
     use std::convert::TryInto;
     use std::net::{IpAddr, Ipv4Addr};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use tokio::net::TcpListener;
 }
@@ -76,6 +79,12 @@ pub type PeerManager = SimpleArcPeerManager<
     dyn Access + Send + Sync,
     LogState,
 >;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type InvoicePayer<E> = payment::InvoicePayer<Arc<ChannelManager>, Router, Arc<Mutex<Scorer>>, Arc<LogState>, E>;
+
+#[cfg(not(target_arch = "wasm32"))]
+type Router = DefaultRouter<Arc<NetworkGraph>, Arc<LogState>>;
 
 // TODO: add TOR address option
 #[cfg(not(target_arch = "wasm32"))]
@@ -300,8 +309,9 @@ pub async fn start_lightning(
 
     // Initialize the NetGraphMsgHandler. This is used for providing routes to send payments over
     let genesis = genesis_block(network).header.block_hash();
-    let router = Arc::new(NetGraphMsgHandler::new(
-        Arc::new(NetworkGraph::new(genesis)),
+    let network_graph = Arc::new(NetworkGraph::new(genesis));
+    let network_gossip = Arc::new(NetGraphMsgHandler::new(
+        network_graph.clone(),
         None::<Arc<dyn Access + Send + Sync>>,
         logger.0.clone(),
     ));
@@ -312,7 +322,7 @@ pub async fn start_lightning(
     rand::thread_rng().fill_bytes(&mut ephemeral_bytes);
     let lightning_msg_handler = MessageHandler {
         chan_handler: channel_manager.clone(),
-        route_handler: router.clone(),
+        route_handler: network_gossip.clone(),
     };
     // IgnoringMessageHandler is used as custom message types (experimental and application-specific messages) is not needed
     let peer_manager: Arc<PeerManager> = Arc::new(PeerManager::new(
@@ -336,6 +346,31 @@ pub async fn start_lightning(
         best_block,
     ));
 
+    let inbound_payments = Arc::new(AsyncMutex::new(HashMap::new()));
+
+    // Initialize the event handler
+    let event_handler = Arc::new(ln_events::LightningEventHandler::new(
+        // It's safe to use unwrap here for now until implementing Native Client for Lightning
+        filter.clone().unwrap(),
+        channel_manager.clone(),
+        inbound_payments.clone(),
+    ));
+
+    // Initialize routing Scorer
+    let scorer = Arc::new(Mutex::new(Scorer::default()));
+
+    // Create InvoicePayer
+    let router = DefaultRouter::new(network_graph, logger.0.clone());
+    let invoice_payer = Arc::new(InvoicePayer::new(
+        channel_manager.clone(),
+        router,
+        scorer,
+        logger.0.clone(),
+        event_handler.clone(),
+        // TODO: payment retries
+        payment::RetryAttempts(5),
+    ));
+
     // Persist ChannelManager
     // Note: if the ChannelManager is not persisted properly to disk, there is risk of channels force closing the next time LN starts up
     // TODO: for some reason the persister doesn't persist the current best block when best_block_updated is called although it does
@@ -344,20 +379,13 @@ pub async fn start_lightning(
     let persist_channel_manager_callback =
         move |node: &ChannelManager| FilesystemPersister::persist_manager(ln_data_dir.clone(), &*node);
 
-    let inbound_payments = Arc::new(AsyncMutex::new(HashMap::new()));
-
     // Start Background Processing. Runs tasks periodically in the background to keep LN node operational
     let background_processor = BackgroundProcessor::start(
         persist_channel_manager_callback,
-        // It's safe to use unwrap here for now until implementing Native Client for Lightning
-        ln_events::LightningEventHandler::new(
-            filter.clone().unwrap(),
-            channel_manager.clone(),
-            inbound_payments.clone(),
-        ),
+        event_handler,
         chain_monitor,
         channel_manager.clone(),
-        Some(router),
+        Some(network_gossip),
         peer_manager.clone(),
         logger.0,
     );
@@ -390,6 +418,7 @@ pub async fn start_lightning(
         background_processor: Arc::new(background_processor),
         channel_manager,
         keys_manager,
+        invoice_payer,
         inbound_payments,
     })
 }
