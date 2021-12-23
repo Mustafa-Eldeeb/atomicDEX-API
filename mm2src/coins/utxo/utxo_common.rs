@@ -58,111 +58,6 @@ lazy_static! {
 
 pub const HISTORY_TOO_LARGE_ERR_CODE: i64 = -1;
 
-pub struct UtxoArcBuilder<'a> {
-    ctx: &'a MmArc,
-    ticker: &'a str,
-    conf: &'a Json,
-    activation_params: UtxoActivationParams,
-    priv_key: PrivKeyBuildPolicy<'a>,
-}
-
-impl<'a> UtxoArcBuilder<'a> {
-    pub fn new(
-        ctx: &'a MmArc,
-        ticker: &'a str,
-        conf: &'a Json,
-        activation_params: UtxoActivationParams,
-        priv_key: PrivKeyBuildPolicy<'a>,
-    ) -> UtxoArcBuilder<'a> {
-        UtxoArcBuilder {
-            ctx,
-            ticker,
-            conf,
-            activation_params,
-            priv_key,
-        }
-    }
-
-    pub fn with_priv_key(
-        ctx: &'a MmArc,
-        ticker: &'a str,
-        conf: &'a Json,
-        activation_params: UtxoActivationParams,
-        priv_key: &'a [u8],
-    ) -> UtxoArcBuilder<'a> {
-        UtxoArcBuilder {
-            ctx,
-            ticker,
-            conf,
-            activation_params,
-            priv_key: PrivKeyBuildPolicy::PrivKey(priv_key),
-        }
-    }
-}
-
-#[async_trait]
-impl UtxoCoinBuilder for UtxoArcBuilder<'_> {
-    type ResultCoin = UtxoArc;
-
-    async fn build(self) -> UtxoCoinBuildResult<Self::ResultCoin> {
-        let utxo = self.build_utxo_fields().await?;
-        Ok(UtxoArc(Arc::new(utxo)))
-    }
-
-    fn ctx(&self) -> &MmArc { self.ctx }
-
-    fn conf(&self) -> &Json { self.conf }
-
-    fn activation_params(&self) -> UtxoActivationParams { self.activation_params.clone() }
-
-    fn ticker(&self) -> &str { self.ticker }
-
-    fn priv_key(&self) -> PrivKeyBuildPolicy<'_> { self.priv_key.clone() }
-}
-
-pub async fn utxo_arc_from_conf_and_params<T>(
-    ctx: &MmArc,
-    ticker: &str,
-    conf: &Json,
-    activation_params: UtxoActivationParams,
-    priv_key: PrivKeyBuildPolicy<'_>,
-    constructor: impl Fn(UtxoArc) -> T + Send + 'static,
-) -> UtxoCoinBuildResult<T>
-where
-    T: AsRef<UtxoCoinFields> + UtxoCommonOps + Send + Sync + 'static,
-{
-    let builder = UtxoArcBuilder::new(ctx, ticker, conf, activation_params.clone(), priv_key);
-    let utxo_arc = builder.build().await?;
-    let coin = constructor(utxo_arc.clone());
-
-    if let Some(merge_params) = activation_params.utxo_merge_params {
-        let weak = utxo_arc.downgrade();
-        let merge_loop = merge_utxo_loop(
-            weak,
-            merge_params.merge_at,
-            merge_params.check_every,
-            merge_params.max_merge_at_once,
-            constructor,
-        );
-        info!("Starting UTXO merge loop for coin {}", ticker);
-        spawn(merge_loop);
-    }
-    Ok(coin)
-}
-
-fn ten_f64() -> f64 { 10. }
-
-fn one_hundred() -> usize { 100 }
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct UtxoMergeParams {
-    merge_at: usize,
-    #[serde(default = "ten_f64")]
-    check_every: f64,
-    #[serde(default = "one_hundred")]
-    max_merge_at_once: usize,
-}
-
 pub async fn get_tx_fee(coin: &UtxoCoinFields) -> Result<ActualTxFee, JsonRpcError> {
     let conf = &coin.conf;
     match &coin.tx_fee {
@@ -2966,7 +2861,7 @@ fn increase_by_percent(num: u64, percent: f64) -> u64 {
     num + (percent.round() as u64)
 }
 
-async fn merge_utxo_loop<T>(
+pub async fn merge_utxo_loop<T>(
     weak: UtxoWeak,
     merge_at: usize,
     check_every: f64,

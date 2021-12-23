@@ -1,10 +1,10 @@
 use async_trait::async_trait;
-use bip32::Error as Bip32Error;
 use common::custom_futures::FutureTimerExt;
 use common::mm_error::prelude::*;
 use common::NotSame;
 use derive_more::Display;
 use futures::FutureExt;
+use hw_common::primitives::Bip32Error;
 use primitives::hash::H264;
 use std::time::Duration;
 use trezor::client::TrezorClient;

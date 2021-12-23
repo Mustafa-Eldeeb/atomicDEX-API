@@ -70,6 +70,13 @@ impl CryptoCtx {
 
     pub fn secp256k1_pubkey_hex(&self) -> String { hex::encode(&*self.secp256k1_pubkey()) }
 
+    pub fn hw_ctx(&self) -> Option<&HardwareWalletCtx> {
+        match self {
+            CryptoCtx::KeyPair(_) => None,
+            CryptoCtx::HardwareWallet(hw_ctx) => Some(hw_ctx),
+        }
+    }
+
     pub fn init_with_passphrase(ctx: MmArc, passphrase: &str) -> CryptoInitResult<()> {
         let mut ctx_field = ctx
             .crypto_ctx

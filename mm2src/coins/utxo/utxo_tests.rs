@@ -1,13 +1,16 @@
-use super::rpc_clients::{BlockHashOrHeight, ListSinceBlockRes, NetworkInfo};
 use super::*;
 use crate::utxo::qtum::{qtum_coin_from_with_priv_key, QtumCoin, QtumDelegationOps, QtumDelegationRequest};
-use crate::utxo::rpc_clients::{GetAddressInfoRes, UtxoRpcClientOps, ValidateAddressRes, VerboseBlock};
-use crate::utxo::utxo_common::{UtxoArcBuilder, UtxoTxBuilder};
+use crate::utxo::rpc_clients::{BlockHashOrHeight, ElectrumClient, ElectrumClientImpl, GetAddressInfoRes,
+                               ListSinceBlockRes, NativeClient, NativeClientImpl, NetworkInfo, UtxoRpcClientOps,
+                               ValidateAddressRes, VerboseBlock};
+use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinBuilderCommonOps};
+use crate::utxo::utxo_common::UtxoTxBuilder;
 use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 #[cfg(not(target_arch = "wasm32"))] use crate::WithdrawFee;
 use crate::{CoinBalance, StakingInfosDetails, SwapOps, TradePreimageValue, TxFeeDetails};
 use bigdecimal::{BigDecimal, Signed};
 use chain::OutPoint;
+use common::executor::Timer;
 use common::mm_ctx::MmCtxBuilder;
 use common::privkey::key_pair_from_seed;
 use common::{block_on, now_ms, OrdRange, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -33,7 +36,8 @@ pub fn electrum_client_for_test(servers: &[&str]) -> ElectrumClient {
         "servers": servers,
     });
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let builder = UtxoArcBuilder::with_priv_key(&ctx, TEST_COIN_NAME, &Json::Null, params, &[]);
+    let builder =
+        UtxoArcWithIguanaPrivKeyBuilder::new(&ctx, TEST_COIN_NAME, &Json::Null, params, &[], UtxoStandardCoin::from);
     let args = ElectrumBuilderArgs {
         spawn_ping: false,
         negotiate_version: true,
@@ -120,7 +124,6 @@ fn utxo_coin_fields_for_test(
             lightning: false,
             network: None,
             trezor_coin: None,
-            derivation_path: None,
         },
         decimals: 8,
         dust_amount: UTXO_DUST_AMOUNT,
@@ -2684,10 +2687,10 @@ fn test_generate_tx_doge_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&request).unwrap();
 
-    let doge: UtxoStandardCoin =
-        block_on(UtxoArcBuilder::with_priv_key(&ctx, "DOGE", &config, params, &[1; 32]).build())
-            .unwrap()
-            .into();
+    let doge = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "DOGE", &config, params, &[1; 32],
+    ))
+    .unwrap();
 
     let unspents = vec![UnspentInfo {
         outpoint: Default::default(),

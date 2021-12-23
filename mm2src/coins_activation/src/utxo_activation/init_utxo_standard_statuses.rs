@@ -1,16 +1,17 @@
 use crate::standalone_coin::InitStandaloneCoinInitialStatus;
 use crypto::trezor::TrezorPinMatrix3x3Response;
+use rpc_task::RpcTaskError;
 use serde_derive::{Deserialize, Serialize};
+use std::convert::TryFrom;
 
 #[derive(Clone, Serialize)]
 pub enum UtxoStandardInProgressStatus {
     ActivatingCoin,
+    Finishing,
     /// This status doesn't require the user to send `UserAction`,
     /// but it tells the user that he should confirm/decline an address on his device.
-    #[allow(dead_code)]
-    WaitingForUserToConfirmAddress {
-        address: String,
-    },
+    WaitingForTrezorToConnect,
+    WaitingForUserToConfirmPubkey,
 }
 
 impl InitStandaloneCoinInitialStatus for UtxoStandardInProgressStatus {
@@ -26,4 +27,14 @@ pub enum UtxoStandardAwaitingStatus {
 #[serde(tag = "action_type")]
 pub enum UtxoStandardUserAction {
     TrezorPin(TrezorPinMatrix3x3Response),
+}
+
+impl TryFrom<UtxoStandardUserAction> for TrezorPinMatrix3x3Response {
+    type Error = RpcTaskError;
+
+    fn try_from(value: UtxoStandardUserAction) -> Result<Self, Self::Error> {
+        match value {
+            UtxoStandardUserAction::TrezorPin(pin) => Ok(pin),
+        }
+    }
 }

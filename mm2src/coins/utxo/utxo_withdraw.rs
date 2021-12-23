@@ -5,7 +5,6 @@ use crate::utxo::{output_script, sat_from_big_decimal, ActualTxFee, Address, Fee
 use crate::{MarketCoinOps, TransactionDetails, WithdrawError, WithdrawFee, WithdrawFromAddress, WithdrawRequest,
             WithdrawResult};
 use async_trait::async_trait;
-use bip32::ExtendedPublicKey;
 use chain::TransactionOutput;
 use common::log::info;
 use common::mm_ctx::MmArc;
@@ -16,7 +15,7 @@ use crypto::trezor::client::TrezorClient;
 use crypto::trezor::trezor_rpc_task::{TrezorRequestStatuses, TrezorRpcTaskProcessor};
 use crypto::trezor::{ProcessTrezorResponse, TrezorError, TrezorProcessingError};
 use crypto::{Bip32Error, CryptoCtx, CryptoInitError, DerivationPath, EcdsaCurve, HardwareWalletCtx, HwError,
-             HwProcessingError, HwWalletType};
+             HwProcessingError, HwWalletType, Secp256k1ExtendedPublicKey};
 use keys::{Public as PublicKey, Type as ScriptType};
 use primitives::hash::H264;
 use rpc_task::RpcTaskError;
@@ -419,7 +418,7 @@ where
                 .process(&trezor_get_pubkey_processor)
                 .await?
         };
-        let extended_pubkey = ExtendedPublicKey::<secp256k1::PublicKey>::from_str(&from_pubkey_string)?;
+        let extended_pubkey = Secp256k1ExtendedPublicKey::from_str(&from_pubkey_string)?;
         let from_pubkey = PublicKey::Compressed(H264::from(extended_pubkey.public_key().serialize()));
         let from_address = coin.address_from_pubkey(&from_pubkey);
         let from_address_string = from_address.display_address().map_to_mm(WithdrawError::InternalError)?;

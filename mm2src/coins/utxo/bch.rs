@@ -1,9 +1,10 @@
 use super::*;
 use crate::utxo::rpc_clients::UtxoRpcFut;
 use crate::utxo::slp::{parse_slp_script, SlpTokenInfo, SlpTransaction, SlpUnspent};
+use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
-use crate::{CanRefundHtlc, CoinBalance, CoinProtocol, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, SwapOps,
-            TradePreimageValue, ValidateAddressResult, WithdrawFut};
+use crate::{CanRefundHtlc, CoinBalance, CoinProtocol, NegotiateSwapContractAddrErr, SwapOps, TradePreimageValue,
+            ValidateAddressResult, WithdrawFut};
 use common::log::warn;
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
@@ -337,9 +338,10 @@ pub async fn bch_coin_from_conf_and_params(
             slp_tokens_infos: slp_tokens_infos.clone(),
         }
     };
-    let priv_key_policy = PrivKeyBuildPolicy::PrivKey(priv_key);
-    let coin: BchCoin = try_s!(
-        utxo_common::utxo_arc_from_conf_and_params(ctx, ticker, conf, params.utxo_params, priv_key_policy, constructor)
+
+    let coin = try_s!(
+        UtxoArcWithIguanaPrivKeyBuilder::new(ctx, ticker, conf, params.utxo_params, priv_key, constructor)
+            .build()
             .await
     );
     Ok(coin)

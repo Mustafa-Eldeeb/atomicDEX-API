@@ -579,7 +579,7 @@ async fn z_coin_from_conf_and_params_with_z_key(
     mut db_dir_path: PathBuf,
     z_spending_key: ExtendedSpendingKey,
 ) -> Result<ZCoin, MmError<ZCoinBuildError>> {
-    let builder = UtxoArcBuilder::new(ctx, ticker, conf, params, PrivKeyBuildPolicy::PrivKey(secp_priv_key));
+    let builder = UtxoArcBuilder::new(ctx, ticker, conf, params, PrivKeyBuildPolicy::IguanaPrivKey(secp_priv_key));
     let utxo_arc = builder.build().await?;
     let db_name = format!("{}_CACHE.db", ticker);
 

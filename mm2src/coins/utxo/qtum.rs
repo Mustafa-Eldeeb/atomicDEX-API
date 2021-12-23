@@ -1,10 +1,11 @@
 use super::*;
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
+use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
 use crate::{eth, CanRefundHtlc, CoinBalance, DelegationError, DelegationFut, NegotiateSwapContractAddrErr,
             StakingInfosFut, SwapOps, TradePreimageValue, ValidateAddressResult, WithdrawFut};
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
-use crypto::trezor::TrezorCoin;
+use crypto::trezor::utxo::TrezorUtxoCoin;
 use ethereum_types::H160;
 use futures::{FutureExt, TryFutureExt};
 use keys::AddressHashEnum;
@@ -204,16 +205,10 @@ pub async fn qtum_coin_from_with_priv_key(
     activation_params: UtxoActivationParams,
     priv_key: &[u8],
 ) -> Result<QtumCoin, String> {
-    let coin: QtumCoin = try_s!(
-        utxo_common::utxo_arc_from_conf_and_params(
-            ctx,
-            ticker,
-            conf,
-            activation_params,
-            PrivKeyBuildPolicy::PrivKey(priv_key),
-            QtumCoin::from
-        )
-        .await
+    let coin = try_s!(
+        UtxoArcWithIguanaPrivKeyBuilder::new(ctx, ticker, conf, activation_params, priv_key, QtumCoin::from)
+            .build()
+            .await
     );
     Ok(coin)
 }
@@ -750,7 +745,7 @@ impl InitWithdrawCoin for QtumCoin {
 impl UtxoSignerOps for QtumCoin {
     type TxGetter = UtxoRpcClientEnum;
 
-    fn trezor_coin(&self) -> UtxoSignTxResult<TrezorCoin> {
+    fn trezor_coin(&self) -> UtxoSignTxResult<TrezorUtxoCoin> {
         self.utxo_arc
             .conf
             .trezor_coin

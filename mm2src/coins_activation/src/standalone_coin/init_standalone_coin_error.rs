@@ -30,7 +30,7 @@ pub enum InitStandaloneCoinError {
         ticker: String,
         protocol: CoinProtocol,
     },
-    #[display(fmt = "Error {} on platform coin {} creation", error, ticker)]
+    #[display(fmt = "Error on platform coin {} creation: {}", ticker, error)]
     CoinCreationError {
         ticker: String,
         error: String,

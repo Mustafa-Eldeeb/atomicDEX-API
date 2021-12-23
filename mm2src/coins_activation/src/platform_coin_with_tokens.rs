@@ -184,7 +184,7 @@ pub enum EnablePlatformCoinWithTokensError {
         ticker: String,
         protocol: CoinProtocol,
     },
-    #[display(fmt = "Error {} on platform coin {} creation", error, ticker)]
+    #[display(fmt = "Error on platform coin {} creation: {}", ticker, error)]
     PlatformCoinCreationError {
         ticker: String,
         error: String,

@@ -5,9 +5,11 @@ use crate::utxo_activation::init_utxo_standard_activation_error::InitUtxoStandar
 use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingStatus, UtxoStandardInProgressStatus,
                                                           UtxoStandardUserAction};
 use crate::utxo_activation::utxo_standard_activation_result::UtxoStandardActivationResult;
+use crate::utxo_activation::utxo_standard_coin_hw_ops::UtxoStandardCoinHwOps;
 use async_trait::async_trait;
+use coins::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use coins::utxo::utxo_standard::UtxoStandardCoin;
-use coins::utxo::{utxo_common, UtxoActivationParams};
+use coins::utxo::UtxoActivationParams;
 use coins::{CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
@@ -68,16 +70,19 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
         activation_request: Self::ActivationRequest,
         _protocol_info: Self::StandaloneProtocol,
         priv_key_policy: PrivKeyBuildPolicy<'_>,
-        _task_handle: &UtxoStandardRpcTaskHandle,
+        task_handle: &UtxoStandardRpcTaskHandle,
     ) -> MmResult<Self, InitUtxoStandardError> {
-        utxo_common::utxo_arc_from_conf_and_params(
+        let hw_ops = UtxoStandardCoinHwOps::new(&ctx, task_handle);
+        UtxoArcBuilder::new(
             &ctx,
             &ticker,
             &coin_conf,
             activation_request,
             priv_key_policy,
+            hw_ops,
             UtxoStandardCoin::from,
         )
+        .build()
         .await
         .mm_err(|e| InitUtxoStandardError::from_build_err(e, ticker))
     }

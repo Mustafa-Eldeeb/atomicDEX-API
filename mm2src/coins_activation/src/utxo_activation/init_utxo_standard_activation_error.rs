@@ -1,5 +1,5 @@
 use crate::standalone_coin::InitStandaloneCoinError;
-use coins::utxo::UtxoCoinBuildError;
+use coins::utxo::utxo_builder::UtxoCoinBuildError;
 use coins::RegisterCoinError;
 use crypto::CryptoInitError;
 use derive_more::Display;

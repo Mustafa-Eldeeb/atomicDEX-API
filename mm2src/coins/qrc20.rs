@@ -4,17 +4,18 @@ use crate::qrc20::rpc_clients::{LogEntry, Qrc20ElectrumOps, Qrc20NativeOps, Qrc2
 use crate::utxo::qtum::QtumBasedCoin;
 use crate::utxo::rpc_clients::{ElectrumClient, NativeClient, UnspentInfo, UtxoRpcClientEnum, UtxoRpcClientOps,
                                UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
+use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoinBuilderCommonOps,
+                                UtxoCoinWithIguanaPrivKeyBuilder, UtxoFieldsWithIguanaPrivKeyBuilder};
 use crate::utxo::utxo_common::{self, big_decimal_from_sat, check_all_inputs_signed_by_pub, UtxoTxBuilder};
 use crate::utxo::{qtum, ActualTxFee, AdditionalTxData, BroadcastTxErr, FeePolicy, GenerateTxError, HistoryUtxoTx,
-                  HistoryUtxoTxMap, RecentlySpentOutPoints, UtxoActivationParams, UtxoAddressFormat,
-                  UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoinBuilder, UtxoCoinFields, UtxoCommonOps,
-                  UtxoFromLegacyReqErr, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom,
-                  UTXO_LOCK};
+                  HistoryUtxoTxMap, RecentlySpentOutPoints, UtxoActivationParams, UtxoAddressFormat, UtxoCoinFields,
+                  UtxoCommonOps, UtxoFromLegacyReqErr, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps,
+                  VerboseTransactionFrom, UTXO_LOCK};
 use crate::{BalanceError, BalanceFut, CoinBalance, DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend,
-            HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy,
-            PrivKeyNotAllowed, SwapOps, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
-            TradePreimageValue, TransactionDetails, TransactionEnum, TransactionFut, TransactionType,
-            ValidateAddressResult, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
+            HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PrivKeyNotAllowed, SwapOps,
+            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
+            TransactionDetails, TransactionEnum, TransactionFut, TransactionType, ValidateAddressResult,
+            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcrypto::{dhash160, sha256};
@@ -179,28 +180,14 @@ impl<'a> Qrc20CoinBuilder<'a> {
 }
 
 #[async_trait]
-impl UtxoCoinBuilder for Qrc20CoinBuilder<'_> {
-    type ResultCoin = Qrc20Coin;
-
-    async fn build(self) -> UtxoCoinBuildResult<Self::ResultCoin> {
-        let utxo = self.build_utxo_fields().await?;
-        let inner = Qrc20CoinFields {
-            utxo,
-            platform: self.platform,
-            contract_address: self.token_contract_address,
-            swap_contract_address: self.activation_params.swap_contract_address,
-            fallback_swap_contract: self.activation_params.fallback_swap_contract,
-        };
-        Ok(Qrc20Coin(Arc::new(inner)))
-    }
-
+impl<'a> UtxoCoinBuilderCommonOps for Qrc20CoinBuilder<'a> {
     fn ctx(&self) -> &MmArc { self.ctx }
 
     fn conf(&self) -> &Json { self.conf }
 
-    fn ticker(&self) -> &str { self.ticker }
+    fn activation_params(&self) -> UtxoActivationParams { self.activation_params.utxo_params.clone() }
 
-    fn priv_key(&self) -> PrivKeyBuildPolicy<'_> { PrivKeyBuildPolicy::PrivKey(self.priv_key) }
+    fn ticker(&self) -> &str { self.ticker }
 
     async fn decimals(&self, rpc_client: &UtxoRpcClientEnum) -> UtxoCoinBuildResult<u8> {
         if let Some(d) = self.conf()["decimals"].as_u64() {
@@ -249,8 +236,28 @@ impl UtxoCoinBuilder for Qrc20CoinBuilder<'_> {
             Ok(confpath.into())
         }
     }
+}
 
-    fn activation_params(&self) -> UtxoActivationParams { self.activation_params.utxo_params.clone() }
+#[async_trait]
+impl<'a> UtxoFieldsWithIguanaPrivKeyBuilder for Qrc20CoinBuilder<'a> {}
+
+#[async_trait]
+impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for Qrc20CoinBuilder<'a> {
+    type ResultCoin = Qrc20Coin;
+
+    fn priv_key(&self) -> &[u8] { self.priv_key }
+
+    async fn build(self) -> UtxoCoinBuildResult<Self::ResultCoin> {
+        let utxo = self.build_utxo_fields_with_iguana_priv_key(self.priv_key()).await?;
+        let inner = Qrc20CoinFields {
+            utxo,
+            platform: self.platform,
+            contract_address: self.token_contract_address,
+            swap_contract_address: self.activation_params.swap_contract_address,
+            fallback_swap_contract: self.activation_params.fallback_swap_contract,
+        };
+        Ok(Qrc20Coin(Arc::new(inner)))
+    }
 }
 
 pub async fn qrc20_coin_from_conf_and_params(

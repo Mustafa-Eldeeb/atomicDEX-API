@@ -1,10 +1,11 @@
 use super::*;
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
+use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
 use crate::{CanRefundHtlc, CoinBalance, NegotiateSwapContractAddrErr, SwapOps, TradePreimageValue,
             ValidateAddressResult, WithdrawFut};
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
-use crypto::trezor::TrezorCoin;
+use crypto::trezor::utxo::TrezorUtxoCoin;
 use futures::{FutureExt, TryFutureExt};
 use serialization::CoinVariant;
 use utxo_signer::UtxoSignerOps;
@@ -33,16 +34,10 @@ pub async fn utxo_standard_coin_with_priv_key(
     activation_params: UtxoActivationParams,
     priv_key: &[u8],
 ) -> Result<UtxoStandardCoin, String> {
-    let coin: UtxoStandardCoin = try_s!(
-        utxo_common::utxo_arc_from_conf_and_params(
-            ctx,
-            ticker,
-            conf,
-            activation_params,
-            PrivKeyBuildPolicy::PrivKey(priv_key),
-            UtxoStandardCoin::from
-        )
-        .await
+    let coin = try_s!(
+        UtxoArcWithIguanaPrivKeyBuilder::new(ctx, ticker, conf, activation_params, priv_key, UtxoStandardCoin::from)
+            .build()
+            .await
     );
     Ok(coin)
 }
@@ -556,7 +551,7 @@ impl InitWithdrawCoin for UtxoStandardCoin {
 impl UtxoSignerOps for UtxoStandardCoin {
     type TxGetter = UtxoRpcClientEnum;
 
-    fn trezor_coin(&self) -> UtxoSignTxResult<TrezorCoin> {
+    fn trezor_coin(&self) -> UtxoSignTxResult<TrezorUtxoCoin> {
         self.utxo_arc
             .conf
             .trezor_coin

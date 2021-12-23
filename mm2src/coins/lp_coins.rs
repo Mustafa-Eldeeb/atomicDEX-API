@@ -39,6 +39,7 @@ use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsWeak;
 use common::mm_number::MmNumber;
 use common::{calc_total_pages, now_ms, HttpStatusCode};
+use crypto::CryptoCtx;
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
@@ -60,6 +61,19 @@ use std::time::Duration;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
 #[cfg(feature = "zhtlc")]
 use zcash_primitives::transaction::Transaction as ZTransaction;
+
+cfg_native! {
+    use async_std::fs;
+    use futures::AsyncWriteExt;
+    use std::io;
+}
+
+cfg_wasm32! {
+    use common::indexed_db::{ConstructibleDb, DbLocked};
+    use tx_history_db::TxHistoryDb;
+
+    pub type TxHistoryDbLocked<'a> = DbLocked<'a, TxHistoryDb>;
+}
 
 // using custom copy of try_fus as futures crate was renamed to futures01
 macro_rules! try_fus {
@@ -83,59 +97,38 @@ macro_rules! try_f {
 #[doc(hidden)]
 #[cfg(test)]
 pub mod coins_tests;
-
 pub mod eth;
-use eth::{eth_coin_from_conf_and_request, EthCoin, EthTxFeeDetails, SignedEthTx};
-
 pub mod init_withdraw;
-
-pub mod utxo;
-use utxo::qtum::{self, qtum_coin_from_with_priv_key, QtumCoin};
-use utxo::slp::SlpToken;
-use utxo::utxo_common::big_decimal_from_sat_unsigned;
-use utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
-use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
-
-pub mod qrc20;
-use crate::utxo::qtum::{QtumDelegationOps, QtumDelegationRequest, QtumStakingInfosDetails};
-use qrc20::{qrc20_coin_from_conf_and_params, Qrc20Coin, Qrc20FeeDetails};
-
 pub mod lightning;
-
+pub mod qrc20;
 #[doc(hidden)]
 #[allow(unused_variables)]
 pub mod test_coin;
-pub use test_coin::TestCoin;
-
 #[cfg(target_arch = "wasm32")] pub mod tx_history_db;
-
+pub mod utxo;
 #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
 pub mod z_coin;
 
-use crate::init_withdraw::{WithdrawTaskManager, WithdrawTaskManagerShared};
 use crate::lightning::LightningCoin;
-use crate::qrc20::Qrc20ActivationParams;
-use crate::qtum::{Qrc20AddressError, ScriptHashTypeNotSupported};
-use crate::utxo::bch::{bch_coin_from_conf_and_params, BchActivationRequest, BchCoin};
-use crate::utxo::rpc_clients::UtxoRpcError;
-use crate::utxo::slp::{slp_addr_from_pubkey_str, SlpFeeDetails};
-use crate::utxo::UtxoActivationParams;
-use crypto::CryptoCtx;
+use eth::{eth_coin_from_conf_and_request, EthCoin, EthTxFeeDetails, SignedEthTx};
+use init_withdraw::{WithdrawTaskManager, WithdrawTaskManagerShared};
+use qrc20::Qrc20ActivationParams;
+use qrc20::{qrc20_coin_from_conf_and_params, Qrc20Coin, Qrc20FeeDetails};
+use qtum::{Qrc20AddressError, ScriptHashTypeNotSupported};
+use utxo::bch::{bch_coin_from_conf_and_params, BchActivationRequest, BchCoin};
+use utxo::qtum::{self, qtum_coin_from_with_priv_key, QtumCoin};
+use utxo::qtum::{QtumDelegationOps, QtumDelegationRequest, QtumStakingInfosDetails};
+use utxo::rpc_clients::UtxoRpcError;
+use utxo::slp::SlpToken;
+use utxo::slp::{slp_addr_from_pubkey_str, SlpFeeDetails};
+use utxo::utxo_common::big_decimal_from_sat_unsigned;
+use utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
+use utxo::UtxoActivationParams;
+use utxo::{BlockchainNetwork, GenerateTxError, UtxoFeeDetails, UtxoTx};
 #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
 use z_coin::{z_coin_from_conf_and_params, ZCoin};
 
-cfg_native! {
-    use async_std::fs;
-    use futures::AsyncWriteExt;
-    use std::io;
-}
-
-cfg_wasm32! {
-    use common::indexed_db::{ConstructibleDb, DbLocked};
-    use tx_history_db::TxHistoryDb;
-
-    pub type TxHistoryDbLocked<'a> = DbLocked<'a, TxHistoryDb>;
-}
+pub use test_coin::TestCoin;
 
 pub type BalanceResult<T> = Result<T, MmError<BalanceError>>;
 pub type BalanceFut<T> = Box<dyn Future<Item = T, Error = MmError<BalanceError>> + Send>;
@@ -1488,14 +1481,16 @@ impl<T> PrivKeyPolicy<T> {
 
 #[derive(Clone)]
 pub enum PrivKeyBuildPolicy<'a> {
-    PrivKey(&'a [u8]),
+    IguanaPrivKey(&'a [u8]),
     HardwareWallet,
 }
 
 impl<'a> PrivKeyBuildPolicy<'a> {
     pub fn from_crypto_ctx(crypto_ctx: &'a CryptoCtx) -> PrivKeyBuildPolicy<'a> {
         match crypto_ctx {
-            CryptoCtx::KeyPair(key_pair_ctx) => PrivKeyBuildPolicy::PrivKey(&key_pair_ctx.secp256k1_privkey_bytes()),
+            CryptoCtx::KeyPair(key_pair_ctx) => {
+                PrivKeyBuildPolicy::IguanaPrivKey(&key_pair_ctx.secp256k1_privkey_bytes())
+            },
             CryptoCtx::HardwareWallet(_) => PrivKeyBuildPolicy::HardwareWallet,
         }
     }
