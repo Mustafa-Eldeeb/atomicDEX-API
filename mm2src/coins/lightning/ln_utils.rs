@@ -167,7 +167,7 @@ pub async fn start_lightning(
     let broadcaster = Arc::new(platform_coin.clone());
 
     // Initialize Persist
-    let ln_data_dir = my_ln_data_dir(&ctx, &ticker)
+    let ln_data_dir = my_ln_data_dir(ctx, &ticker)
         .as_path()
         .to_str()
         .ok_or("Data dir is a non-UTF-8 string")
@@ -392,7 +392,7 @@ pub async fn start_lightning(
 
     // If node is restarting read other nodes data from disk and reconnect to channel nodes/peers if possible.
     if restarting_node {
-        let mut nodes_data = read_nodes_data_from_file(&nodes_data_path(&ctx, &ticker))?;
+        let mut nodes_data = read_nodes_data_from_file(&nodes_data_path(ctx, &ticker))?;
         for (pubkey, node_addr) in nodes_data.drain() {
             for chan_info in channel_manager.list_channels() {
                 if pubkey == chan_info.counterparty.node_id {
@@ -476,7 +476,7 @@ where
         .platform_coin
         .as_ref()
         .rpc_client
-        .get_transaction_bytes(H256::from(txid.as_hash().into_inner()).reversed())
+        .get_transaction_bytes(&H256::from(txid.as_hash().into_inner()).reversed())
         .compat()
         .await
         .map_err(|e| e.into_inner())
@@ -536,7 +536,7 @@ async fn get_confirmed_registered_txs(
             .platform_coin
             .as_ref()
             .rpc_client
-            .get_transaction_bytes(rpc_txid.clone())
+            .get_transaction_bytes(&rpc_txid)
             .compat()
             .await
         {

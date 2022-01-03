@@ -797,6 +797,7 @@ dependencies = [
  "chain",
  "common",
  "crypto",
+ "db_common",
  "derive_more",
  "dirs",
  "ethabi",
@@ -869,6 +870,7 @@ dependencies = [
  "common",
  "crypto",
  "derive_more",
+ "futures 0.3.15",
  "hex 0.4.3",
  "rpc",
  "rpc_task",
@@ -897,6 +899,7 @@ dependencies = [
  "chrono",
  "crossbeam",
  "crossterm",
+ "db_common",
  "derive_more",
  "findshlibs",
  "fnv",
@@ -936,7 +939,6 @@ dependencies = [
  "prost",
  "rand 0.7.3",
  "regex",
- "rusqlite",
  "rustc-hex 2.1.0",
  "ser_error",
  "ser_error_derive",
@@ -1271,6 +1273,16 @@ name = "data-encoding"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72aa14c04dfae8dd7d8a2b1cb7ca2152618cd01336dbfe704b8dcbf8d41dbd69"
+
+[[package]]
+name = "db_common"
+version = "0.1.0"
+dependencies = [
+ "log 0.4.11",
+ "rusqlite",
+ "sql-builder",
+ "uuid",
+]
 
 [[package]]
 name = "debug_stub_derive"
@@ -3259,6 +3271,7 @@ dependencies = [
  "crc32fast",
  "crossbeam",
  "crypto",
+ "db_common",
  "derive_more",
  "dirs",
  "either",
@@ -3308,7 +3321,6 @@ dependencies = [
  "serialization_derive",
  "sp-runtime-interface",
  "sp-trie",
- "sql-builder",
  "testcontainers",
  "tokio",
  "trie-db",

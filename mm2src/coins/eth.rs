@@ -18,10 +18,12 @@
 //
 //  Copyright © 2017-2019 SuperNET. All rights reserved.
 //
+use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcrypto::sha256;
 use common::custom_futures::TimedAsyncMutex;
 use common::executor::Timer;
+use common::log::error;
 use common::mm_ctx::{MmArc, MmWeak};
 use common::mm_error::prelude::*;
 use common::transport::{slurp_url, SlurpError};
@@ -33,7 +35,6 @@ use ethereum_types::{Address, H160, U256};
 use ethkey::{public_to_address, KeyPair, Public};
 use futures::compat::Future01CompatExt;
 use futures::future::{join_all, select, Either, FutureExt, TryFutureExt};
-use futures01::future::Either as Either01;
 use futures01::Future;
 use http::StatusCode;
 #[cfg(test)] use mocktopus::macros::*;
@@ -63,8 +64,8 @@ pub use ethcore_transaction::SignedTransaction as SignedEthTx;
 pub use rlp;
 
 mod web3_transport;
-use self::web3_transport::Web3Transport;
 use common::mm_number::MmNumber;
+use web3_transport::{EthFeeHistoryNamespace, Web3Transport};
 
 #[cfg(test)] mod eth_tests;
 #[cfg(target_arch = "wasm32")] mod eth_wasm_tests;
@@ -85,6 +86,8 @@ const _PAYMENT_STATE_REFUNDED: u8 = 3;
 // Ethgasstation API returns response in 10^8 wei units. So 10 from their API mean 1 gwei
 const ETH_GAS_STATION_DECIMALS: u8 = 8;
 const GAS_PRICE_PERCENT: u64 = 10;
+/// It can change 12.5% max each block according to https://www.blocknative.com/blog/eip-1559-fees
+const BASE_BLOCK_FEE_DIFF_PCT: u64 = 13;
 const DEFAULT_LOGS_BLOCK_RANGE: u64 = 1000;
 
 /// Take into account that the dynamic fee may increase by 3% during the swap.
@@ -281,6 +284,7 @@ pub struct EthCoinImpl {
     decimals: u8,
     gas_station_url: Option<String>,
     gas_station_decimals: u8,
+    gas_station_policy: GasStationPricePolicy,
     history_sync_state: Mutex<HistorySyncState>,
     required_confirmations: AtomicU64,
     /// Coin needs access to the context in order to reuse the logging and shutdown facilities.
@@ -470,19 +474,6 @@ impl EthCoinImpl {
         sha256(&input).to_vec()
     }
 
-    /// Get gas price
-    fn get_gas_price(&self) -> Web3RpcFut<U256> {
-        let fut = if let Some(url) = &self.gas_station_url {
-            Either01::A(
-                GasStationData::get_gas_price(url, self.gas_station_decimals)
-                    .map(|price| increase_by_percent_one_gwei(price, GAS_PRICE_PERCENT)),
-            )
-        } else {
-            Either01::B(self.web3.eth().gas_price().map_to_mm_fut(Web3RpcError::from))
-        };
-        Box::new(fut)
-    }
-
     fn estimate_gas(&self, req: CallRequest) -> Box<dyn Future<Item = U256, Error = web3::Error> + Send> {
         // always using None block number as old Geth version accept only single argument in this RPC
         Box::new(self.web3.eth().estimate_gas(req, None))
@@ -669,6 +660,7 @@ impl Deref for EthCoin {
     fn deref(&self) -> &EthCoinImpl { &*self.0 }
 }
 
+#[async_trait]
 impl SwapOps for EthCoin {
     fn send_taker_fee(&self, fee_addr: &[u8], amount: BigDecimal, _uuid: &[u8]) -> TransactionFut {
         let address = try_fus!(addr_from_raw_pubkey(fee_addr));
@@ -963,40 +955,58 @@ impl SwapOps for EthCoin {
                     .compat()
                     .await
             );
+
             if status == PAYMENT_STATE_UNINITIALIZED.into() {
                 return Ok(None);
             };
-            let events = try_s!(
-                selfi
-                    .payment_sent_events(swap_contract_address, from_block)
-                    .compat()
-                    .await
-            );
 
-            let found = events.iter().find(|event| &event.data.0[..32] == id.as_slice());
+            let mut current_block = try_s!(selfi.current_block().compat().await);
+            if current_block < from_block {
+                current_block = from_block;
+            }
 
-            match found {
-                Some(event) => {
-                    let transaction = try_s!(
-                        selfi
-                            .web3
-                            .eth()
-                            .transaction(TransactionId::Hash(event.transaction_hash.unwrap()))
-                            .compat()
-                            .await
-                    );
-                    match transaction {
-                        Some(t) => Ok(Some(try_s!(signed_tx_from_web3_tx(t)).into())),
-                        None => Ok(None),
-                    }
-                },
-                None => Ok(None),
+            let mut from_block = from_block;
+
+            loop {
+                let to_block = current_block.min(from_block + selfi.logs_block_range);
+
+                let events = try_s!(
+                    selfi
+                        .payment_sent_events(swap_contract_address, from_block, to_block)
+                        .compat()
+                        .await
+                );
+
+                let found = events.iter().find(|event| &event.data.0[..32] == id.as_slice());
+
+                match found {
+                    Some(event) => {
+                        let transaction = try_s!(
+                            selfi
+                                .web3
+                                .eth()
+                                .transaction(TransactionId::Hash(event.transaction_hash.unwrap()))
+                                .compat()
+                                .await
+                        );
+                        match transaction {
+                            Some(t) => break Ok(Some(try_s!(signed_tx_from_web3_tx(t)).into())),
+                            None => break Ok(None),
+                        }
+                    },
+                    None => {
+                        if to_block >= current_block {
+                            break Ok(None);
+                        }
+                        from_block = to_block;
+                    },
+                }
             }
         };
         Box::new(fut.boxed().compat())
     }
 
-    fn search_for_swap_tx_spend_my(
+    async fn search_for_swap_tx_spend_my(
         &self,
         _time_lock: u32,
         _other_pub: &[u8],
@@ -1009,7 +1019,7 @@ impl SwapOps for EthCoin {
         self.search_for_swap_tx_spend(tx, swap_contract_address, search_from_block)
     }
 
-    fn search_for_swap_tx_spend_other(
+    async fn search_for_swap_tx_spend_other(
         &self,
         _time_lock: u32,
         _other_pub: &[u8],
@@ -2509,12 +2519,13 @@ impl EthCoin {
         &self,
         swap_contract_address: Address,
         from_block: u64,
+        to_block: u64,
     ) -> Box<dyn Future<Item = Vec<Log>, Error = String> + Send> {
         let contract_event = try_fus!(SWAP_CONTRACT.event("PaymentSent"));
         let filter = FilterBuilder::default()
             .topics(Some(vec![contract_event.signature()]), None, None, None)
             .from_block(BlockNumber::Number(from_block))
-            .to_block(BlockNumber::Pending)
+            .to_block(BlockNumber::Number(to_block))
             .address(vec![swap_contract_address])
             .build();
 
@@ -2786,6 +2797,61 @@ impl EthCoin {
         }
 
         Ok(None)
+    }
+
+    /// Get gas price
+    fn get_gas_price(&self) -> Web3RpcFut<U256> {
+        let coin = self.clone();
+        let fut = async move {
+            // TODO refactor to error_log_passthrough once simple maker bot is merged
+            let gas_station_price = match &coin.gas_station_url {
+                Some(url) => {
+                    match GasStationData::get_gas_price(url, coin.gas_station_decimals, coin.gas_station_policy)
+                        .compat()
+                        .await
+                    {
+                        Ok(from_station) => Some(increase_by_percent_one_gwei(from_station, GAS_PRICE_PERCENT)),
+                        Err(e) => {
+                            error!("Error {} on request to gas station url {}", e, url);
+                            None
+                        },
+                    }
+                },
+                None => None,
+            };
+
+            let eth_gas_price = match coin.web3.eth().gas_price().compat().await {
+                Ok(eth_gas) => Some(eth_gas),
+                Err(e) => {
+                    error!("Error {} on eth_gasPrice request", e);
+                    None
+                },
+            };
+
+            let fee_history_namespace: EthFeeHistoryNamespace<_> = coin.web3.api();
+            let eth_fee_history_price = match fee_history_namespace
+                .eth_fee_history(U256::from(1u64), BlockNumber::Latest, &[])
+                .compat()
+                .await
+            {
+                Ok(res) => res
+                    .base_fee_per_gas
+                    .first()
+                    .map(|val| increase_by_percent_one_gwei(*val, BASE_BLOCK_FEE_DIFF_PCT)),
+                Err(e) => {
+                    error!("Error {} on eth_feeHistory request", e);
+                    None
+                },
+            };
+
+            let all_prices = vec![gas_station_price, eth_gas_price, eth_fee_history_price];
+            all_prices
+                .into_iter()
+                .flatten()
+                .max()
+                .or_mm_err(|| Web3RpcError::Internal("All requests failed".into()))
+        };
+        Box::new(fut.boxed().compat())
     }
 }
 
@@ -3132,15 +3198,42 @@ fn signed_tx_from_web3_tx(transaction: Web3Transaction) -> Result<SignedEthTx, S
 pub struct GasStationData {
     // matic gas station average fees is named standard, using alias to support both format.
     #[serde(alias = "average", alias = "standard")]
-    average: f64,
+    average: MmNumber,
+    fast: MmNumber,
+}
+
+/// Using tagged representation to allow adding variants with coefficients, percentage, etc in the future.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(tag = "policy", content = "additional_data")]
+enum GasStationPricePolicy {
+    /// Use mean between average and fast values, default and recommended to use on ETH mainnet due to
+    /// gas price big spikes.
+    MeanAverageFast,
+    /// Use average value only. Useful for non-heavily congested networks (Matic, etc.)
+    Average,
+}
+
+impl Default for GasStationPricePolicy {
+    fn default() -> Self { GasStationPricePolicy::MeanAverageFast }
 }
 
 impl GasStationData {
-    fn average_gwei(&self, decimals: u8) -> U256 { U256::from(self.average as u64) * U256::exp10(decimals as usize) }
+    fn average_gwei(&self, decimals: u8, gas_price_policy: GasStationPricePolicy) -> NumConversResult<U256> {
+        let gas_price = match gas_price_policy {
+            GasStationPricePolicy::MeanAverageFast => ((&self.average + &self.fast) / MmNumber::from(2)).into(),
+            GasStationPricePolicy::Average => self.average.to_decimal(),
+        };
+        wei_from_big_decimal(&gas_price, decimals)
+    }
 
-    fn get_gas_price(uri: &str, decimals: u8) -> Web3RpcFut<U256> {
+    fn get_gas_price(uri: &str, decimals: u8, gas_price_policy: GasStationPricePolicy) -> Web3RpcFut<U256> {
         let uri = uri.to_owned();
-        let fut = async move { Ok(make_gas_station_request(&uri).await?.average_gwei(decimals)) };
+        let fut = async move {
+            make_gas_station_request(&uri)
+                .await?
+                .average_gwei(decimals, gas_price_policy)
+                .mm_err(|e| Web3RpcError::Internal(e.0))
+        };
         Box::new(fut.boxed().compat())
     }
 }
@@ -3282,6 +3375,8 @@ pub async fn eth_coin_from_conf_and_request(
     };
 
     let gas_station_decimals: Option<u8> = try_s!(json::from_value(req["gas_station_decimals"].clone()));
+    let gas_station_policy: GasStationPricePolicy =
+        json::from_value(req["gas_station_policy"].clone()).unwrap_or_default();
 
     let coin = EthCoinImpl {
         key_pair,
@@ -3293,6 +3388,7 @@ pub async fn eth_coin_from_conf_and_request(
         ticker: ticker.into(),
         gas_station_url: try_s!(json::from_value(req["gas_station_url"].clone())),
         gas_station_decimals: gas_station_decimals.unwrap_or(ETH_GAS_STATION_DECIMALS),
+        gas_station_policy,
         web3,
         web3_instances,
         history_sync_state: Mutex::new(initial_history_state),

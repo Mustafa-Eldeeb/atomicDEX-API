@@ -9,6 +9,7 @@ use num_rational::BigRational;
 use rpc::v1::types::H256 as H256Json;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -40,7 +41,7 @@ pub enum OrderType {
     GoodTillCancelled,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrderConfirmationsSettings {
     pub base_confs: u64,
@@ -49,7 +50,7 @@ pub struct OrderConfirmationsSettings {
     pub rel_nota: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HistoricalOrder {
     max_base_vol: Option<MmNumber>,
@@ -59,14 +60,14 @@ struct HistoricalOrder {
     conf_settings: Option<OrderConfirmationsSettings>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum TakerAction {
     Buy,
     Sell,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(tag = "type", content = "data")]
 pub enum MatchBy {
@@ -105,7 +106,7 @@ pub struct BuyOrSellRpcResult {
     pub result: BuyOrSellRpcRes,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TakerRequest {
     base: String,
@@ -123,7 +124,7 @@ pub struct TakerRequest {
     conf_settings: OrderConfirmationsSettings,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MakerReserved {
     base: String,
@@ -140,7 +141,7 @@ pub struct MakerReserved {
     conf_settings: OrderConfirmationsSettings,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TakerConnect {
     taker_order_uuid: Uuid,
@@ -150,7 +151,7 @@ pub struct TakerConnect {
     dest_pub_key: H256Json,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MakerConnected {
     taker_order_uuid: Uuid,
@@ -160,7 +161,7 @@ pub struct MakerConnected {
     dest_pub_key: H256Json,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MakerMatch {
     request: TakerRequest,
@@ -170,7 +171,7 @@ pub struct MakerMatch {
     last_updated: u64,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MakerOrderRpcResult {
     pub max_base_vol: BigDecimal,
@@ -194,7 +195,7 @@ pub struct MakerOrderRpcResult {
     pub rel_orderbook_ticker: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetPriceResult {
     pub max_base_vol: BigDecimal,
@@ -215,7 +216,7 @@ pub struct SetPriceResult {
     pub rel_orderbook_ticker: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SetPriceResponse {
     pub result: SetPriceResult,
@@ -517,6 +518,7 @@ pub enum TransactionType {
     StakingDelegation,
     RemoveDelegation,
     StandardTransfer,
+    TokenTransfer(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -661,4 +663,40 @@ pub struct EnableBchWithTokensResponse {
     pub current_block: u64,
     pub bch_addresses_infos: HashMap<String, CoinAddressInfo<CoinBalance>>,
     pub slp_addresses_infos: HashMap<String, CoinAddressInfo<TokenBalances>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryTransactionDetails {
+    #[serde(flatten)]
+    pub tx: TransactionDetails,
+    pub confirmations: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub enum PagingOptionsEnum {
+    FromId(String),
+    PageNumber(NonZeroUsize),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MyTxHistoryV2Response {
+    pub coin: String,
+    pub current_block: u64,
+    pub transactions: Vec<HistoryTransactionDetails>,
+    pub sync_status: Json,
+    pub limit: usize,
+    pub skipped: usize,
+    pub total: usize,
+    pub total_pages: usize,
+    pub paging_options: PagingOptionsEnum,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UtxoFeeDetails {
+    pub r#type: String,
+    pub coin: Option<String>,
+    pub amount: BigDecimal,
 }
