@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcoin::blockdata::script::Script;
 use bitcoin::hash_types::Txid;
+#[cfg(not(target_arch = "wasm32"))] use bitcoin::hashes::Hash;
 #[cfg(not(target_arch = "wasm32"))] use chain::TransactionOutput;
 #[cfg(not(target_arch = "wasm32"))]
 use common::ip_addr::myipaddr;
@@ -32,8 +33,8 @@ use lightning_invoice::utils::create_invoice_from_channelmanager;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::Invoice;
 use ln_errors::{ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
-                GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, OpenChannelError,
-                OpenChannelResult, SendPaymentError, SendPaymentResult};
+                GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, ListPaymentsError,
+                ListPaymentsResult, OpenChannelError, OpenChannelResult, SendPaymentError, SendPaymentResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
@@ -96,17 +97,22 @@ pub struct LightningCoinConf {
     ticker: String,
 }
 
+#[derive(Clone, Serialize)]
 pub enum HTLCStatus {
+    #[serde(rename = "pending")]
     Pending,
+    #[serde(rename = "succeeded")]
     Succeeded,
+    #[serde(rename = "failed")]
     Failed,
 }
 
+#[derive(Clone)]
 pub struct PaymentInfo {
-    pub preimage: PaymentPreimage,
+    pub preimage: Option<PaymentPreimage>,
     pub secret: Option<PaymentSecret>,
     pub status: HTLCStatus,
-    pub amt_msat: u64,
+    pub amt_msat: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -130,6 +136,8 @@ pub struct LightningCoin {
     pub invoice_payer: Arc<InvoicePayer<Arc<LightningEventHandler>>>,
     /// The mutex storing the inbound payments info.
     pub inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
+    /// The mutex storing the outbound payments info.
+    pub outbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
 }
 
 impl fmt::Debug for LightningCoin {
@@ -627,6 +635,7 @@ pub struct SendPaymentReq {
 #[derive(Serialize)]
 pub struct SendPaymentResponse {
     payment_id: String,
+    payment_hash: String,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -650,7 +659,75 @@ pub async fn send_payment(ctx: MmArc, req: SendPaymentReq) -> SendPaymentResult<
         .invoice_payer
         .pay_invoice(&invoice)
         .map_to_mm(|e| SendPaymentError::PaymentError(format!("{:?}", e)))?;
+    let payment_hash = PaymentHash((*invoice.payment_hash()).into_inner());
+    let payment_secret = Some(*invoice.payment_secret());
+    let mut outbound_payments = ln_coin.outbound_payments.lock().await;
+    outbound_payments.insert(payment_hash, PaymentInfo {
+        preimage: None,
+        secret: payment_secret,
+        status: HTLCStatus::Pending,
+        amt_msat: invoice.amount_milli_satoshis(),
+    });
     Ok(SendPaymentResponse {
         payment_id: hex::encode(payment_id.0),
+        payment_hash: hex::encode(payment_hash.0),
+    })
+}
+
+#[derive(Deserialize)]
+pub struct ListPaymentsReq {
+    pub coin: String,
+}
+
+#[derive(Serialize)]
+pub struct PaymentInfoForRPC {
+    status: HTLCStatus,
+    amount_in_msat: Option<u64>,
+}
+
+impl From<PaymentInfo> for PaymentInfoForRPC {
+    fn from(info: PaymentInfo) -> Self {
+        PaymentInfoForRPC {
+            status: info.status,
+            amount_in_msat: info.amt_msat,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct ListPaymentsResponse {
+    pub inbound_payments: HashMap<String, PaymentInfoForRPC>,
+    pub outbound_payments: HashMap<String, PaymentInfoForRPC>,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn list_payments(_ctx: MmArc, _req: ListPaymentsReq) -> ListPaymentsResult<()> {
+    MmError::err(ListPaymentsError::UnsupportedMode(
+        "'list_payments'".into(),
+        "native".into(),
+    ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn list_payments(ctx: MmArc, req: ListPaymentsReq) -> ListPaymentsResult<ListPaymentsResponse> {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(ListPaymentsError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let inbound_payments_info = ln_coin.inbound_payments.lock().await.clone();
+    let mut inbound_payments = HashMap::new();
+    for (payment_hash, payment_info) in inbound_payments_info.into_iter() {
+        inbound_payments.insert(hex::encode(payment_hash.0), payment_info.into());
+    }
+    let outbound_payments_info = ln_coin.outbound_payments.lock().await.clone();
+    let mut outbound_payments = HashMap::new();
+    for (payment_hash, payment_info) in outbound_payments_info.into_iter() {
+        outbound_payments.insert(hex::encode(payment_hash.0), payment_info.into());
+    }
+
+    Ok(ListPaymentsResponse {
+        inbound_payments,
+        outbound_payments,
     })
 }

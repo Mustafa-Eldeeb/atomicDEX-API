@@ -347,6 +347,7 @@ pub async fn start_lightning(
     ));
 
     let inbound_payments = Arc::new(AsyncMutex::new(HashMap::new()));
+    let outbound_payments = Arc::new(AsyncMutex::new(HashMap::new()));
 
     // Initialize the event handler
     let event_handler = Arc::new(ln_events::LightningEventHandler::new(
@@ -354,6 +355,7 @@ pub async fn start_lightning(
         filter.clone().unwrap(),
         channel_manager.clone(),
         inbound_payments.clone(),
+        outbound_payments.clone(),
     ));
 
     // Initialize routing Scorer
@@ -420,6 +422,7 @@ pub async fn start_lightning(
         keys_manager,
         invoice_payer,
         inbound_payments,
+        outbound_payments,
     })
 }
 

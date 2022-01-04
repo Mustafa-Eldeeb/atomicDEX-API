@@ -15,6 +15,7 @@ pub struct LightningEventHandler {
     filter: Arc<PlatformFields>,
     channel_manager: Arc<ChannelManager>,
     inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
+    outbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
 }
 
 impl EventHandler for LightningEventHandler {
@@ -37,9 +38,13 @@ impl EventHandler for LightningEventHandler {
                 amt,
                 purpose,
             } => self.handle_payment_received(*payment_hash, *amt, purpose),
-            Event::PaymentSent { .. } => (),
+            Event::PaymentSent {
+                payment_preimage,
+                payment_hash,
+                ..
+            } => self.handle_payment_sent(*payment_preimage, *payment_hash),
             Event::PaymentPathFailed { .. } => (),
-            Event::PaymentFailed { .. } => (),
+            Event::PaymentFailed { payment_hash, .. } => self.handle_payment_failed(payment_hash),
             Event::PendingHTLCsForwardable { .. } => (),
             Event::SpendableOutputs { .. } => (),
             Event::PaymentForwarded { .. } => (),
@@ -88,11 +93,13 @@ impl LightningEventHandler {
         filter: Arc<PlatformFields>,
         channel_manager: Arc<ChannelManager>,
         inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
+        outbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
     ) -> Self {
         LightningEventHandler {
             filter,
             channel_manager,
             inbound_payments,
+            outbound_payments,
         }
     }
 
@@ -187,17 +194,40 @@ impl LightningEventHandler {
             Entry::Occupied(mut e) => {
                 let payment = e.get_mut();
                 payment.status = status;
-                payment.preimage = payment_preimage;
+                payment.preimage = Some(payment_preimage);
                 payment.secret = payment_secret;
             },
             Entry::Vacant(e) => {
                 e.insert(PaymentInfo {
-                    preimage: payment_preimage,
+                    preimage: Some(payment_preimage),
                     secret: payment_secret,
                     status,
-                    amt_msat: amt,
+                    amt_msat: Some(amt),
                 });
             },
+        }
+    }
+
+    fn handle_payment_sent(&self, payment_preimage: PaymentPreimage, payment_hash: PaymentHash) {
+        let mut outbound_payments = block_on(self.outbound_payments.lock());
+        for (hash, payment) in outbound_payments.iter_mut() {
+            if *hash == payment_hash {
+                payment.preimage = Some(payment_preimage);
+                payment.status = HTLCStatus::Succeeded;
+                log::info!(
+                    "Successfully sent payment of {} millisatoshis with payment hash {}",
+                    payment.amt_msat.unwrap_or_default(),
+                    hex::encode(payment_hash.0)
+                );
+            }
+        }
+    }
+
+    fn handle_payment_failed(&self, payment_hash: &PaymentHash) {
+        let mut outbound_payments = block_on(self.outbound_payments.lock());
+        let outbound_payment = outbound_payments.get_mut(payment_hash);
+        if let Some(payment) = outbound_payment {
+            payment.status = HTLCStatus::Failed;
         }
     }
 }
