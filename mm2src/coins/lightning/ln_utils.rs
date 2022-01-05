@@ -2,10 +2,13 @@ use super::*;
 use crate::utxo::utxo_standard::UtxoStandardCoin;
 use common::mm_ctx::MmArc;
 use derive_more::Display;
+use lightning::routing::network_graph::NetworkGraph;
+use lightning::routing::scoring::Scorer;
+use lightning::util::ser::{Readable, Writeable};
 use secp256k1::PublicKey;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -32,8 +35,7 @@ cfg_native! {
     use lightning::ln::channelmanager::{ChainParameters, ChannelManagerReadArgs, SimpleArcChannelManager};
     use lightning::ln::msgs::NetAddress;
     use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleArcPeerManager};
-    use lightning::routing::network_graph::{NetGraphMsgHandler, NetworkGraph};
-    use lightning::routing::scoring::Scorer;
+    use lightning::routing::network_graph::NetGraphMsgHandler;
     use lightning::util::config::UserConfig;
     use lightning::util::ser::ReadableArgs;
     use lightning_background_processor::BackgroundProcessor;
@@ -55,6 +57,8 @@ cfg_native! {
     const CHECK_FOR_NEW_BEST_BLOCK_INTERVAL: u64 = 60;
     const BROADCAST_NODE_ANNOUNCEMENT_INTERVAL: u64 = 60;
     const TRY_RECONNECTING_TO_NODE_INTERVAL: u64 = 60;
+    const NETWORK_GRAPH_PERSIST_INTERVAL: u64 = 600;
+    const SCORER_PERSIST_INTERVAL: u64 = 600;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -110,6 +114,10 @@ fn netaddress_from_ipaddr(addr: IpAddr, port: u16) -> Vec<NetAddress> {
 fn my_ln_data_dir(ctx: &MmArc, ticker: &str) -> PathBuf { ctx.dbdir().join("LIGHTNING").join(ticker) }
 
 pub fn nodes_data_path(ctx: &MmArc, ticker: &str) -> PathBuf { my_ln_data_dir(ctx, ticker).join("channel_nodes_data") }
+
+pub fn network_graph_path(ctx: &MmArc, ticker: &str) -> PathBuf { my_ln_data_dir(ctx, ticker).join("network_graph") }
+
+pub fn scorer_path(ctx: &MmArc, ticker: &str) -> PathBuf { my_ln_data_dir(ctx, ticker).join("scorer") }
 
 pub fn last_request_id_path(ctx: &MmArc, ticker: &str) -> PathBuf {
     my_ln_data_dir(ctx, ticker).join("LAST_REQUEST_ID")
@@ -308,13 +316,26 @@ pub async fn start_lightning(
     }
 
     // Initialize the NetGraphMsgHandler. This is used for providing routes to send payments over
-    let genesis = genesis_block(network).header.block_hash();
-    let network_graph = Arc::new(NetworkGraph::new(genesis));
+    let default_network_graph = NetworkGraph::new(genesis_block(network).header.block_hash());
+    let network_graph_path = network_graph_path(ctx, &ticker);
+    let network_graph = Arc::new(read_network_graph_from_file(&network_graph_path).unwrap_or(default_network_graph));
     let network_gossip = Arc::new(NetGraphMsgHandler::new(
         network_graph.clone(),
         None::<Arc<dyn Access + Send + Sync>>,
         logger.0.clone(),
     ));
+    let network_graph_persist = network_graph.clone();
+    spawn(async move {
+        loop {
+            if let Err(e) = save_network_graph_to_file(&network_graph_path, &network_graph_persist) {
+                log::warn!(
+                    "Failed to persist network graph error: {}, please check disk space and permissions",
+                    e
+                );
+            }
+            Timer::sleep(NETWORK_GRAPH_PERSIST_INTERVAL as f64).await;
+        }
+    });
 
     // Initialize the PeerManager
     // ephemeral_random_data is used to derive per-connection ephemeral keys
@@ -359,7 +380,20 @@ pub async fn start_lightning(
     ));
 
     // Initialize routing Scorer
-    let scorer = Arc::new(Mutex::new(Scorer::default()));
+    let scorer_path = scorer_path(ctx, &ticker);
+    let scorer = Arc::new(Mutex::new(read_scorer_from_file(&scorer_path).unwrap_or_default()));
+    let scorer_persist = scorer.clone();
+    spawn(async move {
+        loop {
+            if let Err(e) = save_scorer_to_file(&scorer_path, &scorer_persist.lock().unwrap()) {
+                log::warn!(
+                    "Failed to persist scorer error: {}, please check disk space and permissions",
+                    e
+                );
+            }
+            Timer::sleep(SCORER_PERSIST_INTERVAL as f64).await;
+        }
+    });
 
     // Create InvoicePayer
     let router = DefaultRouter::new(network_graph, logger.0.clone());
@@ -895,6 +929,38 @@ pub fn save_node_data_to_file(path: &Path, node_info: &str) -> ConnectToNodeResu
         .map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))?;
     file.write_all(format!("{}\n", node_info).as_bytes())
         .map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))
+}
+
+pub fn save_network_graph_to_file(path: &Path, network_graph: &NetworkGraph) -> EnableLightningResult<()> {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(path)
+        .map_to_mm(|e| EnableLightningError::IOError(e.to_string()))?;
+    network_graph
+        .write(&mut BufWriter::new(file))
+        .map_to_mm(|e| EnableLightningError::IOError(e.to_string()))
+}
+
+pub fn read_network_graph_from_file(path: &Path) -> EnableLightningResult<NetworkGraph> {
+    let file = File::open(path).map_to_mm(|e| EnableLightningError::IOError(e.to_string()))?;
+    NetworkGraph::read(&mut BufReader::new(file)).map_to_mm(|e| EnableLightningError::IOError(e.to_string()))
+}
+
+pub fn save_scorer_to_file(path: &Path, scorer: &Scorer) -> EnableLightningResult<()> {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(path)
+        .map_to_mm(|e| EnableLightningError::IOError(e.to_string()))?;
+    scorer
+        .write(&mut BufWriter::new(file))
+        .map_to_mm(|e| EnableLightningError::IOError(e.to_string()))
+}
+
+pub fn read_scorer_from_file(path: &Path) -> EnableLightningResult<Scorer> {
+    let file = File::open(path).map_to_mm(|e| EnableLightningError::IOError(e.to_string()))?;
+    Scorer::read(&mut BufReader::new(file)).map_to_mm(|e| EnableLightningError::IOError(e.to_string()))
 }
 
 #[derive(Display)]
