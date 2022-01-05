@@ -38,9 +38,10 @@ use ln_errors::{ConnectToNodeError, ConnectToNodeResult, EnableLightningError, E
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
-use ln_utils::{connect_to_node, last_request_id_path, nodes_data_path, open_ln_channel, parse_node_info,
-               read_last_request_id_from_file, read_nodes_data_from_file, save_last_request_id_to_file,
-               save_node_data_to_file, ChannelManager, InvoicePayer, PeerManager};
+use ln_storage::{last_request_id_path, nodes_data_path, parse_node_info, read_last_request_id_from_file,
+                 read_nodes_data_from_file, save_last_request_id_to_file, save_node_data_to_file};
+#[cfg(not(target_arch = "wasm32"))]
+use ln_utils::{connect_to_node, open_ln_channel, ChannelManager, InvoicePayer, PeerManager};
 use rpc::v1::types::Bytes as BytesJson;
 #[cfg(not(target_arch = "wasm32"))] use script::Builder;
 use script::TransactionInputSigner;
@@ -53,6 +54,7 @@ use std::sync::Arc;
 pub mod ln_errors;
 #[cfg(not(target_arch = "wasm32"))] mod ln_events;
 mod ln_rpc;
+#[cfg(not(target_arch = "wasm32"))] mod ln_storage;
 pub mod ln_utils;
 
 #[derive(Debug)]
