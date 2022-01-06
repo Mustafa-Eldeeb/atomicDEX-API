@@ -351,14 +351,8 @@ pub trait UtxoCoinBuilderCommonOps {
     }
 
     async fn tx_fee(&self, rpc_client: &UtxoRpcClientEnum) -> UtxoCoinBuildResult<TxFee> {
-        const ONE_DOGE: u64 = 100000000;
-
-        if self.ticker() == "DOGE" {
-            return Ok(TxFee::FixedPerKb(ONE_DOGE));
-        }
-
         let tx_fee = match self.conf()["txfee"].as_u64() {
-            None => TxFee::Fixed(1000),
+            None => TxFee::FixedPerKb(1000),
             Some(0) => {
                 let fee_method = match &rpc_client {
                     UtxoRpcClientEnum::Electrum(_) => EstimateFeeMethod::Standard,
@@ -370,7 +364,7 @@ pub trait UtxoCoinBuilderCommonOps {
                 };
                 TxFee::Dynamic(fee_method)
             },
-            Some(fee) => TxFee::Fixed(fee),
+            Some(fee) => TxFee::FixedPerKb(fee),
         };
         Ok(tx_fee)
     }

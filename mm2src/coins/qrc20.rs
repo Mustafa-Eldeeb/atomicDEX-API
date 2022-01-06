@@ -20,7 +20,6 @@ use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcrypto::{dhash160, sha256};
 use chain::TransactionOutput;
-use common::block_on;
 use common::executor::Timer;
 use common::jsonrpc_client::{JsonRpcClient, JsonRpcError, JsonRpcRequest, RpcRes};
 use common::log::{error, warn};
@@ -432,9 +431,7 @@ impl Qrc20Coin {
     /// or should be sum of gas fee of all contract calls.
     pub async fn get_qrc20_tx_fee(&self, gas_fee: u64) -> Result<u64, String> {
         match try_s!(self.get_tx_fee().await) {
-            ActualTxFee::Fixed(amount) | ActualTxFee::Dynamic(amount) | ActualTxFee::FixedPerKb(amount) => {
-                Ok(amount + gas_fee)
-            },
+            ActualTxFee::Dynamic(amount) | ActualTxFee::FixedPerKb(amount) => Ok(amount + gas_fee),
         }
     }
 
@@ -693,6 +690,7 @@ impl UtxoCommonOps for Qrc20Coin {
     }
 }
 
+#[async_trait]
 impl SwapOps for Qrc20Coin {
     fn send_taker_fee(&self, fee_addr: &[u8], amount: BigDecimal, _uuid: &[u8]) -> TransactionFut {
         let to_address = try_fus!(self.contract_address_from_raw_pubkey(fee_addr));
@@ -944,7 +942,7 @@ impl SwapOps for Qrc20Coin {
         Box::new(fut.boxed().compat())
     }
 
-    fn search_for_swap_tx_spend_my(
+    async fn search_for_swap_tx_spend_my(
         &self,
         time_lock: u32,
         _other_pub: &[u8],
@@ -955,12 +953,11 @@ impl SwapOps for Qrc20Coin {
     ) -> Result<Option<FoundSwapTxSpend>, String> {
         let tx: UtxoTx = try_s!(deserialize(tx).map_err(|e| ERRL!("{:?}", e)));
 
-        let selfi = self.clone();
-        let fut = selfi.search_for_swap_tx_spend(time_lock, secret_hash.to_vec(), tx, search_from_block);
-        block_on(fut)
+        self.search_for_swap_tx_spend(time_lock, secret_hash.to_vec(), tx, search_from_block)
+            .await
     }
 
-    fn search_for_swap_tx_spend_other(
+    async fn search_for_swap_tx_spend_other(
         &self,
         time_lock: u32,
         _other_pub: &[u8],
@@ -971,9 +968,8 @@ impl SwapOps for Qrc20Coin {
     ) -> Result<Option<FoundSwapTxSpend>, String> {
         let tx: UtxoTx = try_s!(deserialize(tx).map_err(|e| ERRL!("{:?}", e)));
 
-        let selfi = self.clone();
-        let fut = selfi.search_for_swap_tx_spend(time_lock, secret_hash.to_vec(), tx, search_from_block);
-        block_on(fut)
+        self.search_for_swap_tx_spend(time_lock, secret_hash.to_vec(), tx, search_from_block)
+            .await
     }
 
     fn extract_secret(&self, secret_hash: &[u8], spend_tx: &[u8]) -> Result<Vec<u8>, String> {

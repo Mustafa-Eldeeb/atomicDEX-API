@@ -17,7 +17,7 @@ use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
-use common::{block_on, now_ms};
+use common::now_ms;
 use crypto::RpcDerivationPath;
 use futures::compat::Future01CompatExt;
 use futures::future::{FutureExt, TryFutureExt};
@@ -64,7 +64,6 @@ pub const HISTORY_TOO_LARGE_ERR_CODE: i64 = -1;
 pub async fn get_tx_fee(coin: &UtxoCoinFields) -> Result<ActualTxFee, JsonRpcError> {
     let conf = &coin.conf;
     match &coin.tx_fee {
-        TxFee::Fixed(fee) => Ok(ActualTxFee::Fixed(*fee)),
         TxFee::Dynamic(method) => {
             let fee = coin
                 .rpc_client
@@ -207,7 +206,7 @@ where
         let HDAddress {
             address,
             derivation_path,
-        } = coin.derive_address(&hd_account, address_id, change)?;
+        } = coin.derive_address(hd_account, address_id, change)?;
 
         let balance = coin.known_address_balance(&address).await?;
         balances.push(HDAddressBalance {
@@ -253,7 +252,7 @@ where
             AddressBalanceStatus::NonEmpty(non_empty_balance) => {
                 let last_non_empty_address_id = checking_address_id - unused_addresses_counter;
                 for empty_address_id in last_non_empty_address_id..checking_address_id {
-                    let empty_address = coin.derive_address(&hd_account, empty_address_id, change)?;
+                    let empty_address = coin.derive_address(hd_account, empty_address_id, change)?;
 
                     balances.push(HDAddressBalance {
                         address: empty_address.address.to_string(),
@@ -330,7 +329,6 @@ where
 {
     let coin_fee = coin.get_tx_fee().await?;
     let mut fee = match coin_fee {
-        ActualTxFee::Fixed(fee) => fee,
         // atomic swap payment spend transaction is slightly more than 300 bytes in average as of now
         ActualTxFee::Dynamic(fee_per_kb) => (fee_per_kb * tx_size) / KILO_BYTE,
         // return satoshis here as swap spend transaction size is always less than 1 kb
@@ -577,7 +575,6 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         actual_tx_fee: &ActualTxFee,
     ) -> bool {
         self.tx_fee = match &actual_tx_fee {
-            ActualTxFee::Fixed(f) => *f,
             ActualTxFee::Dynamic(f) => {
                 let transaction = UtxoTx::from(self.tx.clone());
                 let v_size = tx_size_in_v_bytes(from_addr_format, &transaction);
@@ -1435,7 +1432,7 @@ where
                 let history = try_s!(client.scripthash_get_history(&hex::encode(script_hash)).compat().await);
                 match history.first() {
                     Some(item) => {
-                        let tx_bytes = try_s!(client.get_transaction_bytes(item.tx_hash.clone()).compat().await);
+                        let tx_bytes = try_s!(client.get_transaction_bytes(&item.tx_hash).compat().await);
                         let mut tx: UtxoTx = try_s!(deserialize(tx_bytes.0.as_slice()).map_err(|e| ERRL!("{:?}", e)));
                         tx.tx_hash_algo = coin.as_ref().tx_hash_algo;
                         Ok(Some(tx.into()))
@@ -1460,7 +1457,7 @@ where
                 let received_by_addr = try_s!(client.list_received_by_address(0, true, true).compat().await);
                 for item in received_by_addr {
                     if item.address == target_addr && !item.txids.is_empty() {
-                        let tx_bytes = try_s!(client.get_transaction_bytes(item.txids[0].clone()).compat().await);
+                        let tx_bytes = try_s!(client.get_transaction_bytes(&item.txids[0]).compat().await);
                         let mut tx: UtxoTx = try_s!(deserialize(tx_bytes.0.as_slice()).map_err(|e| ERRL!("{:?}", e)));
                         tx.tx_hash_algo = coin.as_ref().tx_hash_algo;
                         return Ok(Some(tx.into()));
@@ -1473,7 +1470,7 @@ where
     Box::new(fut.boxed().compat())
 }
 
-pub fn search_for_swap_tx_spend_my(
+pub async fn search_for_swap_tx_spend_my(
     coin: &UtxoCoinFields,
     time_lock: u32,
     other_pub: &[u8],
@@ -1483,7 +1480,7 @@ pub fn search_for_swap_tx_spend_my(
     search_from_block: u64,
 ) -> Result<Option<FoundSwapTxSpend>, String> {
     let my_public = try_s!(coin.priv_key_policy.key_pair_or_err()).public();
-    block_on(search_for_swap_output_spend(
+    search_for_swap_output_spend(
         coin,
         time_lock,
         my_public,
@@ -1492,10 +1489,11 @@ pub fn search_for_swap_tx_spend_my(
         tx,
         output_index,
         search_from_block,
-    ))
+    )
+    .await
 }
 
-pub fn search_for_swap_tx_spend_other(
+pub async fn search_for_swap_tx_spend_other(
     coin: &UtxoCoinFields,
     time_lock: u32,
     other_pub: &[u8],
@@ -1505,7 +1503,7 @@ pub fn search_for_swap_tx_spend_other(
     search_from_block: u64,
 ) -> Result<Option<FoundSwapTxSpend>, String> {
     let my_public = try_s!(coin.priv_key_policy.key_pair_or_err()).public();
-    block_on(search_for_swap_output_spend(
+    search_for_swap_output_spend(
         coin,
         time_lock,
         &try_s!(Public::from_slice(other_pub)),
@@ -1514,7 +1512,8 @@ pub fn search_for_swap_tx_spend_other(
         tx,
         output_index,
         search_from_block,
-    ))
+    )
+    .await
 }
 
 /// Extract a secret from the `spend_tx`.
@@ -1866,7 +1865,7 @@ where
                 }));
                 break;
             },
-            RequestTxHistoryResult::UnknownError(e) => {
+            RequestTxHistoryResult::CriticalError(e) => {
                 log_tag!(
                     ctx,
                     "",
@@ -1938,20 +1937,6 @@ where
                             updated = true;
                         }
                     }
-                    // TODO uncomment this when `update_kmd_rewards` works correctly
-                    // if e.get().should_update_kmd_rewards() && e.get().block_height > 0 {
-                    //     mm_counter!(ctx.metrics, "tx.history.update.kmd_rewards", 1);
-                    //     match coin.update_kmd_rewards(e.get_mut(), &mut input_transactions).await {
-                    //         Ok(()) => updated = true,
-                    //         Err(e) => log_tag!(
-                    //             ctx,
-                    //             "😟",
-                    //             "tx_history",
-                    //             "coin" => coin.as_ref().conf.ticker;
-                    //             fmt = "Error {:?} on updating the KMD rewards of {:?}, skipping the tx", e, txid
-                    //         ),
-                    //     }
-                    // }
                 },
             }
             if updated {
@@ -2004,7 +1989,10 @@ where
     let my_address = match coin.my_address() {
         Ok(addr) => addr,
         Err(e) => {
-            return RequestTxHistoryResult::UnknownError(ERRL!("Error on getting self address: {}. Stop tx history", e))
+            return RequestTxHistoryResult::CriticalError(ERRL!(
+                "Error on getting self address: {}. Stop tx history",
+                e
+            ))
         },
     };
 
@@ -2052,7 +2040,7 @@ where
         UtxoRpcClientEnum::Electrum(client) => {
             let my_address = match coin.as_ref().derivation_method.iguana_or_err() {
                 Ok(my_address) => my_address,
-                Err(e) => return RequestTxHistoryResult::UnknownError(e.to_string()),
+                Err(e) => return RequestTxHistoryResult::CriticalError(e.to_string()),
             };
             let script = output_script(my_address, ScriptType::P2PKH);
             let script_hash = electrum_script_hash(&script);
@@ -2220,6 +2208,11 @@ where
     to_addresses.sort();
     to_addresses.dedup();
 
+    let fee_details = UtxoFeeDetails {
+        coin: Some(coin.as_ref().conf.ticker.clone()),
+        amount: fee,
+    };
+
     Ok(TransactionDetails {
         from: from_addresses,
         to: to_addresses,
@@ -2229,7 +2222,7 @@ where
         total_amount: big_decimal_from_sat_unsigned(input_amount, coin.as_ref().decimals),
         tx_hash: tx.hash().reversed().to_vec().into(),
         tx_hex: verbose_tx.hex,
-        fee_details: Some(UtxoFeeDetails { amount: fee }.into()),
+        fee_details: Some(fee_details.into()),
         block_height: verbose_tx.height.unwrap_or(0),
         coin: ticker.clone(),
         internal_id: tx.hash().reversed().to_vec().into(),
@@ -2295,9 +2288,10 @@ where
     let kmd_rewards = coin.calc_interest_of_tx(&tx, input_transactions).await?;
     let kmd_rewards = big_decimal_from_sat_unsigned(kmd_rewards, coin.as_ref().decimals);
 
-    if let Some(TxFeeDetails::Utxo(UtxoFeeDetails { ref amount })) = tx_details.fee_details {
+    if let Some(TxFeeDetails::Utxo(UtxoFeeDetails { ref amount, .. })) = tx_details.fee_details {
         let actual_fee_amount = amount + &kmd_rewards;
         tx_details.fee_details = Some(TxFeeDetails::Utxo(UtxoFeeDetails {
+            coin: Some(coin.as_ref().conf.ticker.clone()),
             amount: actual_fee_amount,
         }));
     }
@@ -2360,7 +2354,6 @@ where
     let fut = async move {
         let fee = try_s!(coin.get_tx_fee().await);
         let amount = match fee {
-            ActualTxFee::Fixed(f) => f,
             ActualTxFee::Dynamic(f) => f,
             ActualTxFee::FixedPerKb(f) => f,
         };
@@ -2403,10 +2396,6 @@ where
     let my_address = coin.as_ref().derivation_method.iguana_or_err()?;
 
     match tx_fee {
-        ActualTxFee::Fixed(fee_amount) => {
-            let amount = big_decimal_from_sat(fee_amount as i64, decimals);
-            Ok(amount)
-        },
         // if it's a dynamic fee, we should generate a swap transaction to get an actual trade fee
         ActualTxFee::Dynamic(fee) => {
             // take into account that the dynamic tx fee may increase during the swap
@@ -2840,7 +2829,7 @@ where
             let tx_from_rpc = match coin
                 .as_ref()
                 .rpc_client
-                .get_transaction_bytes(tx.hash().reversed().into())
+                .get_transaction_bytes(&tx.hash().reversed().into())
                 .compat()
                 .await
             {
