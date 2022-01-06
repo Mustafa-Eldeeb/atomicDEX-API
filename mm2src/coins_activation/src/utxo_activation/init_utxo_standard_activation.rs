@@ -7,17 +7,17 @@ use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingSt
 use crate::utxo_activation::utxo_standard_activation_result::UtxoStandardActivationResult;
 use crate::utxo_activation::utxo_standard_coin_hw_ops::UtxoStandardCoinHwOps;
 use async_trait::async_trait;
+use coins::coin_balance::WalletBalancesOps;
 use coins::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::utxo::UtxoActivationParams;
-use coins::{CoinProtocol, MarketCoinOps, PrivKeyBuildPolicy};
+use coins::{lp_register_coin, CoinProtocol, MarketCoinOps, MmCoinEnum, PrivKeyBuildPolicy, RegisterCoinParams};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::Future01CompatExt;
 use crypto::trezor::trezor_rpc_task::RpcTaskHandle;
 use rpc_task::RpcTaskManagerShared;
 use serde_json::Value as Json;
-use std::collections::HashMap;
 
 pub type UtxoStandardTaskManagerShared = RpcTaskManagerShared<
     UtxoStandardActivationResult,
@@ -73,7 +73,8 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
         task_handle: &UtxoStandardRpcTaskHandle,
     ) -> MmResult<Self, InitUtxoStandardError> {
         let hw_ops = UtxoStandardCoinHwOps::new(&ctx, task_handle);
-        UtxoArcBuilder::new(
+        let tx_history = activation_request.tx_history;
+        let coin = UtxoArcBuilder::new(
             &ctx,
             &ticker,
             &coin_conf,
@@ -84,10 +85,16 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
         )
         .build()
         .await
-        .mm_err(|e| InitUtxoStandardError::from_build_err(e, ticker))
+        .mm_err(|e| InitUtxoStandardError::from_build_err(e, ticker.clone()))?;
+        lp_register_coin(&ctx, MmCoinEnum::from(coin.clone()), RegisterCoinParams {
+            ticker: ticker.clone(),
+            tx_history,
+        })
+        .await
+        .mm_err(|e| InitUtxoStandardError::from_register_err(e, ticker))?;
+        Ok(coin)
     }
 
-    // TODO finish implementing this method.
     async fn get_activation_result(
         &self,
         _task_handle: &UtxoStandardRpcTaskHandle,
@@ -100,11 +107,17 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
                     ticker: self.ticker().to_owned(),
                     error,
                 })?;
+        let wallet_balance = self
+            .wallet_balances()
+            .await
+            .mm_err(|error| InitUtxoStandardError::CoinCreationError {
+                ticker: self.ticker().to_owned(),
+                error: error.to_string(),
+            })?;
         let result = UtxoStandardActivationResult {
             current_block,
-            addresses_infos: HashMap::new(),
+            wallet_balance,
         };
-
         Ok(result)
     }
 }

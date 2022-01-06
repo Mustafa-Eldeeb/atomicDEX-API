@@ -35,6 +35,8 @@ use testcontainers::clients::Cli;
 use testcontainers::images::generic::{GenericImage, WaitFor};
 use testcontainers::{Container, Docker, Image};
 
+const WAIT_DOCKER_READY_TIMEOUT_MS: u64 = 60000;
+
 lazy_static! {
     static ref COINS_LOCK: Mutex<()> = Mutex::new(());
     pub static ref SLP_TOKEN_ID: Mutex<H256> = Mutex::new(H256::default());
@@ -64,7 +66,7 @@ pub trait CoinDockerOps {
     }
 
     fn wait_ready(&self) {
-        let timeout = now_ms() + 30000;
+        let timeout = now_ms() + WAIT_DOCKER_READY_TIMEOUT_MS;
         loop {
             match self.rpc_client().get_block_count().wait() {
                 Ok(n) => {
@@ -248,10 +250,7 @@ pub fn utxo_coin_from_privkey(ticker: &str, priv_key: &[u8]) -> (MmArc, UtxoStan
     let conf = json!({"asset":ticker,"txversion":4,"overwintered":1,"txfee":1000,"network":"regtest"});
     let req = json!({"method":"enable"});
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, ticker, &conf, params, priv_key,
-    ))
-    .unwrap();
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, ticker, &conf, params, priv_key)).unwrap();
     import_address(&coin);
     (ctx, coin)
 }

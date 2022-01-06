@@ -1,8 +1,9 @@
 use super::*;
+use crate::coin_balance::{HDAccountBalances, HDAddressBalance, HDWalletBalances, WalletBalance, WalletBalancesOps};
 use crate::utxo::qtum::{qtum_coin_from_with_priv_key, QtumCoin, QtumDelegationOps, QtumDelegationRequest};
 use crate::utxo::rpc_clients::{BlockHashOrHeight, ElectrumClient, ElectrumClientImpl, GetAddressInfoRes,
-                               ListSinceBlockRes, NativeClient, NativeClientImpl, NetworkInfo, UtxoRpcClientOps,
-                               ValidateAddressRes, VerboseBlock};
+                               ListSinceBlockRes, ListTransactionsItem, NativeClient, NativeClientImpl, NetworkInfo,
+                               UtxoRpcClientOps, ValidateAddressRes, VerboseBlock};
 use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinBuilderCommonOps};
 use crate::utxo::utxo_common::UtxoTxBuilder;
 use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
@@ -14,6 +15,7 @@ use common::executor::Timer;
 use common::mm_ctx::MmCtxBuilder;
 use common::privkey::key_pair_from_seed;
 use common::{block_on, now_ms, OrdRange, DEX_FEE_ADDR_RAW_PUBKEY};
+use crypto::RpcDerivationPath;
 use futures::future::join_all;
 use mocktopus::mocking::*;
 use rpc::v1::types::H256 as H256Json;
@@ -27,6 +29,7 @@ const RICK_ELECTRUM_ADDRS: &[&'static str] = &[
     "electrum2.cipig.net:10017",
     "electrum3.cipig.net:10017",
 ];
+const TEST_COIN_DECIMALS: u8 = 8;
 
 pub fn electrum_client_for_test(servers: &[&str]) -> ElectrumClient {
     let ctx = MmCtxBuilder::default().into_mm_arc();
@@ -125,7 +128,7 @@ fn utxo_coin_fields_for_test(
             network: None,
             trezor_coin: None,
         },
-        decimals: 8,
+        decimals: TEST_COIN_DECIMALS,
         dust_amount: UTXO_DUST_AMOUNT,
         tx_fee: TxFee::Fixed(1000),
         rpc_client,
@@ -3164,4 +3167,168 @@ fn test_withdraw_to_p2wpkh() {
     let expected_script = Builder::build_witness_script(&p2wpkh_address.hash);
 
     assert_eq!(output_script, expected_script);
+}
+
+#[test]
+fn test_hd_wallet_balances() {
+    static mut CHECKED_ADDRESSES: Option<HashMap<String, u64>> = None;
+    // Initialize the list of checked addresses.
+    unsafe { CHECKED_ADDRESSES = Some(HashMap::new()) };
+
+    let mut known_addresses: HashMap<String, u64> = HashMap::new();
+    let mut checking_addresses: HashMap<String, Option<u64>> = HashMap::new();
+    let mut expected_accounts_balances = HDWalletBalances {
+        accounts: vec![
+            HDAccountBalances {
+                account_index: 0,
+                addresses: Vec::new(),
+            },
+            HDAccountBalances {
+                account_index: 1,
+                addresses: Vec::new(),
+            },
+        ],
+    };
+
+    macro_rules! known_address {
+        (account = $account:literal, $der_path:literal, $address:literal, balance = $balance:literal) => {
+            known_addresses.insert($address.to_string(), $balance);
+            expected_accounts_balances.accounts[$account]
+                .addresses
+                .push(HDAddressBalance {
+                    address: $address.to_string(),
+                    derivation_path: RpcDerivationPath(DerivationPath::from_str($der_path).unwrap()),
+                    balance: CoinBalance::spendable(BigDecimal::from($balance)),
+                })
+        };
+    }
+
+    macro_rules! new_address {
+        (account = $account:literal, $der_path:literal, $address:literal, unspent = $unspent:expr) => {
+            checking_addresses.insert($address.to_string(), $unspent);
+            expected_accounts_balances.accounts[$account]
+                .addresses
+                .push(HDAddressBalance {
+                    address: $address.to_string(),
+                    derivation_path: RpcDerivationPath(DerivationPath::from_str($der_path).unwrap()),
+                    balance: CoinBalance::spendable(BigDecimal::from($unspent.unwrap_or(0))),
+                })
+        };
+    }
+
+    macro_rules! unused_address {
+        ($_der_path:literal, $address:literal) => {
+            checking_addresses.insert($address.to_string(), None)
+        };
+    }
+
+    // Please note that the order of the `known` and `new` addresses is important.
+    #[rustfmt::skip]
+    {
+        // Account#0, external addresses.
+        known_address!(account = 0, "m/44'/141'/0'/0/0", "RRqF4cYniMwYs66S4QDUUZ4GJQFQF69rBE", balance = 0);
+        known_address!(account = 0, "m/44'/141'/0'/0/1", "RSVLsjXc9LJ8fm9Jq7gXjeubfja3bbgSDf", balance = 0);
+        known_address!(account = 0, "m/44'/141'/0'/0/2", "RSSZjtgfnLzvqF4cZQJJEpN5gvK3pWmd3h", balance = 0);
+        new_address!(account = 0, "m/44'/141'/0'/0/3", "RU1gRFXWXNx7uPRAEJ7wdZAW1RZ4TE6Vv1", unspent = Some(98));
+        unused_address!("m/44'/141'/0'/0/4", "RUkEvRzb7mtwfVeKiSFEbYupLkcvU5KJBw");
+        unused_address!("m/44'/141'/0'/0/5", "RP8deqVfjBbkvxbGbsQ2EGdamMaP1wxizR");
+        unused_address!("m/44'/141'/0'/0/6", "RSvKMMegKGP5e2EanH7fnD4yNsxdJvLAmL"); // Stop searching for a non-empty address (gap_limit = 3).
+
+        // Account#0, internal addresses.
+        known_address!(account = 0, "m/44'/141'/0'/1/0", "RLZxcZSYtKe74JZd1hBAmmD9PNHZqb72oL", balance = 13);
+        new_address!(account = 0, "m/44'/141'/0'/1/1", "RPj9JXUVnewWwVpxZDeqGB25qVqz5qJzwP", unspent = None);
+        new_address!(account = 0, "m/44'/141'/0'/1/2", "RSYdSLRYWuzBson2GDbWBa632q2PmFnCaH", unspent = None);
+        new_address!(account = 0, "m/44'/141'/0'/1/3", "RQstQeTUEZLh6c3YWJDkeVTTQoZUsfvNCr", unspent = Some(14));
+        unused_address!("m/44'/141'/0'/1/4", "RT54m6pfj9scqwSLmYdfbmPcrpxnWGAe9J");
+        unused_address!("m/44'/141'/0'/1/5", "RYWfEFxqA6zya9c891Dj7vxiDojCmuWR9T");
+        unused_address!("m/44'/141'/0'/1/6", "RSkY6twW8knTcn6wGACUAG9crJHcuQ2kEH"); // Stop searching for a non-empty address (gap_limit = 3).
+
+        // Account#1, external addresses.
+        new_address!(account = 1, "m/44'/141'/1'/0/0", "RBQFLwJ88gVcnfkYvJETeTAB6AAYLow12K", unspent = Some(9));
+        new_address!(account = 1, "m/44'/141'/1'/0/1", "RCyy77sRWFa2oiFPpyimeTQfenM1aRoiZs", unspent = Some(7));
+        new_address!(account = 1, "m/44'/141'/1'/0/2", "RDnNa3pQmisfi42KiTZrfYfuxkLC91PoTJ", unspent = None);
+        new_address!(account = 1, "m/44'/141'/1'/0/3", "RQRGgXcGJz93CoAfQJoLgBz2r9HtJYMX3Z", unspent = None);
+        new_address!(account = 1, "m/44'/141'/1'/0/4", "RM6cqSFCFZ4J1LngLzqKkwo2ouipbDZUbm", unspent = Some(11));
+        unused_address!("m/44'/141'/1'/0/5", "RX2fGBZjNZMNdNcnc5QBRXvmsXTvadvTPN");
+        unused_address!("m/44'/141'/1'/0/6", "RJJ7muUETyp59vxVXna9KAZ9uQ1QSqmcjE");
+        unused_address!("m/44'/141'/1'/0/7", "RYJ6vbhxFre5yChCMiJJFNTTBhAQbKM9AY"); // Stop searching for a non-empty address (gap_limit = 3).
+
+        // Account#1, internal addresses.
+        known_address!(account = 1, "m/44'/141'/1'/1/0", "RGo7sYzivPtzv8aRQ4A6vRJDxoqkRRBRhZ", balance = 0);
+        known_address!(account = 1, "m/44'/141'/1'/1/1", "RX5fLxHikeWrKrFe8AMjkDtbu4VpL3eVda", balance = 4);
+        unused_address!("m/44'/141'/1'/0/2", "RCjRDibDAXKYpVYSUeJXrbTzZ1UEKYAwJa");
+        unused_address!("m/44'/141'/1'/0/3", "REs1NRzg8XjwN3v8Jp1wQUAyQb3TzeT8EB");
+        unused_address!("m/44'/141'/1'/0/4", "RS4UZtkwZ8eYaTL1xodXgFNryJoTbPJYE5"); // Stop searching for a non-empty address (gap_limit = 3).
+    }
+
+    NativeClient::display_balance.mock_safe(move |_, address: Address, _| {
+        let address = address.to_string();
+        let balance = match known_addresses.remove(&address) {
+            Some(balance) => balance,
+            // Check if the address has just been checked by [`NativeClient::list_transactions_by_address`].
+            None => unsafe {
+                CHECKED_ADDRESSES
+                    .as_mut()
+                    .unwrap()
+                    .remove(&address.to_string())
+                    .expect(&format!("Unexpected address: {}", address))
+            },
+        };
+        MockResult::Return(Box::new(futures01::future::ok(BigDecimal::from(balance))))
+    });
+
+    NativeClient::list_transactions_by_address.mock_safe(move |_, address| {
+        let value = checking_addresses
+            .remove(&address)
+            .expect(&format!("Unexpected address: {}", address));
+        let transactions = match value {
+            Some(balance) => {
+                unsafe {
+                    // Push the address balance into the list of checked addresses.
+                    CHECKED_ADDRESSES.as_mut().unwrap().insert(address, balance);
+                }
+                vec![ListTransactionsItem::default()]
+            },
+            None => Vec::new(),
+        };
+        MockResult::Return(Box::new(futures01::future::ok(transactions)))
+    });
+
+    let client = NativeClient(Arc::new(NativeClientImpl::default()));
+    let mut fields = utxo_coin_fields_for_test(UtxoRpcClientEnum::Native(client), None, false);
+    let accounts = PaMutex::new(vec![
+        UtxoHDAccount {
+            account_id: 0,
+            extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
+            account_derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap(),
+            external_addresses_number: 3,
+            internal_addresses_number: 1,
+        },
+        UtxoHDAccount {
+            account_id: 1,
+            extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
+            account_derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap(),
+            external_addresses_number: 0,
+            internal_addresses_number: 2,
+        },
+    ]);
+    fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
+        address_format: UtxoAddressFormat::Standard,
+        derivation_path: DerivationPath::from_str("m/44'/141'").unwrap(),
+        accounts,
+        gap_limit: 3,
+    });
+    let coin = utxo_coin_from_fields(fields);
+
+    let actual_balances = block_on(coin.wallet_balances()).expect("!wallet_balances");
+    assert_eq!(actual_balances, WalletBalance::HD(expected_accounts_balances));
+
+    let accounts = match coin.as_ref().derivation_method {
+        DerivationMethod::HDWallet(UtxoHDWallet { ref accounts, .. }) => accounts.lock().clone(),
+        _ => unreachable!(),
+    };
+    assert_eq!(accounts[0].external_addresses_number, 4);
+    assert_eq!(accounts[0].internal_addresses_number, 4);
+    assert_eq!(accounts[1].external_addresses_number, 5);
+    assert_eq!(accounts[1].internal_addresses_number, 2);
 }

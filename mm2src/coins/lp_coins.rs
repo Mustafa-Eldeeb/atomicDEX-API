@@ -22,6 +22,7 @@
 #![feature(associated_type_bounds)]
 #![feature(async_closure)]
 #![feature(hash_raw_entry)]
+#![feature(stmt_expr_attributes)]
 
 #[macro_use] extern crate common;
 #[macro_use] extern crate fomat_macros;
@@ -39,7 +40,7 @@ use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsWeak;
 use common::mm_number::MmNumber;
 use common::{calc_total_pages, now_ms, HttpStatusCode};
-use crypto::CryptoCtx;
+use crypto::{Bip32Error, CryptoCtx, DerivationPath};
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
@@ -94,6 +95,7 @@ macro_rules! try_f {
     };
 }
 
+pub mod coin_balance;
 #[doc(hidden)]
 #[cfg(test)]
 pub mod coins_tests;
@@ -686,6 +688,20 @@ pub struct CoinBalance {
     pub unspendable: BigDecimal,
 }
 
+impl CoinBalance {
+    pub fn spendable(spendable: BigDecimal) -> CoinBalance {
+        CoinBalance {
+            spendable,
+            unspendable: BigDecimal::from(0),
+        }
+    }
+}
+
+pub struct HDAddress<Address> {
+    address: Address,
+    derivation_path: DerivationPath,
+}
+
 /// The approximation is needed to cover the dynamic miner fee changing during a swap.
 #[derive(Clone, Debug)]
 pub enum FeeApproxStage {
@@ -836,6 +852,10 @@ impl From<NumConversError> for BalanceError {
 
 impl From<DerivationMethodNotSupported> for BalanceError {
     fn from(e: DerivationMethodNotSupported) -> Self { BalanceError::DerivationMethodNotSupported(e) }
+}
+
+impl From<Bip32Error> for BalanceError {
+    fn from(e: Bip32Error) -> Self { BalanceError::Internal(e.to_string()) }
 }
 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
@@ -1519,6 +1539,14 @@ impl<Address, HDWallet> DerivationMethod<Address, HDWallet> {
     ///
     /// Panic if the address mode is [`DerivationMethod::HDWallet`].
     pub fn unwrap_iguana(&self) -> &Address { self.iguana_or_err().unwrap() }
+}
+
+#[async_trait]
+pub trait CoinWithDerivationMethod {
+    type Address;
+    type HDWallet;
+
+    fn derivation_method(&self) -> &DerivationMethod<Self::Address, Self::HDWallet>;
 }
 
 #[allow(clippy::upper_case_acronyms)]

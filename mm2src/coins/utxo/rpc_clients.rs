@@ -323,6 +323,7 @@ pub struct ValidateAddressRes {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(Default))]
 pub struct ListTransactionsItem {
     pub account: Option<String>,
     #[serde(default)]
@@ -770,6 +771,26 @@ impl NativeClient {
             addresses,
         };
         let fut = async move { arc.list_unspent_concurrent_map.wrap_request(args, request_fut).await };
+        Box::new(fut.boxed().compat())
+    }
+
+    pub fn list_transactions_by_address(&self, address: String) -> RpcRes<Vec<ListTransactionsItem>> {
+        const STEP: u64 = 100;
+
+        let selfi = self.clone();
+        let mut from = 0;
+        let fut = async move {
+            let mut address_transactions = Vec::new();
+            loop {
+                let transactions = selfi.list_transactions(STEP, from).compat().await?;
+                if transactions.is_empty() {
+                    return Ok(address_transactions);
+                }
+
+                address_transactions.extend(transactions.into_iter().filter(|item| item.address == address));
+                from += STEP;
+            }
+        };
         Box::new(fut.boxed().compat())
     }
 }

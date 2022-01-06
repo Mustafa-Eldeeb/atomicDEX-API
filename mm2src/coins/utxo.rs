@@ -48,7 +48,7 @@ use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsArc;
 use common::now_ms;
 use crypto::trezor::utxo::TrezorUtxoCoin;
-use crypto::{ChildNumber, DerivationPath, Secp256k1ExtendedPublicKey};
+use crypto::{Bip32Error, ChildNumber, DerivationPath, Secp256k1ExtendedPublicKey};
 use derive_more::Display;
 #[cfg(not(target_arch = "wasm32"))] use dirs::home_dir;
 use futures::channel::mpsc;
@@ -88,7 +88,7 @@ pub use chain::Transaction as UtxoTx;
 use self::rpc_clients::{ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode, UnspentInfo, UtxoRpcClientEnum,
                         UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
 use super::{BalanceError, BalanceFut, BalanceResult, CoinsContext, DerivationMethod, DerivationMethodNotSupported,
-            FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails, MarketCoinOps, MmCoin,
+            FeeApproxStage, FoundSwapTxSpend, HDAddress, HistorySyncState, KmdRewardsDetails, MarketCoinOps, MmCoin,
             NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy, RpcTransportEventHandler,
             RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
             Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError, WithdrawRequest};
@@ -111,6 +111,7 @@ const KMD_MTP_BLOCK_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(11u64
 const DEFAULT_DYNAMIC_FEE_VOLATILITY_PERCENT: f64 = 0.5;
 /// BIP44 purpose is encoded as `44'`.
 const BIP44_PURPOSE: u32 = 44 | ChildNumber::HARDENED_FLAG;
+const DEFAULT_GAP_LIMIT: u32 = 20;
 
 pub type GenerateTxResult = Result<(TransactionInputSigner, AdditionalTxData), MmError<GenerateTxError>>;
 pub type HistoryUtxoTxMap = HashMap<H256Json, HistoryUtxoTx>;
@@ -494,7 +495,7 @@ pub struct UtxoCoinFields {
     /// Either ECDSA key pair or a Hardware Wallet info.
     pub priv_key_policy: PrivKeyPolicy<KeyPair>,
     /// Either an Iguana address or an info about last derived account/address.
-    pub derivation_method: DerivationMethod<Address, HDWalletInfo>,
+    pub derivation_method: DerivationMethod<Address, UtxoHDWallet>,
     pub history_sync_state: Mutex<HistorySyncState>,
     /// Path to the TX cache directory
     pub tx_cache_directory: Option<PathBuf>,
@@ -605,6 +606,15 @@ pub trait UtxoTxGenerationOps {
     ) -> UtxoRpcResult<(TransactionInputSigner, AdditionalTxData)>;
 }
 
+pub trait UtxoHDWalletOps {
+    fn derive_address(
+        &self,
+        account: &UtxoHDAccount,
+        address_id: u32,
+        change: bool,
+    ) -> MmResult<HDAddress<Address>, Bip32Error>;
+}
+
 #[async_trait]
 #[cfg_attr(test, mockable)]
 pub trait UtxoCommonOps: UtxoTxGenerationOps + UtxoTxBroadcastOps {
@@ -691,6 +701,11 @@ pub trait UtxoCommonOps: UtxoTxGenerationOps + UtxoTxBroadcastOps {
     fn addr_format_for_standard_scripts(&self) -> UtxoAddressFormat;
 
     fn address_from_pubkey(&self, pubkey: &Public) -> Address;
+
+    fn address_from_extended_pubkey(&self, extended_pubkey: &Secp256k1ExtendedPublicKey) -> Address {
+        let pubkey = Public::Compressed(H264::from(extended_pubkey.public_key().serialize()));
+        self.address_from_pubkey(&pubkey)
+    }
 }
 
 #[async_trait]
@@ -948,6 +963,7 @@ pub struct UtxoActivationParams {
     pub required_confirmations: Option<u64>,
     pub requires_notarization: Option<bool>,
     pub address_format: Option<UtxoAddressFormat>,
+    pub gap_limit: Option<u32>,
 }
 
 #[derive(Debug, Display)]
@@ -989,6 +1005,7 @@ impl UtxoActivationParams {
             required_confirmations,
             requires_notarization,
             address_format,
+            gap_limit: None,
         })
     }
 }
@@ -1018,11 +1035,8 @@ impl Default for ElectrumBuilderArgs {
 }
 
 #[derive(Debug)]
-pub struct HDWalletInfo {
+pub struct UtxoHDWallet {
     pub address_format: UtxoAddressFormat,
-    /// [Extended public key](https://learnmeabitcoin.com/technical/extended-keys) derived from a master private/public key using [`HDWalletInfo::derivation_path`].
-    /// This is used to derive accounts and addresses.
-    pub extended_pubkey: Secp256k1ExtendedPublicKey,
     /// Derivation path of the coin.
     /// This derivation path is expected to consist of `purpose` and `coin_type` only
     /// where the full `BIP44` address has the following structure:
@@ -1030,15 +1044,23 @@ pub struct HDWalletInfo {
     pub derivation_path: DerivationPath,
     /// User account infos.
     /// [`accounts.len()`] equals the number of non-empty user accounts.
-    pub accounts: PaMutex<Vec<DerivationAccountInfo>>,
+    pub accounts: PaMutex<Vec<UtxoHDAccount>>,
+    pub gap_limit: u32,
 }
 
-#[derive(Debug, PartialEq)]
-pub struct DerivationAccountInfo {
+#[derive(Clone, Debug, PartialEq)]
+pub struct UtxoHDAccount {
+    pub account_id: u32,
+    /// [Extended public key](https://learnmeabitcoin.com/technical/extended-keys) derived from a master private/public key
+    /// using [`UtxoHDWallet::derivation_path`] and [`UtxoHDAccount::account_id`].
+    pub extended_pubkey: Secp256k1ExtendedPublicKey,
+    /// [`UtxoHDWallet::derivation_path`] derived by [`UtxoHDAccount::account_id`].
+    pub account_derivation_path: DerivationPath,
     /// The number of addresses that we know have been used by the user.
     /// This is used in order not to check the transaction history for each address,
     /// but to request the balance of addresses whose index is less than `address_number`.
-    pub addresses_number: u32,
+    pub external_addresses_number: u32,
+    pub internal_addresses_number: u32,
 }
 
 /// Function calculating KMD interest
@@ -1316,6 +1338,7 @@ pub fn address_by_conf_and_pubkey_str(
         required_confirmations: None,
         requires_notarization: None,
         address_format: None,
+        gap_limit: None,
     };
     let conf_builder = UtxoConfBuilder::new(conf, params, coin);
     let utxo_conf = try_s!(conf_builder.build());

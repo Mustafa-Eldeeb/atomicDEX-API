@@ -1,9 +1,9 @@
 use crate::utxo::rpc_clients::{ConcurrentRequestMap, ElectrumClient, ElectrumClientImpl, ElectrumRpcRequest,
                                EstimateFeeMethod, NativeClient, NativeClientImpl, UtxoRpcClientEnum};
 use crate::utxo::utxo_builder::utxo_conf_builder::{UtxoConfBuilder, UtxoConfError, UtxoConfResult};
-use crate::utxo::{coin_daemon_data_dir, output_script, ElectrumBuilderArgs, ElectrumProtoVerifier, HDWalletInfo,
-                  RecentlySpentOutPoints, TxFee, UtxoCoinConf, UtxoCoinFields, UtxoRpcMode, BIP44_PURPOSE,
-                  UTXO_DUST_AMOUNT};
+use crate::utxo::{coin_daemon_data_dir, output_script, ElectrumBuilderArgs, ElectrumProtoVerifier,
+                  RecentlySpentOutPoints, TxFee, UtxoCoinConf, UtxoCoinFields, UtxoHDAccount, UtxoHDWallet,
+                  UtxoRpcMode, BIP44_PURPOSE, DEFAULT_GAP_LIMIT, UTXO_DUST_AMOUNT};
 use crate::{BlockchainNetwork, CoinTransportMetrics, DerivationMethod, HistorySyncState, PrivKeyBuildPolicy,
             PrivKeyPolicy, RpcClientType, UtxoActivationParams};
 use async_trait::async_trait;
@@ -189,12 +189,13 @@ where
 
         let address_format = self.address_format()?;
         let derivation_path = self.derivation_path()?;
-        let extended_pubkey = hw_ops.extended_public_key(&conf, derivation_path.clone()).await?;
-        let hd_wallet = HDWalletInfo {
+        let accounts = self.hd_wallet_accounts(hw_ops, &conf, derivation_path.clone()).await?;
+        let gap_limit = self.gap_limit();
+        let hd_wallet = UtxoHDWallet {
             address_format,
-            extended_pubkey,
             derivation_path,
-            accounts: PaMutex::new(Vec::new()),
+            accounts: PaMutex::new(accounts),
+            gap_limit,
         };
 
         let rpc_client = self.rpc_client().await?;
@@ -222,6 +223,30 @@ where
         Ok(coin)
     }
 
+    /// Currently, initializes first account only.
+    /// Later user can specify how many accounts we should initialize.
+    async fn hd_wallet_accounts(
+        &self,
+        hw_ops: &HwOps,
+        conf: &UtxoCoinConf,
+        mut derivation_path: DerivationPath,
+    ) -> UtxoCoinBuildResult<Vec<UtxoHDAccount>> {
+        let initial_account_id = 0;
+        let account_child_hardened = true;
+        let account_child =
+            ChildNumber::new(initial_account_id, account_child_hardened).expect("'initial_account_id' < HARDENED_FLAG");
+        derivation_path.push(account_child);
+
+        Ok(vec![UtxoHDAccount {
+            account_id: initial_account_id,
+            extended_pubkey: hw_ops.extended_public_key(conf, derivation_path.clone()).await?,
+            account_derivation_path: derivation_path,
+            // We don't know how many addresses are used by the user at this moment.
+            external_addresses_number: 0,
+            internal_addresses_number: 0,
+        }])
+    }
+
     fn derivation_path(&self) -> UtxoConfResult<DerivationPath> {
         if self.conf()["derivation_path"].is_null() {
             return MmError::err(UtxoConfError::DerivationPathIsNotSet);
@@ -243,6 +268,8 @@ where
         }
         Ok(derivation_path)
     }
+
+    fn gap_limit(&self) -> u32 { self.activation_params().gap_limit.unwrap_or(DEFAULT_GAP_LIMIT) }
 }
 
 #[async_trait]
