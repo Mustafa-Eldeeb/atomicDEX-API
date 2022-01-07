@@ -738,7 +738,7 @@ impl Deref for UtxoArc {
 }
 
 impl From<UtxoCoinFields> for UtxoArc {
-    fn from(coin: UtxoCoinFields) -> UtxoArc { UtxoArc(Arc::new(coin)) }
+    fn from(coin: UtxoCoinFields) -> UtxoArc { UtxoArc::new(coin) }
 }
 
 impl From<Arc<UtxoCoinFields>> for UtxoArc {
@@ -746,6 +746,10 @@ impl From<Arc<UtxoCoinFields>> for UtxoArc {
 }
 
 impl UtxoArc {
+    pub fn new(fields: UtxoCoinFields) -> UtxoArc { UtxoArc(Arc::new(fields)) }
+
+    pub fn with_arc(inner: Arc<UtxoCoinFields>) -> UtxoArc { UtxoArc(inner) }
+
     /// Returns weak reference to the inner UtxoCoinFields
     pub fn downgrade(&self) -> UtxoWeak {
         let weak = Arc::downgrade(&self.0);

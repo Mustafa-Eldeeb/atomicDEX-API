@@ -244,10 +244,11 @@ impl<'a> UtxoFieldsWithIguanaPrivKeyBuilder for Qrc20CoinBuilder<'a> {}
 #[async_trait]
 impl<'a> UtxoCoinWithIguanaPrivKeyBuilder for Qrc20CoinBuilder<'a> {
     type ResultCoin = Qrc20Coin;
+    type Error = UtxoCoinBuildError;
 
     fn priv_key(&self) -> &[u8] { self.priv_key }
 
-    async fn build(self) -> UtxoCoinBuildResult<Self::ResultCoin> {
+    async fn build(self) -> MmResult<Self::ResultCoin, Self::Error> {
         let utxo = self.build_utxo_fields_with_iguana_priv_key(self.priv_key()).await?;
         let inner = Qrc20CoinFields {
             utxo,

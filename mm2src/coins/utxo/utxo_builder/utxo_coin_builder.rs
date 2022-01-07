@@ -98,12 +98,13 @@ where
     HwOps: UtxoCoinBuildHwOps + Send + Sync,
 {
     type ResultCoin;
+    type Error: NotMmError;
 
     fn priv_key_policy(&self) -> PrivKeyBuildPolicy<'_>;
 
     fn hw_ops(&self) -> &HwOps;
 
-    async fn build(self) -> UtxoCoinBuildResult<Self::ResultCoin>;
+    async fn build(self) -> MmResult<Self::ResultCoin, Self::Error>;
 
     async fn build_utxo_fields(&self) -> UtxoCoinBuildResult<UtxoCoinFields> {
         match self.priv_key_policy() {
@@ -116,10 +117,11 @@ where
 #[async_trait]
 pub trait UtxoCoinWithIguanaPrivKeyBuilder: UtxoFieldsWithIguanaPrivKeyBuilder {
     type ResultCoin;
+    type Error: NotMmError;
 
     fn priv_key(&self) -> &[u8];
 
-    async fn build(self) -> UtxoCoinBuildResult<Self::ResultCoin>;
+    async fn build(self) -> MmResult<Self::ResultCoin, Self::Error>;
 }
 
 #[async_trait]
