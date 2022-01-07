@@ -26,6 +26,7 @@ use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
 use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
+use lightning::ln::channelmanager::ChannelDetails;
 use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_background_processor::BackgroundProcessor;
@@ -34,8 +35,9 @@ use lightning_invoice::utils::create_invoice_from_channelmanager;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::Invoice;
 use ln_errors::{ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
-                GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, ListPaymentsError,
-                ListPaymentsResult, OpenChannelError, OpenChannelResult, SendPaymentError, SendPaymentResult};
+                GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, ListChannelsError,
+                ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult,
+                SendPaymentError, SendPaymentResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
@@ -553,6 +555,82 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
         node_id: req.node_id,
         request_id,
     })
+}
+
+#[derive(Deserialize)]
+pub struct ListChannelsRequest {
+    pub coin: String,
+}
+
+#[derive(Serialize)]
+pub struct ChannelDetailsForRPC {
+    pub channel_id: String,
+    pub counterparty_node_id: String,
+    pub funding_tx: Option<String>,
+    pub funding_tx_output_index: Option<u16>,
+    pub funding_tx_value: u64,
+    /// True if the channel was initiated (and thus funded) by us.
+    pub is_outbound: bool,
+    pub balance_msat: u64,
+    pub outbound_capacity_msat: u64,
+    pub inbound_capacity_msat: u64,
+    // Channel is confirmed onchain, this means that funding_locked messages have been exchanged,
+    // the channel is not currently being shut down, and the required confirmation count has been reached.
+    pub confirmed: bool,
+    // Channel is confirmed and funding_locked messages have been exchanged, the peer is connected,
+    // and the channel is not currently negotiating a shutdown.
+    pub is_usable: bool,
+    // A publicly-announced channel.
+    pub is_public: bool,
+}
+
+impl From<ChannelDetails> for ChannelDetailsForRPC {
+    fn from(details: ChannelDetails) -> ChannelDetailsForRPC {
+        ChannelDetailsForRPC {
+            channel_id: hex::encode(details.channel_id),
+            counterparty_node_id: details.counterparty.node_id.to_string(),
+            funding_tx: details.funding_txo.map(|tx| tx.txid.to_string()),
+            funding_tx_output_index: details.funding_txo.map(|tx| tx.index),
+            funding_tx_value: details.channel_value_satoshis,
+            is_outbound: details.is_outbound,
+            balance_msat: details.balance_msat,
+            outbound_capacity_msat: details.outbound_capacity_msat,
+            inbound_capacity_msat: details.inbound_capacity_msat,
+            confirmed: details.is_funding_locked,
+            is_usable: details.is_usable,
+            is_public: details.is_public,
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct ListChannelsResponse {
+    channels: Vec<ChannelDetailsForRPC>,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn list_channels(_ctx: MmArc, _req: ListChannelsRequest) -> ListChannelsResult<ListChannelsResponse> {
+    MmError::err(ListChannelsError::UnsupportedMode(
+        "'list_channels'".into(),
+        "native".into(),
+    ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn list_channels(ctx: MmArc, req: ListChannelsRequest) -> ListChannelsResult<ListChannelsResponse> {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(ListChannelsError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let channels = ln_coin
+        .channel_manager
+        .list_channels()
+        .into_iter()
+        .map(From::from)
+        .collect();
+
+    Ok(ListChannelsResponse { channels })
 }
 
 #[derive(Deserialize)]
