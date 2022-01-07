@@ -1573,6 +1573,13 @@ pub trait CoinWithDerivationMethod {
     fn derivation_method(&self) -> &DerivationMethod<Self::Address, Self::HDWallet>;
 }
 
+// #[async_trait]
+pub trait HDWalletCoinOps {
+    type HDWallet;
+
+    fn gap_limit(&self, _hd_wallet: &Self::HDWallet) -> u32;
+}
+
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "protocol_data")]

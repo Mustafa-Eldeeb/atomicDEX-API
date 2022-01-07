@@ -7,7 +7,7 @@ use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingSt
 use crate::utxo_activation::utxo_standard_activation_result::UtxoStandardActivationResult;
 use crate::utxo_activation::utxo_standard_coin_hw_ops::UtxoStandardCoinHwOps;
 use async_trait::async_trait;
-use coins::coin_balance::WalletBalancesOps;
+use coins::coin_balance::WalletBalanceOps;
 use coins::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::utxo::UtxoActivationParams;
@@ -108,7 +108,7 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
                     error,
                 })?;
         let wallet_balance = self
-            .wallet_balances()
+            .wallet_balance()
             .await
             .mm_err(|error| InitUtxoStandardError::CoinCreationError {
                 ticker: self.ticker().to_owned(),

@@ -1,3 +1,4 @@
+use crate::coin_balance::{iguana_wallet_balance, WalletBalance, WalletBalanceOps};
 use crate::utxo::rpc_clients::{UnspentInfo, UtxoRpcClientEnum, UtxoRpcClientOps, UtxoRpcError, UtxoRpcFut,
                                UtxoRpcResult};
 use crate::utxo::utxo_common::{big_decimal_from_sat_unsigned, payment_script, UtxoArcBuilder};
@@ -5,10 +6,11 @@ use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxDa
                   FeePolicy, HistoryUtxoTx, HistoryUtxoTxMap, RecentlySpentOutPoints, UtxoActivationParams,
                   UtxoAddressFormat, UtxoArc, UtxoCoinBuilder, UtxoCoinFields, UtxoCommonOps, UtxoFeeDetails,
                   UtxoTxBroadcastOps, UtxoTxGenerationOps, UtxoWeak, VerboseTransactionFrom};
-use crate::{BalanceFut, CoinBalance, DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
-            MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, PrivKeyBuildPolicy, SwapOps,
-            TradeFee, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum,
-            TransactionFut, TxFeeDetails, ValidateAddressResult, WithdrawFut, WithdrawRequest};
+use crate::{BalanceFut, BalanceResult, CoinBalance, DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend,
+            HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError,
+            PrivKeyBuildPolicy, SwapOps, TradeFee, TradePreimageFut, TradePreimageResult, TradePreimageValue,
+            TransactionDetails, TransactionEnum, TransactionFut, TxFeeDetails, ValidateAddressResult, WithdrawFut,
+            WithdrawRequest};
 use crate::{Transaction, WithdrawError};
 use async_trait::async_trait;
 use bitcrypto::dhash160;
@@ -579,7 +581,13 @@ async fn z_coin_from_conf_and_params_with_z_key(
     mut db_dir_path: PathBuf,
     z_spending_key: ExtendedSpendingKey,
 ) -> Result<ZCoin, MmError<ZCoinBuildError>> {
-    let builder = UtxoArcBuilder::new(ctx, ticker, conf, params, PrivKeyBuildPolicy::IguanaPrivKey(secp_priv_key));
+    let builder = UtxoArcBuilder::new(
+        ctx,
+        ticker,
+        conf,
+        params,
+        PrivKeyBuildPolicy::IguanaPrivKey(secp_priv_key),
+    );
     let utxo_arc = builder.build().await?;
     let db_name = format!("{}_CACHE.db", ticker);
 
@@ -1323,6 +1331,11 @@ impl UtxoCommonOps for ZCoin {
             self.addr_format().clone(),
         )
     }
+}
+
+#[async_trait]
+impl WalletBalanceOps for ZCoin {
+    async fn wallet_balance(&self) -> BalanceResult<WalletBalance> { iguana_wallet_balance(self).await }
 }
 
 #[test]

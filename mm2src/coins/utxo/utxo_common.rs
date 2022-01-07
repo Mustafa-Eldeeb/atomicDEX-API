@@ -1,5 +1,5 @@
 use super::*;
-use crate::coin_balance::{AddressBalanceStatus, HDAccountBalances, HDAddressBalance, HDWalletBalanceOps};
+use crate::coin_balance::{AddressBalanceStatus, HDAccountBalance, HDAddressBalance, HDWalletBalanceOps};
 use crate::init_withdraw::WithdrawTaskHandle;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
@@ -103,21 +103,18 @@ where
     })
 }
 
-pub async fn hd_wallet_balances<T>(
-    coin: &T,
-    hd_wallet: &UtxoHDWallet,
-) -> BalanceResult<Vec<HDAccountBalances<CoinBalance>>>
+pub async fn hd_wallet_balance<T>(coin: &T, hd_wallet: &UtxoHDWallet) -> BalanceResult<Vec<HDAccountBalance>>
 where
     T: UtxoCommonOps
         + UtxoHDWalletOps
-        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address, Balance = CoinBalance>,
+        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address>,
 {
     let orig_accounts = hd_wallet.accounts.lock().clone();
     let mut accounts = orig_accounts.clone();
     let mut balances = Vec::with_capacity(accounts.len());
 
     for hd_account in accounts.iter_mut() {
-        balances.push(coin.hd_account_balances(hd_wallet, hd_account).await?);
+        balances.push(coin.hd_account_balance(hd_wallet, hd_account).await?);
     }
 
     // Update the accounts container if it hasn't been changed already while we requested the balances.
@@ -129,18 +126,18 @@ where
     Ok(balances)
 }
 
-pub async fn hd_account_balances<T>(
+pub async fn hd_account_balance<T>(
     coin: &T,
     hd_wallet: &UtxoHDWallet,
     hd_account: &mut UtxoHDAccount,
-) -> BalanceResult<HDAccountBalances<CoinBalance>>
+) -> BalanceResult<HDAccountBalance>
 where
     T: UtxoCommonOps
         + UtxoHDWalletOps
-        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address, Balance = CoinBalance>
+        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address>
         + Sync,
 {
-    let mut account_balances = HDAccountBalances {
+    let mut account_balance = HDAccountBalance {
         account_index: hd_account.account_id as u32,
         addresses: Vec::new(),
     };
@@ -149,30 +146,30 @@ where
     let internal_addresses = true;
 
     // Request balances of the external addresses.
-    account_balances.addresses.extend(
+    account_balance.addresses.extend(
         balance_of_hd_account_used_addresses(coin, hd_account, external_addresses)
             .await?
             .into_iter(),
     );
-    account_balances.addresses.extend(
+    account_balance.addresses.extend(
         check_balance_of_hd_account_unknown_addresses(coin, hd_wallet, hd_account, external_addresses)
             .await?
             .into_iter(),
     );
 
     // Request balances of the internal addresses.
-    account_balances.addresses.extend(
+    account_balance.addresses.extend(
         balance_of_hd_account_used_addresses(coin, hd_account, internal_addresses)
             .await?
             .into_iter(),
     );
-    account_balances.addresses.extend(
+    account_balance.addresses.extend(
         check_balance_of_hd_account_unknown_addresses(coin, hd_wallet, hd_account, internal_addresses)
             .await?
             .into_iter(),
     );
 
-    Ok(account_balances)
+    Ok(account_balance)
 }
 
 /// Requests balances of HD account addresses that have been used already.
@@ -180,11 +177,11 @@ pub async fn balance_of_hd_account_used_addresses<T>(
     coin: &T,
     hd_account: &UtxoHDAccount,
     change: bool,
-) -> BalanceResult<Vec<HDAddressBalance<CoinBalance>>>
+) -> BalanceResult<Vec<HDAddressBalance>>
 where
     T: UtxoCommonOps
         + UtxoHDWalletOps
-        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address, Balance = CoinBalance>
+        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address>
         + Sync,
 {
     let non_empty_addresses_number = if change {
@@ -225,11 +222,11 @@ pub async fn check_balance_of_hd_account_unknown_addresses<T>(
     hd_wallet: &UtxoHDWallet,
     hd_account: &mut UtxoHDAccount,
     change: bool,
-) -> BalanceResult<Vec<HDAddressBalance<CoinBalance>>>
+) -> BalanceResult<Vec<HDAddressBalance>>
 where
     T: UtxoCommonOps
         + UtxoHDWalletOps
-        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address, Balance = CoinBalance>,
+        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address>,
 {
     let gap_limit = coin.gap_limit(hd_wallet);
     let mut balances = Vec::with_capacity(gap_limit as usize);

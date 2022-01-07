@@ -1,5 +1,5 @@
 use super::*;
-use crate::coin_balance::{HDAccountBalances, HDAddressBalance, HDWalletBalances, WalletBalance, WalletBalancesOps};
+use crate::coin_balance::{HDAccountBalance, HDAddressBalance, HDWalletBalance, WalletBalance, WalletBalanceOps};
 use crate::utxo::qtum::{qtum_coin_from_with_priv_key, QtumCoin, QtumDelegationOps, QtumDelegationRequest};
 use crate::utxo::rpc_clients::{BlockHashOrHeight, ElectrumClient, ElectrumClientImpl, GetAddressInfoRes,
                                ListSinceBlockRes, ListTransactionsItem, NativeClient, NativeClientImpl, NetworkInfo,
@@ -3180,20 +3180,20 @@ fn test_withdraw_to_p2wpkh() {
 }
 
 #[test]
-fn test_hd_wallet_balances() {
+fn test_hd_wallet_balance() {
     static mut CHECKED_ADDRESSES: Option<HashMap<String, u64>> = None;
     // Initialize the list of checked addresses.
     unsafe { CHECKED_ADDRESSES = Some(HashMap::new()) };
 
     let mut known_addresses: HashMap<String, u64> = HashMap::new();
     let mut checking_addresses: HashMap<String, Option<u64>> = HashMap::new();
-    let mut expected_accounts_balances = HDWalletBalances {
+    let mut expected_accounts_balances = HDWalletBalance {
         accounts: vec![
-            HDAccountBalances {
+            HDAccountBalance {
                 account_index: 0,
                 addresses: Vec::new(),
             },
-            HDAccountBalances {
+            HDAccountBalance {
                 account_index: 1,
                 addresses: Vec::new(),
             },
@@ -3330,7 +3330,7 @@ fn test_hd_wallet_balances() {
     });
     let coin = utxo_coin_from_fields(fields);
 
-    let actual_balances = block_on(coin.wallet_balances()).expect("!wallet_balances");
+    let actual_balances = block_on(coin.wallet_balance()).expect("!wallet_balances");
     assert_eq!(actual_balances, WalletBalance::HD(expected_accounts_balances));
 
     let accounts = match coin.as_ref().derivation_method {

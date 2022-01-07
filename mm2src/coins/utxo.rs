@@ -89,10 +89,11 @@ pub use chain::Transaction as UtxoTx;
 use self::rpc_clients::{ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode, UnspentInfo, UtxoRpcClientEnum,
                         UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
 use super::{BalanceError, BalanceFut, BalanceResult, CoinsContext, DerivationMethod, DerivationMethodNotSupported,
-            FeeApproxStage, FoundSwapTxSpend, HDAddress, HistorySyncState, KmdRewardsDetails, MarketCoinOps, MmCoin,
-            NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy, RpcTransportEventHandler,
-            RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
-            Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError, WithdrawRequest};
+            FeeApproxStage, FoundSwapTxSpend, HDAddress, HDWalletCoinOps, HistorySyncState, KmdRewardsDetails,
+            MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy,
+            RpcTransportEventHandler, RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut,
+            TradePreimageResult, Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError,
+            WithdrawRequest};
 
 #[cfg(test)] pub mod utxo_tests;
 #[cfg(target_arch = "wasm32")] pub mod utxo_wasm_tests;
@@ -605,7 +606,7 @@ pub trait UtxoTxGenerationOps {
     ) -> UtxoRpcResult<(TransactionInputSigner, AdditionalTxData)>;
 }
 
-pub trait UtxoHDWalletOps {
+pub trait UtxoHDWalletOps: HDWalletCoinOps<HDWallet = UtxoHDWallet> {
     fn derive_address(
         &self,
         account: &UtxoHDAccount,

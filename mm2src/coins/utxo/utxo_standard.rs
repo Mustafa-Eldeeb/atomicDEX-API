@@ -1,6 +1,5 @@
 use super::*;
-use crate::coin_balance::{AddressBalanceOps, AddressBalanceStatus, HDAccountBalances, HDWalletBalanceOps,
-                          WalletBalancesOps};
+use crate::coin_balance::{AddressBalanceOps, AddressBalanceStatus, HDAccountBalance, HDWalletBalanceOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
 use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, NegotiateSwapContractAddrErr, SwapOps,
@@ -575,9 +574,8 @@ impl UtxoSignerOps for UtxoStandardCoin {
 #[async_trait]
 impl AddressBalanceOps for UtxoStandardCoin {
     type Address = Address;
-    type Balance = CoinBalance;
 
-    async fn address_balance(&self, address: &Self::Address) -> BalanceResult<Self::Balance> {
+    async fn address_balance(&self, address: &Self::Address) -> BalanceResult<CoinBalance> {
         utxo_common::address_balance(self.as_ref(), address.clone()).await
     }
 }
@@ -589,6 +587,12 @@ impl CoinWithDerivationMethod for UtxoStandardCoin {
     fn derivation_method(&self) -> &DerivationMethod<Self::Address, Self::HDWallet> {
         utxo_common::derivation_method(self.as_ref())
     }
+}
+
+impl HDWalletCoinOps for UtxoStandardCoin {
+    type HDWallet = UtxoHDWallet;
+
+    fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32 { hd_wallet.gap_limit }
 }
 
 impl UtxoHDWalletOps for UtxoStandardCoin {
@@ -607,29 +611,19 @@ impl HDWalletBalanceOps for UtxoStandardCoin {
     type HDWallet = UtxoHDWallet;
     type HDAccount = UtxoHDAccount;
 
-    fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32 { hd_wallet.gap_limit }
-
-    async fn hd_wallet_balances(
-        &self,
-        hd_wallet: &Self::HDWallet,
-    ) -> BalanceResult<Vec<HDAccountBalances<Self::Balance>>> {
-        utxo_common::hd_wallet_balances(self, hd_wallet).await
+    async fn hd_wallet_balance(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<Vec<HDAccountBalance>> {
+        utxo_common::hd_wallet_balance(self, hd_wallet).await
     }
 
-    async fn hd_account_balances(
+    async fn hd_account_balance(
         &self,
         hd_wallet: &Self::HDWallet,
         hd_account: &mut Self::HDAccount,
-    ) -> BalanceResult<HDAccountBalances<Self::Balance>> {
-        utxo_common::hd_account_balances(self, hd_wallet, hd_account).await
+    ) -> BalanceResult<HDAccountBalance> {
+        utxo_common::hd_account_balance(self, hd_wallet, hd_account).await
     }
 
-    async fn check_address_balance(
-        &self,
-        address: &Self::Address,
-    ) -> BalanceResult<AddressBalanceStatus<Self::Balance>> {
+    async fn check_address_balance(&self, address: &Self::Address) -> BalanceResult<AddressBalanceStatus<CoinBalance>> {
         utxo_common::check_address_balance(self.as_ref(), address.clone()).await
     }
 }
-
-impl WalletBalancesOps<Address, CoinBalance, UtxoHDWallet> for UtxoStandardCoin {}

@@ -1,8 +1,10 @@
 use super::*;
+use crate::coin_balance::{AddressBalanceOps, AddressBalanceStatus, HDAccountBalance, HDWalletBalanceOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
-use crate::{eth, CanRefundHtlc, CoinBalance, DelegationError, DelegationFut, NegotiateSwapContractAddrErr,
-            StakingInfosFut, SwapOps, TradePreimageValue, ValidateAddressResult, WithdrawFut};
+use crate::{eth, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, DelegationError, DelegationFut,
+            NegotiateSwapContractAddrErr, StakingInfosFut, SwapOps, TradePreimageValue, ValidateAddressResult,
+            WithdrawFut};
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use crypto::trezor::utxo::TrezorUtxoCoin;
@@ -762,6 +764,63 @@ impl UtxoSignerOps for QtumCoin {
     fn branch_id(&self) -> u32 { self.utxo_arc.conf.consensus_branch_id }
 
     fn tx_provider(&self) -> Self::TxGetter { self.utxo_arc.rpc_client.clone() }
+}
+
+#[async_trait]
+impl AddressBalanceOps for QtumCoin {
+    type Address = Address;
+
+    async fn address_balance(&self, address: &Self::Address) -> BalanceResult<CoinBalance> {
+        utxo_common::address_balance(self.as_ref(), address.clone()).await
+    }
+}
+
+impl CoinWithDerivationMethod for QtumCoin {
+    type Address = Address;
+    type HDWallet = UtxoHDWallet;
+
+    fn derivation_method(&self) -> &DerivationMethod<Self::Address, Self::HDWallet> {
+        utxo_common::derivation_method(self.as_ref())
+    }
+}
+
+impl HDWalletCoinOps for QtumCoin {
+    type HDWallet = UtxoHDWallet;
+
+    fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32 { hd_wallet.gap_limit }
+}
+
+impl UtxoHDWalletOps for QtumCoin {
+    fn derive_address(
+        &self,
+        account: &UtxoHDAccount,
+        address_id: u32,
+        change: bool,
+    ) -> MmResult<HDAddress<Address>, Bip32Error> {
+        utxo_common::derive_address(self, account, address_id, change)
+    }
+}
+
+#[async_trait]
+impl HDWalletBalanceOps for QtumCoin {
+    type HDWallet = UtxoHDWallet;
+    type HDAccount = UtxoHDAccount;
+
+    async fn hd_wallet_balance(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<Vec<HDAccountBalance>> {
+        utxo_common::hd_wallet_balance(self, hd_wallet).await
+    }
+
+    async fn hd_account_balance(
+        &self,
+        hd_wallet: &Self::HDWallet,
+        hd_account: &mut Self::HDAccount,
+    ) -> BalanceResult<HDAccountBalance> {
+        utxo_common::hd_account_balance(self, hd_wallet, hd_account).await
+    }
+
+    async fn check_address_balance(&self, address: &Self::Address) -> BalanceResult<AddressBalanceStatus<CoinBalance>> {
+        utxo_common::check_address_balance(self.as_ref(), address.clone()).await
+    }
 }
 
 /// Parse contract address (H160) from string.

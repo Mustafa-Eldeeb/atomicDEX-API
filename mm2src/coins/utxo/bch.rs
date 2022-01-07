@@ -1,4 +1,5 @@
 use super::*;
+use crate::coin_balance::{iguana_wallet_balance, WalletBalance, WalletBalanceOps};
 use crate::my_tx_history_v2::{TxDetailsBuilder, TxHistoryStorage, TxHistoryStorageError};
 use crate::utxo::rpc_clients::UtxoRpcFut;
 use crate::utxo::slp::{parse_slp_script, ParseSlpScriptError, SlpGenesisParams, SlpTokenInfo, SlpTransaction,
@@ -1175,6 +1176,11 @@ impl MmCoin for BchCoin {
     fn is_coin_protocol_supported(&self, info: &Option<Vec<u8>>) -> bool {
         utxo_common::is_coin_protocol_supported(self, info)
     }
+}
+
+#[async_trait]
+impl WalletBalanceOps for BchCoin {
+    async fn wallet_balance(&self) -> BalanceResult<WalletBalance> { iguana_wallet_balance(self).await }
 }
 
 // testnet

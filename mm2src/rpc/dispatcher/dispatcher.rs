@@ -6,6 +6,7 @@ use crate::{mm2::lp_stats::{add_node_to_version_stat, remove_node_from_version_s
                             stop_version_stat_collection, update_version_stat_collection},
             mm2::lp_swap::{recreate_swap_data, trade_preimage_rpc},
             mm2::rpc::get_public_key::get_public_key};
+use coins::coin_balance::wallet_balance;
 use coins::init_withdraw::{init_withdraw, withdraw_status, withdraw_user_action};
 use coins::lightning::{connect_to_lightning_node, open_channel, LightningCoin};
 use coins::my_tx_history_v2::my_tx_history_v2_rpc;
@@ -132,6 +133,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "stop_version_stat_collection" => handle_mmrpc(ctx, request, stop_version_stat_collection).await,
         "update_version_stat_collection" => handle_mmrpc(ctx, request, update_version_stat_collection).await,
         "trade_preimage" => handle_mmrpc(ctx, request, trade_preimage_rpc).await,
+        "wallet_balance" => handle_mmrpc(ctx, request, wallet_balance).await,
         "withdraw" => handle_mmrpc(ctx, request, withdraw).await,
         "withdraw_status" => handle_mmrpc(ctx, request, withdraw_status).await,
         "withdraw_user_action" => handle_mmrpc(ctx, request, withdraw_user_action).await,
