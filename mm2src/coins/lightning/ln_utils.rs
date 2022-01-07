@@ -34,6 +34,7 @@ cfg_native! {
     use lightning_invoice::utils::DefaultRouter;
     use lightning_net_tokio::SocketDescriptor;
     use lightning_persister::FilesystemPersister;
+    use parking_lot::Mutex as PaMutex;
     use rand::RngCore;
     use rpc::v1::types::H256;
     use secp256k1::PublicKey;
@@ -167,8 +168,8 @@ pub async fn start_lightning(
 
     let platform_fields = Arc::new(PlatformFields {
         platform_coin,
-        registered_txs: AsyncMutex::new(HashMap::new()),
-        registered_outputs: AsyncMutex::new(Vec::new()),
+        registered_txs: PaMutex::new(HashMap::new()),
+        registered_outputs: PaMutex::new(Vec::new()),
         unsigned_funding_txs: AsyncMutex::new(HashMap::new()),
     });
     // Initialize the Filter. PlatformFields implements the Filter trait, we can use it to construct the filter.
@@ -550,9 +551,9 @@ async fn get_confirmed_registered_txs(
     client: &ElectrumClient,
     current_height: u64,
 ) -> Vec<ConfirmedTransactionInfo> {
-    let mut registered_txs = filter.registered_txs.lock().await;
+    let registered_txs = filter.registered_txs.lock().clone();
     let mut confirmed_registered_txs = Vec::new();
-    for (txid, scripts) in registered_txs.clone() {
+    for (txid, scripts) in registered_txs {
         let rpc_txid = H256::from(txid.as_hash().into_inner()).reversed();
         match filter
             .platform_coin
@@ -621,7 +622,7 @@ async fn get_confirmed_registered_txs(
                                         height as u32,
                                     );
                                     confirmed_registered_txs.push(confirmed_transaction_info);
-                                    registered_txs.remove(&txid);
+                                    filter.registered_txs.lock().remove(&txid);
                                 }
                             }
                         }
@@ -644,8 +645,8 @@ async fn append_spent_registered_output_txs(
     client: &ElectrumClient,
 ) {
     let mut outputs_to_remove = Vec::new();
-    let mut registered_outputs = filter.registered_outputs.lock().await;
-    for output in registered_outputs.clone() {
+    let registered_outputs = filter.registered_outputs.lock().clone();
+    for output in registered_outputs {
         let result = match ln_rpc::find_watched_output_spend_with_header(client, &output).await {
             Ok(res) => res,
             Err(e) => {
@@ -678,7 +679,10 @@ async fn append_spent_registered_output_txs(
             outputs_to_remove.push(output);
         }
     }
-    registered_outputs.retain(|output| !outputs_to_remove.contains(output));
+    filter
+        .registered_outputs
+        .lock()
+        .retain(|output| !outputs_to_remove.contains(output));
 }
 
 #[cfg(not(target_arch = "wasm32"))]

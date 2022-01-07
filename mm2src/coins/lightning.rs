@@ -15,6 +15,7 @@ use bitcoin::blockdata::script::Script;
 use bitcoin::hash_types::Txid;
 #[cfg(not(target_arch = "wasm32"))] use bitcoin::hashes::Hash;
 #[cfg(not(target_arch = "wasm32"))] use chain::TransactionOutput;
+#[cfg(not(target_arch = "wasm32"))] use common::async_blocking;
 #[cfg(not(target_arch = "wasm32"))]
 use common::ip_addr::myipaddr;
 use common::mm_ctx::MmArc;
@@ -42,6 +43,7 @@ use ln_storage::{last_request_id_path, nodes_data_path, parse_node_info, read_la
                  read_nodes_data_from_file, save_last_request_id_to_file, save_node_data_to_file};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_utils::{connect_to_node, open_ln_channel, ChannelManager, InvoicePayer, PeerManager};
+use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::Bytes as BytesJson;
 #[cfg(not(target_arch = "wasm32"))] use script::Builder;
 use script::TransactionInputSigner;
@@ -62,20 +64,19 @@ pub struct LightningProtocolConf {
     pub platform_coin_ticker: String,
 }
 
-#[derive(Debug)]
 pub struct PlatformFields {
     pub platform_coin: UtxoStandardCoin,
     // This cache stores the transactions that the LN node has interest in.
-    pub registered_txs: AsyncMutex<HashMap<Txid, HashSet<Script>>>,
+    pub registered_txs: PaMutex<HashMap<Txid, HashSet<Script>>>,
     // This cache stores the outputs that the LN node has interest in.
-    pub registered_outputs: AsyncMutex<Vec<WatchedOutput>>,
+    pub registered_outputs: PaMutex<Vec<WatchedOutput>>,
     // This cache stores transactions to be broadcasted once the other node accepts the channel
     pub unsigned_funding_txs: AsyncMutex<HashMap<u64, TransactionInputSigner>>,
 }
 
 impl PlatformFields {
-    pub async fn add_tx(&self, txid: &Txid, script_pubkey: &Script) {
-        let mut registered_txs = self.registered_txs.lock().await;
+    pub fn add_tx(&self, txid: &Txid, script_pubkey: &Script) {
+        let mut registered_txs = self.registered_txs.lock();
         match registered_txs.get_mut(txid) {
             Some(h) => {
                 h.insert(script_pubkey.clone());
@@ -88,8 +89,8 @@ impl PlatformFields {
         }
     }
 
-    pub async fn add_output(&self, output: WatchedOutput) {
-        let mut registered_outputs = self.registered_outputs.lock().await;
+    pub fn add_output(&self, output: WatchedOutput) {
+        let mut registered_outputs = self.registered_outputs.lock();
         registered_outputs.push(output);
     }
 }
@@ -143,13 +144,7 @@ pub struct LightningCoin {
 }
 
 impl fmt::Debug for LightningCoin {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "LightningCoin {{ platform_fields: {:?}, conf: {:?} }}",
-            self.platform_fields, self.conf
-        )
-    }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "LightningCoin {{ conf: {:?} }}", self.conf) }
 }
 
 impl LightningCoin {
@@ -487,7 +482,7 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
     let decimals = platform_coin.as_ref().decimals;
     let my_address = platform_coin.as_ref().derivation_method.iguana_or_err()?;
     let (unspents, _) = platform_coin.ordered_mature_unspents(my_address).await?;
-    let (value, fee_policy) = match req.amount {
+    let (value, fee_policy) = match req.amount.clone() {
         ChannelOpenAmount::Max => (
             unspents.iter().fold(0, |sum, unspent| sum + unspent.value),
             FeePolicy::DeductFromOutput(0),
@@ -534,14 +529,21 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
     };
     save_last_request_id_to_file(&last_request_id_path(&ctx, ticker), request_id)?;
 
-    let temporary_channel_id = open_ln_channel(
-        node_pubkey,
-        unsigned.outputs[0].value,
-        req.push_msat,
-        request_id,
-        req.announce_channel,
-        ln_coin.channel_manager.clone(),
-    )?;
+    let amount_in_sat = unsigned.outputs[0].value;
+    let push_msat = req.push_msat;
+    let announce_channel = req.announce_channel;
+    let channel_manager = ln_coin.channel_manager.clone();
+    let temporary_channel_id = async_blocking(move || {
+        open_ln_channel(
+            node_pubkey,
+            amount_in_sat,
+            push_msat,
+            request_id,
+            announce_channel,
+            channel_manager,
+        )
+    })
+    .await?;
 
     let mut unsigned_funding_txs = ln_coin.platform_fields.unsigned_funding_txs.lock().await;
     unsigned_funding_txs.insert(request_id, unsigned);

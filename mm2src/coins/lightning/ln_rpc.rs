@@ -123,11 +123,11 @@ pub async fn find_watched_output_spend_with_header(
 
 impl Filter for PlatformFields {
     // Watches for this transaction on-chain
-    fn register_tx(&self, txid: &Txid, script_pubkey: &Script) { block_on(self.add_tx(txid, script_pubkey)); }
+    fn register_tx(&self, txid: &Txid, script_pubkey: &Script) { self.add_tx(txid, script_pubkey); }
 
     // Watches for any transactions that spend this output on-chain
     fn register_output(&self, output: WatchedOutput) -> Option<(usize, Transaction)> {
-        block_on(self.add_output(output.clone()));
+        self.add_output(output.clone());
 
         let block_hash = match output.block_hash {
             Some(h) => H256Json::from(h.as_hash().into_inner()),

@@ -824,6 +824,7 @@ dependencies = [
  "metrics",
  "mocktopus",
  "num-traits 0.2.12",
+ "parking_lot 0.11.1",
  "primitives",
  "prost",
  "prost-build",
