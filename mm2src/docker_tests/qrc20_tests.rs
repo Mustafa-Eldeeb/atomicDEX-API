@@ -48,7 +48,7 @@ impl QtumDockerOps {
         });
         let priv_key = hex::decode("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f").unwrap();
         let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-        let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "QTUM", &conf, params, &priv_key)).unwrap();
+        let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "QTUM", &conf, &params, &priv_key)).unwrap();
         QtumDockerOps { ctx, coin }
     }
 

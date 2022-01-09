@@ -206,7 +206,7 @@ pub fn qrc20_coin_from_privkey(ticker: &str, priv_key: &[u8]) -> (MmArc, Qrc20Co
         ticker,
         platform,
         &conf,
-        params,
+        &params,
         &priv_key,
         contract_address,
     ))
@@ -250,7 +250,7 @@ pub fn utxo_coin_from_privkey(ticker: &str, priv_key: &[u8]) -> (MmArc, UtxoStan
     let conf = json!({"asset":ticker,"txversion":4,"overwintered":1,"txfee":1000,"network":"regtest"});
     let req = json!({"method":"enable"});
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, ticker, &conf, params, priv_key)).unwrap();
+    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, ticker, &conf, &params, priv_key)).unwrap();
     import_address(&coin);
     (ctx, coin)
 }
@@ -356,7 +356,7 @@ pub fn generate_qtum_coin_with_random_privkey(
         &ctx,
         "QTUM",
         &conf,
-        params,
+        &params,
         priv_key.as_ref(),
     ))
     .unwrap();
@@ -401,7 +401,7 @@ pub fn generate_segwit_qtum_coin_with_random_privkey(
         &ctx,
         "QTUM",
         &conf,
-        params,
+        &params,
         priv_key.as_ref(),
     ))
     .unwrap();
