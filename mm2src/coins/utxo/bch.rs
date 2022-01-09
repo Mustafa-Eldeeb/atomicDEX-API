@@ -633,7 +633,7 @@ pub async fn bch_coin_from_conf_and_params(
     };
 
     let coin = try_s!(
-        UtxoArcWithIguanaPrivKeyBuilder::new(ctx, ticker, conf, params.utxo_params, priv_key, constructor)
+        UtxoArcWithIguanaPrivKeyBuilder::new(ctx, ticker, conf, &params.utxo_params, priv_key, constructor)
             .build()
             .await
     );

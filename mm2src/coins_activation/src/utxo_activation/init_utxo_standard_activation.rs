@@ -78,7 +78,7 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
             &ctx,
             &ticker,
             &coin_conf,
-            activation_request,
+            &activation_request,
             priv_key_policy,
             hw_ops,
             UtxoStandardCoin::from,

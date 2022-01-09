@@ -51,11 +51,11 @@ impl From<Bip32Error> for UtxoConfError {
 pub struct UtxoConfBuilder<'a> {
     conf: &'a Json,
     ticker: &'a str,
-    params: UtxoActivationParams,
+    params: &'a UtxoActivationParams,
 }
 
 impl<'a> UtxoConfBuilder<'a> {
-    pub fn new(conf: &'a Json, params: UtxoActivationParams, ticker: &'a str) -> Self {
+    pub fn new(conf: &'a Json, params: &'a UtxoActivationParams, ticker: &'a str) -> Self {
         UtxoConfBuilder { conf, ticker, params }
     }
 

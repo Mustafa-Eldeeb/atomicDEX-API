@@ -151,7 +151,7 @@ struct Qrc20CoinBuilder<'a> {
     ctx: &'a MmArc,
     ticker: &'a str,
     conf: &'a Json,
-    activation_params: Qrc20ActivationParams,
+    activation_params: &'a Qrc20ActivationParams,
     priv_key: &'a [u8],
     platform: String,
     token_contract_address: H160,
@@ -162,7 +162,7 @@ impl<'a> Qrc20CoinBuilder<'a> {
         ctx: &'a MmArc,
         ticker: &'a str,
         conf: &'a Json,
-        activation_params: Qrc20ActivationParams,
+        activation_params: &'a Qrc20ActivationParams,
         priv_key: &'a [u8],
         platform: String,
         token_contract_address: H160,
@@ -185,7 +185,7 @@ impl<'a> UtxoCoinBuilderCommonOps for Qrc20CoinBuilder<'a> {
 
     fn conf(&self) -> &Json { self.conf }
 
-    fn activation_params(&self) -> UtxoActivationParams { self.activation_params.utxo_params.clone() }
+    fn activation_params(&self) -> &UtxoActivationParams { &self.activation_params.utxo_params }
 
     fn ticker(&self) -> &str { self.ticker }
 
@@ -266,7 +266,7 @@ pub async fn qrc20_coin_from_conf_and_params(
     ticker: &str,
     platform: &str,
     conf: &Json,
-    params: Qrc20ActivationParams,
+    params: &Qrc20ActivationParams,
     priv_key: &[u8],
     contract_address: H160,
 ) -> Result<Qrc20Coin, String> {

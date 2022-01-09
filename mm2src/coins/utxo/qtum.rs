@@ -204,7 +204,7 @@ pub async fn qtum_coin_from_with_priv_key(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
-    activation_params: UtxoActivationParams,
+    activation_params: &UtxoActivationParams,
     priv_key: &[u8],
 ) -> Result<QtumCoin, String> {
     let coin = try_s!(

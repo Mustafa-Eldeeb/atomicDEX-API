@@ -22,7 +22,6 @@ type UserActionSender<UserAction> = oneshot::Sender<UserAction>;
 type TaskAbortHandle = oneshot::Sender<()>;
 type TaskAbortHandler = oneshot::Receiver<()>;
 
-/// TODO split this error enum into `RpcTaskError` and `RpcTaskApiError`.
 #[derive(Display)]
 pub enum RpcTaskError {
     #[display(fmt = "RPC task timeout '{:?}'", _0)]

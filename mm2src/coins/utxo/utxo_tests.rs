@@ -2,8 +2,8 @@ use super::*;
 use crate::coin_balance::{HDAccountBalance, HDAddressBalance, HDWalletBalance, WalletBalance, WalletBalanceOps};
 use crate::utxo::qtum::{qtum_coin_from_with_priv_key, QtumCoin, QtumDelegationOps, QtumDelegationRequest};
 use crate::utxo::rpc_clients::{BlockHashOrHeight, ElectrumClient, ElectrumClientImpl, GetAddressInfoRes,
-                               ListSinceBlockRes, ListTransactionsItem, NativeClient, NativeClientImpl, NetworkInfo,
-                               UtxoRpcClientOps, ValidateAddressRes, VerboseBlock};
+                               ListSinceBlockRes, NativeClient, NativeClientImpl, NetworkInfo, UtxoRpcClientOps,
+                               ValidateAddressRes, VerboseBlock};
 use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinBuilderCommonOps};
 use crate::utxo::utxo_common::UtxoTxBuilder;
 use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
@@ -40,7 +40,7 @@ pub fn electrum_client_for_test(servers: &[&str]) -> ElectrumClient {
     });
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let builder =
-        UtxoArcWithIguanaPrivKeyBuilder::new(&ctx, TEST_COIN_NAME, &Json::Null, params, &[], UtxoStandardCoin::from);
+        UtxoArcWithIguanaPrivKeyBuilder::new(&ctx, TEST_COIN_NAME, &Json::Null, &params, &[], UtxoStandardCoin::from);
     let args = ElectrumBuilderArgs {
         spawn_ping: false,
         negotiate_version: true,
@@ -1302,7 +1302,10 @@ fn test_cashaddresses_in_tx_details_by_hash() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, params, &[1u8; 32])).unwrap();
+    let coin = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "BCH", &conf, &params, &[1u8; 32],
+    ))
+    .unwrap();
 
     let hash = hex::decode("0f2f6e0c8f440c641895023782783426c3aca1acc78d7c0db7751995e8aa5751").unwrap();
     let fut = async {
@@ -1346,7 +1349,10 @@ fn test_address_from_str_with_cashaddress_activated() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, params, &[1u8; 32])).unwrap();
+    let coin = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "BCH", &conf, &params, &[1u8; 32],
+    ))
+    .unwrap();
 
     // other error on parse
     let error = coin
@@ -1378,7 +1384,10 @@ fn test_address_from_str_with_legacy_address_activated() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BCH", &conf, params, &[1u8; 32])).unwrap();
+    let coin = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "BCH", &conf, &params, &[1u8; 32],
+    ))
+    .unwrap();
 
     let error = coin
         .address_from_str("bitcoincash:qzxqqt9lh4feptf0mplnk58gnajfepzwcq9f2rxk55")
@@ -1420,7 +1429,7 @@ fn test_unavailable_electrum_proto_version() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let error = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "RICK", &conf, params, &[1u8; 32],
+        &ctx, "RICK", &conf, &params, &[1u8; 32],
     ))
     .err()
     .unwrap();
@@ -1446,7 +1455,7 @@ fn test_spam_rick() {
         &ctx,
         "RICK",
         &conf,
-        params,
+        &params,
         &*key_pair.private().secret,
     ))
     .unwrap();
@@ -1495,7 +1504,10 @@ fn test_one_unavailable_electrum_proto_version() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
 
-    let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "BTC", &conf, params, &[1u8; 32])).unwrap();
+    let coin = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "BTC", &conf, &params, &[1u8; 32],
+    ))
+    .unwrap();
 
     block_on(async { Timer::sleep(0.5).await });
 
@@ -1564,7 +1576,7 @@ fn test_qtum_unspendable_balance_failed_once() {
     ];
 
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "tQTUM", &conf, params, &priv_key)).unwrap();
+    let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
 
     let CoinBalance { spendable, unspendable } = coin.my_balance().wait().unwrap();
     let expected_spendable = BigDecimal::from(68);
@@ -1588,7 +1600,7 @@ fn test_qtum_generate_pod() {
     let ctx = MmCtxBuilder::new().into_mm_arc();
 
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "tQTUM", &conf, params, &priv_key)).unwrap();
+    let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
     let expected_res = "20086d757b34c01deacfef97a391f8ed2ca761c72a08d5000adc3d187b1007aca86a03bc5131b1f99b66873a12b51f8603213cdc1aa74c05ca5d48fe164b82152b";
     let address = Address::from_str("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE").unwrap();
     let res = coin.generate_pod(address.hash).unwrap();
@@ -1610,7 +1622,7 @@ fn test_qtum_add_delegation() {
         &ctx,
         "tQTUM",
         &conf,
-        params,
+        &params,
         keypair.private().secret.as_slice(),
     ))
     .unwrap();
@@ -1649,7 +1661,7 @@ fn test_qtum_add_delegation_on_already_delegating() {
         &ctx,
         "tQTUM",
         &conf,
-        params,
+        &params,
         keypair.private().secret.as_slice(),
     ))
     .unwrap();
@@ -1680,7 +1692,7 @@ fn test_qtum_get_delegation_infos() {
         &ctx,
         "tQTUM",
         &conf,
-        params,
+        &params,
         keypair.private().secret.as_slice(),
     ))
     .unwrap();
@@ -1710,7 +1722,7 @@ fn test_qtum_remove_delegation() {
         &ctx,
         "tQTUM",
         &conf,
-        params,
+        &params,
         keypair.private().secret.as_slice(),
     ))
     .unwrap();
@@ -1758,7 +1770,7 @@ fn test_qtum_unspendable_balance_failed() {
     ];
 
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "tQTUM", &conf, params, &priv_key)).unwrap();
+    let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
 
     let error = coin.my_balance().wait().err().unwrap();
     log!("error: "[error]);
@@ -1806,7 +1818,7 @@ fn test_qtum_my_balance() {
     ];
 
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "tQTUM", &conf, params, &priv_key)).unwrap();
+    let coin = block_on(qtum_coin_from_with_priv_key(&ctx, "tQTUM", &conf, &params, &priv_key)).unwrap();
 
     let CoinBalance { spendable, unspendable } = coin.my_balance().wait().unwrap();
     let expected_spendable = BigDecimal::from(66);
@@ -2696,7 +2708,7 @@ fn test_generate_tx_doge_fee() {
     let params = UtxoActivationParams::from_legacy_req(&request).unwrap();
 
     let doge = block_on(utxo_standard_coin_with_priv_key(
-        &ctx, "DOGE", &config, params, &[1; 32],
+        &ctx, "DOGE", &config, &params, &[1; 32],
     ))
     .unwrap();
 
@@ -3275,7 +3287,7 @@ fn test_hd_wallet_balance() {
         let address = address.to_string();
         let balance = match known_addresses.remove(&address) {
             Some(balance) => balance,
-            // Check if the address has just been checked by [`NativeClient::list_transactions_by_address`].
+            // Check if the address has just been checked by [`NativeClient::is_address_list_transactions_empty`].
             None => unsafe {
                 CHECKED_ADDRESSES
                     .as_mut()
@@ -3287,21 +3299,21 @@ fn test_hd_wallet_balance() {
         MockResult::Return(Box::new(futures01::future::ok(BigDecimal::from(balance))))
     });
 
-    NativeClient::list_transactions_by_address.mock_safe(move |_, address| {
+    NativeClient::is_address_list_transactions_empty.mock_safe(move |_, address| {
         let value = checking_addresses
             .remove(&address)
             .expect(&format!("Unexpected address: {}", address));
-        let transactions = match value {
+        let is_empty = match value {
             Some(balance) => {
                 unsafe {
                     // Push the address balance into the list of checked addresses.
                     CHECKED_ADDRESSES.as_mut().unwrap().insert(address, balance);
                 }
-                vec![ListTransactionsItem::default()]
+                false
             },
-            None => Vec::new(),
+            None => true,
         };
-        MockResult::Return(Box::new(futures01::future::ok(transactions)))
+        MockResult::Return(Box::new(futures01::future::ok(is_empty)))
     });
 
     let client = NativeClient(Arc::new(NativeClientImpl::default()));

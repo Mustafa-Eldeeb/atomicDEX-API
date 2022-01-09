@@ -39,7 +39,7 @@ pub fn qrc20_coin_for_test(priv_key: &[u8], fallback_swap: Option<&str>) -> (MmA
         "QRC20",
         "QTUM",
         &conf,
-        params,
+        &params,
         priv_key,
         contract_address,
     ))
@@ -817,7 +817,7 @@ fn test_coin_from_conf_without_decimals() {
         "QRC20",
         "QTUM",
         &conf,
-        params,
+        &params,
         &priv_key,
         contract_address,
     ))

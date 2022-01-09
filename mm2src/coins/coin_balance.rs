@@ -148,7 +148,7 @@ pub trait HDWalletBalanceOps: AddressBalanceOps {
 
     /// Request a balance of the given `address`.
     /// This function is expected to be more efficient than ['HDWalletBalanceOps::check_address_balance'] in most cases
-    /// since many of RPC clients allows to request a balance without the history.
+    /// since many of RPC clients allow us to request the address balance without the history.
     async fn known_address_balance(&self, address: &Self::Address) -> BalanceResult<CoinBalance> {
         self.address_balance(address).await
     }

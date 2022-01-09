@@ -111,7 +111,7 @@ const UTXO_DUST_AMOUNT: u64 = 1000;
 /// 11 > 0
 const KMD_MTP_BLOCK_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(11u64) };
 const DEFAULT_DYNAMIC_FEE_VOLATILITY_PERCENT: f64 = 0.5;
-/// BIP44 purpose is encoded as `44'`.
+/// BIP44 purpose is always hardened.
 const BIP44_PURPOSE: u32 = 44 | ChildNumber::HARDENED_FLAG;
 const DEFAULT_GAP_LIMIT: u32 = 20;
 
@@ -1047,8 +1047,7 @@ pub struct UtxoHDWallet {
     /// where the full `BIP44` address has the following structure:
     /// `m/purpose'/coin_type'/account'/change/address_index`.
     pub derivation_path: DerivationPath,
-    /// User account infos.
-    /// [`accounts.len()`] equals the number of non-empty user accounts.
+    /// User accounts.
     pub accounts: PaMutex<Vec<UtxoHDAccount>>,
     pub gap_limit: u32,
 }
@@ -1056,8 +1055,8 @@ pub struct UtxoHDWallet {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UtxoHDAccount {
     pub account_id: u32,
-    /// [Extended public key](https://learnmeabitcoin.com/technical/extended-keys) derived from a master private/public key
-    /// using [`UtxoHDWallet::derivation_path`] and [`UtxoHDAccount::account_id`].
+    /// [Extended public key](https://learnmeabitcoin.com/technical/extended-keys) that corresponds to the derivation path:
+    /// `m/purpose'/coin_type'/account'`.
     pub extended_pubkey: Secp256k1ExtendedPublicKey,
     /// [`UtxoHDWallet::derivation_path`] derived by [`UtxoHDAccount::account_id`].
     pub account_derivation_path: DerivationPath,
@@ -1345,7 +1344,7 @@ pub fn address_by_conf_and_pubkey_str(
         address_format: None,
         gap_limit: None,
     };
-    let conf_builder = UtxoConfBuilder::new(conf, params, coin);
+    let conf_builder = UtxoConfBuilder::new(conf, &params, coin);
     let utxo_conf = try_s!(conf_builder.build());
     let pubkey_bytes = try_s!(hex::decode(pubkey));
     let hash = dhash160(&pubkey_bytes);

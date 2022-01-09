@@ -19,7 +19,7 @@ where
     ctx: &'a MmArc,
     ticker: &'a str,
     conf: &'a Json,
-    activation_params: UtxoActivationParams,
+    activation_params: &'a UtxoActivationParams,
     priv_key_policy: PrivKeyBuildPolicy<'a>,
     hw_ops: HwOps,
     constructor: F,
@@ -34,7 +34,7 @@ where
         ctx: &'a MmArc,
         ticker: &'a str,
         conf: &'a Json,
-        activation_params: UtxoActivationParams,
+        activation_params: &'a UtxoActivationParams,
         priv_key_policy: PrivKeyBuildPolicy<'a>,
         hw_ops: HwOps,
         constructor: F,
@@ -61,7 +61,7 @@ where
 
     fn conf(&self) -> &Json { self.conf }
 
-    fn activation_params(&self) -> UtxoActivationParams { self.activation_params.clone() }
+    fn activation_params(&self) -> &UtxoActivationParams { self.activation_params }
 
     fn ticker(&self) -> &str { self.ticker }
 }
@@ -122,7 +122,7 @@ where
     ctx: &'a MmArc,
     ticker: &'a str,
     conf: &'a Json,
-    activation_params: UtxoActivationParams,
+    activation_params: &'a UtxoActivationParams,
     priv_key: &'a [u8],
     constructor: F,
 }
@@ -136,7 +136,7 @@ where
 
     fn conf(&self) -> &Json { self.conf }
 
-    fn activation_params(&self) -> UtxoActivationParams { self.activation_params.clone() }
+    fn activation_params(&self) -> &UtxoActivationParams { self.activation_params }
 
     fn ticker(&self) -> &str { self.ticker }
 }
@@ -186,7 +186,7 @@ where
         ctx: &'a MmArc,
         ticker: &'a str,
         conf: &'a Json,
-        activation_params: UtxoActivationParams,
+        activation_params: &'a UtxoActivationParams,
         priv_key: &'a [u8],
         constructor: F,
     ) -> UtxoArcWithIguanaPrivKeyBuilder<'a, F, T> {
@@ -209,7 +209,7 @@ where
     fn constructor(&self) -> F;
 
     fn spawn_merge_utxo_loop_if_required(&self, weak: UtxoWeak) {
-        if let Some(merge_params) = self.activation_params().utxo_merge_params {
+        if let Some(ref merge_params) = self.activation_params().utxo_merge_params {
             let fut = merge_utxo_loop(
                 weak,
                 merge_params.merge_at,

@@ -406,7 +406,7 @@ pub async fn z_coin_from_conf_and_params(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
-    params: UtxoActivationParams,
+    params: &UtxoActivationParams,
     secp_priv_key: &[u8],
     db_dir_path: PathBuf,
 ) -> Result<ZCoin, MmError<ZCoinBuildError>> {
@@ -577,7 +577,7 @@ pub struct ZCoinBuilder<'a> {
     ctx: &'a MmArc,
     ticker: &'a str,
     conf: &'a Json,
-    params: UtxoActivationParams,
+    params: &'a UtxoActivationParams,
     secp_priv_key: &'a [u8],
     db_dir_path: PathBuf,
     z_spending_key: ExtendedSpendingKey,
@@ -588,7 +588,7 @@ impl<'a> UtxoCoinBuilderCommonOps for ZCoinBuilder<'a> {
 
     fn conf(&self) -> &Json { self.conf }
 
-    fn activation_params(&self) -> UtxoActivationParams { self.params.clone() }
+    fn activation_params(&self) -> &UtxoActivationParams { self.params }
 
     fn ticker(&self) -> &str { self.ticker }
 }
@@ -665,7 +665,7 @@ impl<'a> ZCoinBuilder<'a> {
         ctx: &'a MmArc,
         ticker: &'a str,
         conf: &'a Json,
-        params: UtxoActivationParams,
+        params: &UtxoActivationParams,
         secp_priv_key: &'a [u8],
         db_dir_path: PathBuf,
         z_spending_key: ExtendedSpendingKey,
@@ -686,7 +686,7 @@ async fn z_coin_from_conf_and_params_with_z_key(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
-    params: UtxoActivationParams,
+    params: &UtxoActivationParams,
     secp_priv_key: &[u8],
     db_dir_path: PathBuf,
     z_spending_key: ExtendedSpendingKey,

@@ -32,7 +32,7 @@ pub async fn utxo_standard_coin_with_priv_key(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
-    activation_params: UtxoActivationParams,
+    activation_params: &UtxoActivationParams,
     priv_key: &[u8],
 ) -> Result<UtxoStandardCoin, String> {
     let coin = try_s!(

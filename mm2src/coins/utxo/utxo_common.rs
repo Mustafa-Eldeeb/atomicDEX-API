@@ -285,11 +285,12 @@ pub async fn check_address_balance(
     address: Address,
 ) -> BalanceResult<AddressBalanceStatus<CoinBalance>> {
     let is_empty = match &coin.rpc_client {
-        UtxoRpcClientEnum::Native(native) => native
-            .list_transactions_by_address(address.to_string())
-            .compat()
-            .await?
-            .is_empty(),
+        UtxoRpcClientEnum::Native(native) => {
+            native
+                .is_address_list_transactions_empty(address.to_string())
+                .compat()
+                .await?
+        },
         UtxoRpcClientEnum::Electrum(client) => {
             let script = output_script(&address, ScriptType::P2PKH);
             let script_hash = electrum_script_hash(&script);

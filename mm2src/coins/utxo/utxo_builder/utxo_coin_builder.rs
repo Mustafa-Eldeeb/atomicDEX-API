@@ -280,12 +280,12 @@ pub trait UtxoCoinBuilderCommonOps {
 
     fn conf(&self) -> &Json;
 
-    fn activation_params(&self) -> UtxoActivationParams;
+    fn activation_params(&self) -> &UtxoActivationParams;
 
     fn ticker(&self) -> &str;
 
     fn address_format(&self) -> UtxoCoinBuildResult<UtxoAddressFormat> {
-        let format_from_req: Option<UtxoAddressFormat> = self.activation_params().address_format;
+        let format_from_req = self.activation_params().address_format.clone();
         let format_from_conf = json::from_value::<Option<UtxoAddressFormat>>(self.conf()["address_format"].clone())
             .map_to_mm(|e| UtxoConfError::InvalidAddressFormat(e.to_string()))?
             .unwrap_or(UtxoAddressFormat::Standard);
@@ -380,7 +380,7 @@ pub trait UtxoCoinBuilderCommonOps {
     }
 
     async fn rpc_client(&self) -> UtxoCoinBuildResult<UtxoRpcClientEnum> {
-        match self.activation_params().mode {
+        match self.activation_params().mode.clone() {
             UtxoRpcMode::Native => {
                 #[cfg(target_arch = "wasm32")]
                 {

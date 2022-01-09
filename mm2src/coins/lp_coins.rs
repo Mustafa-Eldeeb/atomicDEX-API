@@ -1805,11 +1805,11 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
     let coin: MmCoinEnum = match &protocol {
         CoinProtocol::UTXO => {
             let params = try_s!(UtxoActivationParams::from_legacy_req(req));
-            try_s!(utxo_standard_coin_with_priv_key(ctx, ticker, &coins_en, params, &secret).await).into()
+            try_s!(utxo_standard_coin_with_priv_key(ctx, ticker, &coins_en, &params, &secret).await).into()
         },
         CoinProtocol::QTUM => {
             let params = try_s!(UtxoActivationParams::from_legacy_req(req));
-            try_s!(qtum_coin_from_with_priv_key(ctx, ticker, &coins_en, params, &secret).await).into()
+            try_s!(qtum_coin_from_with_priv_key(ctx, ticker, &coins_en, &params, &secret).await).into()
         },
         CoinProtocol::ETH | CoinProtocol::ERC20 { .. } => {
             try_s!(eth_coin_from_conf_and_request(ctx, ticker, &coins_en, req, &secret, protocol).await).into()
@@ -1822,7 +1822,7 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
             let contract_address = try_s!(qtum::contract_addr_from_str(contract_address));
 
             try_s!(
-                qrc20_coin_from_conf_and_params(ctx, ticker, platform, &coins_en, params, &secret, contract_address)
+                qrc20_coin_from_conf_and_params(ctx, ticker, platform, &coins_en, &params, &secret, contract_address)
                     .await
             )
             .into()
