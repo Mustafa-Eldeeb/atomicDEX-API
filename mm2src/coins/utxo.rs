@@ -85,7 +85,6 @@ use utxo_signer::{TxProvider, TxProviderError, UtxoSignTxError, UtxoSignTxResult
 
 pub use chain::Transaction as UtxoTx;
 
-#[cfg(not(target_arch = "wasm32"))]
 use self::rpc_clients::{ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode, UnspentInfo, UtxoRpcClientEnum,
                         UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
 use super::{BalanceError, BalanceFut, BalanceResult, CoinsContext, DerivationMethod, DerivationMethodNotSupported,

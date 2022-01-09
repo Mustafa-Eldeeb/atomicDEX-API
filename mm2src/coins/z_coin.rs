@@ -665,7 +665,7 @@ impl<'a> ZCoinBuilder<'a> {
         ctx: &'a MmArc,
         ticker: &'a str,
         conf: &'a Json,
-        params: &UtxoActivationParams,
+        params: &'a UtxoActivationParams,
         secp_priv_key: &'a [u8],
         db_dir_path: PathBuf,
         z_spending_key: ExtendedSpendingKey,

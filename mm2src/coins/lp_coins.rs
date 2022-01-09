@@ -1855,7 +1855,7 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
         CoinProtocol::ZHTLC => {
             let dbdir = ctx.dbdir();
             let params = try_s!(UtxoActivationParams::from_legacy_req(req));
-            try_s!(z_coin_from_conf_and_params(ctx, ticker, &coins_en, params, &secret, dbdir).await).into()
+            try_s!(z_coin_from_conf_and_params(ctx, ticker, &coins_en, &params, &secret, dbdir).await).into()
         },
         proto => return ERR!("{:?} is not supported by lp_coininit", proto),
     };

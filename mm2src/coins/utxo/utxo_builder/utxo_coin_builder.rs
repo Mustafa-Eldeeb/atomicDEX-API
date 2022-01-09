@@ -1,9 +1,9 @@
-use crate::utxo::rpc_clients::{ConcurrentRequestMap, ElectrumClient, ElectrumClientImpl, ElectrumRpcRequest,
-                               EstimateFeeMethod, NativeClient, NativeClientImpl, UtxoRpcClientEnum};
+use crate::utxo::rpc_clients::{ElectrumClient, ElectrumClientImpl, ElectrumRpcRequest, EstimateFeeMethod,
+                               UtxoRpcClientEnum};
 use crate::utxo::utxo_builder::utxo_conf_builder::{UtxoConfBuilder, UtxoConfError, UtxoConfResult};
-use crate::utxo::{coin_daemon_data_dir, output_script, ElectrumBuilderArgs, ElectrumProtoVerifier,
-                  RecentlySpentOutPoints, TxFee, UtxoCoinConf, UtxoCoinFields, UtxoHDAccount, UtxoHDWallet,
-                  UtxoRpcMode, BIP44_PURPOSE, DEFAULT_GAP_LIMIT, UTXO_DUST_AMOUNT};
+use crate::utxo::{output_script, ElectrumBuilderArgs, ElectrumProtoVerifier, RecentlySpentOutPoints, TxFee,
+                  UtxoCoinConf, UtxoCoinFields, UtxoHDAccount, UtxoHDWallet, UtxoRpcMode, BIP44_PURPOSE,
+                  DEFAULT_GAP_LIMIT, UTXO_DUST_AMOUNT};
 use crate::{BlockchainNetwork, CoinTransportMetrics, DerivationMethod, HistorySyncState, PrivKeyBuildPolicy,
             PrivKeyPolicy, RpcClientType, UtxoActivationParams};
 use async_trait::async_trait;
@@ -16,7 +16,6 @@ use common::small_rng;
 use crypto::trezor::TrezorError;
 use crypto::{ChildNumber, CryptoInitError, DerivationPath, HwError, Secp256k1ExtendedPublicKey};
 use derive_more::Display;
-#[cfg(not(target_arch = "wasm32"))] use dirs::home_dir;
 use futures::channel::mpsc;
 use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
@@ -28,9 +27,15 @@ use parking_lot::Mutex as PaMutex;
 use primitives::hash::H256;
 use rand::seq::SliceRandom;
 use serde_json::{self as json, Value as Json};
-use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, Weak};
+
+cfg_native! {
+    use crate::utxo::coin_daemon_data_dir;
+    use crate::utxo::rpc_clients::{ConcurrentRequestMap, NativeClient, NativeClientImpl};
+    use dirs::home_dir;
+    use std::path::{Path, PathBuf};
+}
 
 pub type UtxoCoinBuildResult<T> = Result<T, MmError<UtxoCoinBuildError>>;
 
