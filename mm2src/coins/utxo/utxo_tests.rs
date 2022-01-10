@@ -3203,10 +3203,12 @@ fn test_hd_wallet_balance() {
         accounts: vec![
             HDAccountBalance {
                 account_index: 0,
+                derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
                 addresses: Vec::new(),
             },
             HDAccountBalance {
                 account_index: 1,
+                derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
                 addresses: Vec::new(),
             },
         ],

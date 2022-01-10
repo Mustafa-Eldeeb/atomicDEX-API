@@ -68,12 +68,11 @@ pub trait QtumDelegationOps {
 
 #[async_trait]
 pub trait QtumBasedCoin: AsRef<UtxoCoinFields> + UtxoCommonOps + MarketCoinOps {
-    async fn qtum_balance(&self) -> BalanceResult<CoinBalance> {
-        let my_address = self.as_ref().derivation_method.iguana_or_err()?.clone();
+    async fn qtum_address_balance(&self, address: Address) -> BalanceResult<CoinBalance> {
         let balance = self
             .as_ref()
             .rpc_client
-            .display_balance(my_address, self.as_ref().decimals)
+            .display_balance(address, self.as_ref().decimals)
             .compat()
             .await?;
 
@@ -606,7 +605,10 @@ impl MarketCoinOps for QtumCoin {
 
     fn my_balance(&self) -> BalanceFut<CoinBalance> {
         let selfi = self.clone();
-        let fut = async move { selfi.qtum_balance().await };
+        let fut = async move {
+            let my_address = selfi.as_ref().derivation_method.iguana_or_err()?.clone();
+            selfi.qtum_address_balance(my_address).await
+        };
         Box::new(fut.boxed().compat())
     }
 
@@ -771,7 +773,7 @@ impl AddressBalanceOps for QtumCoin {
     type Address = Address;
 
     async fn address_balance(&self, address: &Self::Address) -> BalanceResult<CoinBalance> {
-        utxo_common::address_balance(self.as_ref(), address.clone()).await
+        self.qtum_address_balance(address.clone()).await
     }
 }
 

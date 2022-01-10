@@ -1044,7 +1044,8 @@ impl MarketCoinOps for Qrc20Coin {
     fn base_coin_balance(&self) -> BalanceFut<BigDecimal> {
         let selfi = self.clone();
         let fut = async move {
-            let CoinBalance { spendable, .. } = selfi.qtum_balance().await?;
+            let my_qtum_address = selfi.as_ref().derivation_method.iguana_or_err()?.clone();
+            let CoinBalance { spendable, .. } = selfi.qtum_address_balance(my_qtum_address).await?;
             Ok(spendable)
         };
         Box::new(fut.boxed().compat())

@@ -1,3 +1,4 @@
+mod init_qtum_activation;
 mod init_utxo_standard_activation;
 mod init_utxo_standard_activation_error;
 mod init_utxo_standard_statuses;

@@ -139,6 +139,7 @@ where
 {
     let mut account_balance = HDAccountBalance {
         account_index: hd_account.account_id as u32,
+        derivation_path: RpcDerivationPath(hd_account.account_derivation_path.clone()),
         addresses: Vec::new(),
     };
 

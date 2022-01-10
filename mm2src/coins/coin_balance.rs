@@ -73,6 +73,7 @@ pub struct HDWalletBalance {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct HDAccountBalance {
     pub account_index: u32,
+    pub derivation_path: RpcDerivationPath,
     pub addresses: Vec<HDAddressBalance>,
 }
 

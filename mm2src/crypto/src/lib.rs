@@ -22,6 +22,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Clone, Debug, PartialEq)]
 pub struct RpcDerivationPath(pub DerivationPath);
 
+impl From<DerivationPath> for RpcDerivationPath {
+    fn from(der: DerivationPath) -> Self { RpcDerivationPath(der) }
+}
+
 impl Serialize for RpcDerivationPath {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
