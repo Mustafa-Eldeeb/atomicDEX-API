@@ -18,7 +18,6 @@ cfg_native! {
     use common::log;
     use common::log::LogState;
     use futures::compat::Future01CompatExt;
-    use futures::lock::Mutex as AsyncMutex;
     use lightning::chain::keysinterface::{InMemorySigner, KeysInterface, KeysManager};
     use lightning::chain::{chainmonitor, Access, BestBlock, Confirm, Watch};
     use lightning::ln::channelmanager;
@@ -170,7 +169,7 @@ pub async fn start_lightning(
         platform_coin,
         registered_txs: PaMutex::new(HashMap::new()),
         registered_outputs: PaMutex::new(Vec::new()),
-        unsigned_funding_txs: AsyncMutex::new(HashMap::new()),
+        unsigned_funding_txs: PaMutex::new(HashMap::new()),
     });
     // Initialize the Filter. PlatformFields implements the Filter trait, we can use it to construct the filter.
     let filter = Some(platform_fields.clone());
@@ -351,8 +350,8 @@ pub async fn start_lightning(
         best_block,
     ));
 
-    let inbound_payments = Arc::new(AsyncMutex::new(HashMap::new()));
-    let outbound_payments = Arc::new(AsyncMutex::new(HashMap::new()));
+    let inbound_payments = Arc::new(PaMutex::new(HashMap::new()));
+    let outbound_payments = Arc::new(PaMutex::new(HashMap::new()));
 
     // Initialize the event handler
     let event_handler = Arc::new(ln_events::LightningEventHandler::new(

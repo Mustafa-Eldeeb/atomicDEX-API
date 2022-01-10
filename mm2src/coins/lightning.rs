@@ -21,7 +21,6 @@ use common::ip_addr::myipaddr;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_number::MmNumber;
-use futures::lock::Mutex as AsyncMutex;
 use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
 use lightning::chain::keysinterface::KeysManager;
@@ -73,7 +72,7 @@ pub struct PlatformFields {
     // This cache stores the outputs that the LN node has interest in.
     pub registered_outputs: PaMutex<Vec<WatchedOutput>>,
     // This cache stores transactions to be broadcasted once the other node accepts the channel
-    pub unsigned_funding_txs: AsyncMutex<HashMap<u64, TransactionInputSigner>>,
+    pub unsigned_funding_txs: PaMutex<HashMap<u64, TransactionInputSigner>>,
 }
 
 impl PlatformFields {
@@ -140,9 +139,9 @@ pub struct LightningCoin {
     #[cfg(not(target_arch = "wasm32"))]
     pub invoice_payer: Arc<InvoicePayer<Arc<LightningEventHandler>>>,
     /// The mutex storing the inbound payments info.
-    pub inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
+    pub inbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
     /// The mutex storing the outbound payments info.
-    pub outbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
+    pub outbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
 }
 
 impl fmt::Debug for LightningCoin {
@@ -454,7 +453,7 @@ pub struct OpenChannelRequest {
 
 #[derive(Serialize)]
 pub struct OpenChannelResponse {
-    temporary_channel_id: [u8; 32],
+    temporary_channel_id: String,
     node_id: String,
     request_id: u64,
 }
@@ -535,7 +534,7 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
     let push_msat = req.push_msat;
     let announce_channel = req.announce_channel;
     let channel_manager = ln_coin.channel_manager.clone();
-    let temporary_channel_id = async_blocking(move || {
+    let temp_channel_id = async_blocking(move || {
         open_ln_channel(
             node_pubkey,
             amount_in_sat,
@@ -547,11 +546,11 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
     })
     .await?;
 
-    let mut unsigned_funding_txs = ln_coin.platform_fields.unsigned_funding_txs.lock().await;
+    let mut unsigned_funding_txs = ln_coin.platform_fields.unsigned_funding_txs.lock();
     unsigned_funding_txs.insert(request_id, unsigned);
 
     Ok(OpenChannelResponse {
-        temporary_channel_id,
+        temporary_channel_id: hex::encode(temp_channel_id),
         node_id: req.node_id,
         request_id,
     })
@@ -643,6 +642,7 @@ pub struct GenerateInvoiceRequest {
 #[derive(Serialize)]
 pub struct GenerateInvoiceResponse {
     invoice: String,
+    payment_hash: String,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -674,9 +674,11 @@ pub async fn generate_invoice(
         network,
         req.amount_in_msat,
         req.description,
-    )?
-    .to_string();
-    Ok(GenerateInvoiceResponse { invoice })
+    )?;
+    Ok(GenerateInvoiceResponse {
+        invoice: invoice.to_string(),
+        payment_hash: invoice.payment_hash().to_string(),
+    })
 }
 
 #[derive(Deserialize)]
@@ -743,7 +745,7 @@ pub async fn send_payment(ctx: MmArc, req: SendPaymentReq) -> SendPaymentResult<
         .map_to_mm(|e| SendPaymentError::PaymentError(format!("{:?}", e)))?;
     let payment_hash = PaymentHash((*invoice.payment_hash()).into_inner());
     let payment_secret = Some(*invoice.payment_secret());
-    let mut outbound_payments = ln_coin.outbound_payments.lock().await;
+    let mut outbound_payments = ln_coin.outbound_payments.lock();
     outbound_payments.insert(payment_hash, PaymentInfo {
         preimage: None,
         secret: payment_secret,
@@ -797,12 +799,12 @@ pub async fn list_payments(ctx: MmArc, req: ListPaymentsReq) -> ListPaymentsResu
         MmCoinEnum::LightningCoin(c) => c,
         _ => return MmError::err(ListPaymentsError::UnsupportedCoin(coin.ticker().to_string())),
     };
-    let inbound_payments_info = ln_coin.inbound_payments.lock().await.clone();
+    let inbound_payments_info = ln_coin.inbound_payments.lock().clone();
     let mut inbound_payments = HashMap::new();
     for (payment_hash, payment_info) in inbound_payments_info.into_iter() {
         inbound_payments.insert(hex::encode(payment_hash.0), payment_info.into());
     }
-    let outbound_payments_info = ln_coin.outbound_payments.lock().await.clone();
+    let outbound_payments_info = ln_coin.outbound_payments.lock().clone();
     let mut outbound_payments = HashMap::new();
     for (payment_hash, payment_info) in outbound_payments_info.into_iter() {
         outbound_payments.insert(hex::encode(payment_hash.0), payment_info.into());

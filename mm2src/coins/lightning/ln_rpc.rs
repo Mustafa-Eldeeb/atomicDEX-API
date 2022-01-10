@@ -12,7 +12,7 @@ use bitcoin::consensus::encode;
 use bitcoin::hash_types::Txid;
 use bitcoin_hashes::Hash;
 use common::executor::spawn;
-use common::{block_on, log};
+use common::log;
 #[cfg(not(target_arch = "wasm32"))] use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use keys::hash::H256;
@@ -43,18 +43,17 @@ impl FeeEstimator for UtxoStandardCoin {
             // fetch high priority feerate
             ConfirmationTarget::HighPriority => 1,
         };
-        let fee_per_kb = block_on(
-            self.as_ref()
-                .rpc_client
-                .estimate_fee_sat(
-                    self.decimals(),
-                    &EstimateFeeMethod::SmartFee,
-                    &conf.estimate_fee_mode,
-                    n_blocks,
-                )
-                .compat(),
-        )
-        .unwrap_or(default_fee);
+        let fee_per_kb = self
+            .as_ref()
+            .rpc_client
+            .estimate_fee_sat(
+                self.decimals(),
+                &EstimateFeeMethod::SmartFee,
+                &conf.estimate_fee_mode,
+                n_blocks,
+            )
+            .wait()
+            .unwrap_or(default_fee);
         (fee_per_kb as f64 / 4.0).ceil() as u32
     }
 }
@@ -80,7 +79,7 @@ pub enum FindWatchedOutputSpendError {
     #[display(fmt = "Can't convert transaction: {}", _0)]
     TransactionConvertionErr(String),
     #[display(fmt = "Can't deserialize block header: {}", _0)]
-    BlockHeaderDerserializeErr(String),
+    BlockHeaderDeserializeErr(String),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -114,7 +113,7 @@ pub async fn find_watched_output_spend_with_header(
                     };
                     return Ok(Some((h, output_spend.input_index, spending_tx, height as u64)));
                 },
-                Err(e) => return Err(FindWatchedOutputSpendError::BlockHeaderDerserializeErr(e.to_string())),
+                Err(e) => return Err(FindWatchedOutputSpendError::BlockHeaderDeserializeErr(e.to_string())),
             }
         }
     }
@@ -139,14 +138,16 @@ impl Filter for PlatformFields {
         // the filter interface which includes register_output and register_tx should be used for electrum clients only,
         // this is the reason for initializing the filter as an option in the start_lightning function as it will be None
         // when implementing lightning for native clients
-        let output_spend_fut = client.find_output_spend(
-            H256::from(output.outpoint.txid.as_hash().into_inner()).reversed(),
-            output.script_pubkey.as_ref(),
-            output.outpoint.index.into(),
-            BlockHashOrHeight::Hash(block_hash),
-        );
+        let output_spend_fut = client
+            .find_output_spend(
+                H256::from(output.outpoint.txid.as_hash().into_inner()).reversed(),
+                output.script_pubkey.as_ref(),
+                output.outpoint.index.into(),
+                BlockHashOrHeight::Hash(block_hash),
+            )
+            .wait();
 
-        match block_on(output_spend_fut.compat()) {
+        match output_spend_fut {
             Ok(Some(spent_output_info)) => {
                 let spending_tx = match Transaction::try_from(spent_output_info.spending_tx) {
                     Ok(tx) => tx,

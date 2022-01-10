@@ -1,10 +1,14 @@
 use super::*;
 use bitcoin::blockdata::script::Script;
 use bitcoin::blockdata::transaction::{Transaction, TxOut};
-use common::{block_on, log};
+use common::executor::{spawn, Timer};
+use common::log;
+use core::time::Duration;
 use lightning::chain::transaction::OutPoint;
 use lightning::chain::Filter;
 use lightning::util::events::{Event, EventHandler, PaymentPurpose};
+use parking_lot::Mutex as PaMutex;
+use rand::Rng;
 use script::{Builder, SignatureVersion};
 use std::collections::hash_map::Entry;
 use std::convert::TryFrom;
@@ -14,8 +18,8 @@ use utxo_signer::with_key_pair::sign_tx;
 pub struct LightningEventHandler {
     filter: Arc<PlatformFields>,
     channel_manager: Arc<ChannelManager>,
-    inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
-    outbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
+    inbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
+    outbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
 }
 
 impl EventHandler for LightningEventHandler {
@@ -27,43 +31,85 @@ impl EventHandler for LightningEventHandler {
                 channel_value_satoshis,
                 output_script,
                 user_channel_id,
-            } => self.handle_funding_generation_ready(
-                *temporary_channel_id,
-                *channel_value_satoshis,
-                output_script,
-                *user_channel_id,
-            ),
+            } => {
+                log::info!(
+                    "Handling FundingGenerationReady event for temporary_channel_id: {}",
+                    hex::encode(temporary_channel_id)
+                );
+                self.handle_funding_generation_ready(
+                    *temporary_channel_id,
+                    *channel_value_satoshis,
+                    output_script,
+                    *user_channel_id,
+                );
+            },
             Event::PaymentReceived {
                 payment_hash,
                 amt,
                 purpose,
-            } => self.handle_payment_received(*payment_hash, *amt, purpose),
+            } => {
+                log::info!(
+                    "Handling PaymentReceived event for payment_hash: {}",
+                    hex::encode(payment_hash.0)
+                );
+                self.handle_payment_received(*payment_hash, *amt, purpose);
+            },
             Event::PaymentSent {
                 payment_preimage,
                 payment_hash,
                 ..
-            } => self.handle_payment_sent(*payment_preimage, *payment_hash),
-            Event::PaymentPathFailed { .. } => (),
-            Event::PaymentFailed { payment_hash, .. } => self.handle_payment_failed(payment_hash),
-            Event::PendingHTLCsForwardable { .. } => (),
-            Event::SpendableOutputs { .. } => (),
-            Event::PaymentForwarded { .. } => (),
-            Event::ChannelClosed { .. } => (),
-            Event::DiscardFunding { .. } => (),
-            Event::PaymentPathSuccessful { .. } => (),
+            } => {
+                log::info!(
+                    "Handling PaymentSent event for payment_hash: {}",
+                    hex::encode(payment_hash.0)
+                );
+                self.handle_payment_sent(*payment_preimage, *payment_hash);
+            },
+            Event::PaymentPathFailed { payment_hash, .. } => log::info!(
+                "Handling PaymentPathFailed event for payment_hash: {}",
+                hex::encode(payment_hash.0)
+            ),
+            Event::PaymentFailed { payment_hash, .. } => {
+                log::info!(
+                    "Handling PaymentFailed event for payment_hash: {}",
+                    hex::encode(payment_hash.0)
+                );
+                self.handle_payment_failed(payment_hash);
+            },
+            Event::PendingHTLCsForwardable { time_forwardable } => {
+                log::info!("Handling PendingHTLCsForwardable event!");
+                self.handle_pending_htlcs_forwards(*time_forwardable);
+            },
+            Event::SpendableOutputs { .. } => log::info!("Handling SpendableOutputs event!"),
+            Event::PaymentForwarded { .. } => log::info!("Handling PaymentForwarded event!"),
+            Event::ChannelClosed { channel_id, .. } => {
+                log::info!("Handling ChannelClosed event for channel: {}", hex::encode(channel_id))
+            },
+            Event::DiscardFunding { channel_id, .. } => {
+                log::info!("Handling DiscardFunding event for channel: {}", hex::encode(channel_id))
+            },
+            Event::PaymentPathSuccessful {
+                payment_id,
+                payment_hash,
+                ..
+            } => log::info!(
+                "Handling PaymentPathSuccessful event for payment_hash: {}, payment_id: {}",
+                hex::encode(payment_hash.map(|h| hex::encode(h.0)).unwrap_or_default()),
+                hex::encode(payment_id.0)
+            ),
         }
     }
 }
 
 // Generates the raw funding transaction with one output equal to the channel value.
-async fn sign_funding_transaction(
+fn sign_funding_transaction(
     request_id: u64,
     output_script: &Script,
     filter: Arc<PlatformFields>,
 ) -> OpenChannelResult<Transaction> {
     let coin = &filter.platform_coin;
     let mut unsigned = {
-        let unsigned_funding_txs = filter.unsigned_funding_txs.lock().await;
+        let unsigned_funding_txs = filter.unsigned_funding_txs.lock();
         unsigned_funding_txs
             .get(&request_id)
             .ok_or_else(|| {
@@ -92,8 +138,8 @@ impl LightningEventHandler {
     pub fn new(
         filter: Arc<PlatformFields>,
         channel_manager: Arc<ChannelManager>,
-        inbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
-        outbound_payments: Arc<AsyncMutex<HashMap<PaymentHash, PaymentInfo>>>,
+        inbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
+        outbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
     ) -> Self {
         LightningEventHandler {
             filter,
@@ -110,11 +156,7 @@ impl LightningEventHandler {
         output_script: &Script,
         user_channel_id: u64,
     ) {
-        let funding_tx = match block_on(sign_funding_transaction(
-            user_channel_id,
-            output_script,
-            self.filter.clone(),
-        )) {
+        let funding_tx = match sign_funding_transaction(user_channel_id, output_script, self.filter.clone()) {
             Ok(tx) => tx,
             Err(e) => {
                 log::error!(
@@ -189,7 +231,7 @@ impl LightningEventHandler {
             },
             false => HTLCStatus::Failed,
         };
-        let mut payments = block_on(self.inbound_payments.lock());
+        let mut payments = self.inbound_payments.lock();
         match payments.entry(payment_hash) {
             Entry::Occupied(mut e) => {
                 let payment = e.get_mut();
@@ -209,7 +251,7 @@ impl LightningEventHandler {
     }
 
     fn handle_payment_sent(&self, payment_preimage: PaymentPreimage, payment_hash: PaymentHash) {
-        let mut outbound_payments = block_on(self.outbound_payments.lock());
+        let mut outbound_payments = self.outbound_payments.lock();
         for (hash, payment) in outbound_payments.iter_mut() {
             if *hash == payment_hash {
                 payment.preimage = Some(payment_preimage);
@@ -224,10 +266,20 @@ impl LightningEventHandler {
     }
 
     fn handle_payment_failed(&self, payment_hash: &PaymentHash) {
-        let mut outbound_payments = block_on(self.outbound_payments.lock());
+        let mut outbound_payments = self.outbound_payments.lock();
         let outbound_payment = outbound_payments.get_mut(payment_hash);
         if let Some(payment) = outbound_payment {
             payment.status = HTLCStatus::Failed;
         }
+    }
+
+    fn handle_pending_htlcs_forwards(&self, time_forwardable: Duration) {
+        let min_wait_time = time_forwardable.as_millis() as u32;
+        let channel_manager = self.channel_manager.clone();
+        spawn(async move {
+            let millis_to_sleep = rand::thread_rng().gen_range(min_wait_time, min_wait_time * 5);
+            Timer::sleep_ms(millis_to_sleep).await;
+            channel_manager.process_pending_htlc_forwards();
+        });
     }
 }
