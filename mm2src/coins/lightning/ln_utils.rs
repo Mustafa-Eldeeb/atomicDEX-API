@@ -4,6 +4,7 @@ use common::mm_ctx::MmArc;
 use derive_more::Display;
 
 cfg_native! {
+    use crate::DerivationMethod;
     use crate::utxo::rpc_clients::{electrum_script_hash, BestBlock as RpcBestBlock, ElectrumBlockHeader, ElectrumClient,
                                    ElectrumNonce, UtxoRpcError};
     use bitcoin::blockdata::block::BlockHeader;
@@ -135,6 +136,14 @@ pub async fn start_lightning(
     ticker: String,
     params: LightningParams,
 ) -> EnableLightningResult<LightningCoin> {
+    // Todo: add support for Hardware wallets for funding transactions and spending spendable outputs (channel closing transactions)
+    if let DerivationMethod::HDWallet(_) = platform_coin.as_ref().derivation_method {
+        return MmError::err(EnableLightningError::UnsupportedMode(
+            "'start_lightning'".into(),
+            "iguana".into(),
+        ));
+    }
+
     let network = platform_coin.as_ref().network.clone().into();
     // The set (possibly empty) of socket addresses on which this node accepts incoming connections.
     // If the user wishes to preserve privacy, addresses should likely contain only Tor Onion addresses.
@@ -358,6 +367,7 @@ pub async fn start_lightning(
         // It's safe to use unwrap here for now until implementing Native Client for Lightning
         filter.clone().unwrap(),
         channel_manager.clone(),
+        keys_manager.clone(),
         inbound_payments.clone(),
         outbound_payments.clone(),
     ));

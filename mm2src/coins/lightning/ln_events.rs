@@ -4,12 +4,15 @@ use bitcoin::blockdata::transaction::{Transaction, TxOut};
 use common::executor::{spawn, Timer};
 use common::log;
 use core::time::Duration;
+use lightning::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator};
+use lightning::chain::keysinterface::SpendableOutputDescriptor;
 use lightning::chain::transaction::OutPoint;
 use lightning::chain::Filter;
 use lightning::util::events::{Event, EventHandler, PaymentPurpose};
 use parking_lot::Mutex as PaMutex;
 use rand::Rng;
 use script::{Builder, SignatureVersion};
+use secp256k1::Secp256k1;
 use std::collections::hash_map::Entry;
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -18,6 +21,7 @@ use utxo_signer::with_key_pair::sign_tx;
 pub struct LightningEventHandler {
     filter: Arc<PlatformFields>,
     channel_manager: Arc<ChannelManager>,
+    keys_manager: Arc<KeysManager>,
     inbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
     outbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
 }
@@ -80,7 +84,10 @@ impl EventHandler for LightningEventHandler {
                 log::info!("Handling PendingHTLCsForwardable event!");
                 self.handle_pending_htlcs_forwards(*time_forwardable);
             },
-            Event::SpendableOutputs { .. } => log::info!("Handling SpendableOutputs event!"),
+            Event::SpendableOutputs { outputs } => {
+                log::info!("Handling SpendableOutputs event!");
+                self.handle_spendable_outputs(outputs)
+            },
             Event::PaymentForwarded { .. } => log::info!("Handling PaymentForwarded event!"),
             Event::ChannelClosed { channel_id, .. } => {
                 log::info!("Handling ChannelClosed event for channel: {}", hex::encode(channel_id))
@@ -138,12 +145,14 @@ impl LightningEventHandler {
     pub fn new(
         filter: Arc<PlatformFields>,
         channel_manager: Arc<ChannelManager>,
+        keys_manager: Arc<KeysManager>,
         inbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
         outbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
     ) -> Self {
         LightningEventHandler {
             filter,
             channel_manager,
+            keys_manager,
             inbound_payments,
             outbound_payments,
         }
@@ -281,5 +290,34 @@ impl LightningEventHandler {
             Timer::sleep_ms(millis_to_sleep).await;
             channel_manager.process_pending_htlc_forwards();
         });
+    }
+
+    fn handle_spendable_outputs(&self, outputs: &[SpendableOutputDescriptor]) {
+        let platform_coin = &self.filter.platform_coin;
+        // Todo: add support for Hardware wallets for funding transactions and spending spendable outputs (channel closing transactions)
+        let my_address = match platform_coin.as_ref().derivation_method.iguana_or_err() {
+            Ok(addr) => addr,
+            Err(e) => {
+                log::error!("{}", e);
+                return;
+            },
+        };
+        let change_destination_script = my_address.hash.to_vec().into();
+        let feerate_sat_per_1000_weight = platform_coin.get_est_sat_per_1000_weight(ConfirmationTarget::Normal);
+        let output_descriptors = &outputs.iter().collect::<Vec<_>>();
+        let spending_tx = match self.keys_manager.spend_spendable_outputs(
+            output_descriptors,
+            Vec::new(),
+            change_destination_script,
+            feerate_sat_per_1000_weight,
+            &Secp256k1::new(),
+        ) {
+            Ok(tx) => tx,
+            Err(_) => {
+                log::error!("Error spending spendable outputs");
+                return;
+            },
+        };
+        platform_coin.broadcast_transaction(&spending_tx);
     }
 }
