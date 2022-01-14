@@ -5,6 +5,7 @@ use common::for_tests::{check_my_swap_status, check_recent_swaps, check_stats_sw
                         enable_native as enable_native_impl, enable_qrc20, find_metrics_in_json, from_env_file,
                         mm_spat, wait_till_history_has_records, LocalStart, MarketMakerIt, RaiiDump,
                         MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
+use common::log::LogLevel;
 use common::mm_metrics::{MetricType, MetricsJson};
 use common::mm_number::{Fraction, MmNumber};
 use common::privkey::key_pair_from_seed;
@@ -170,10 +171,14 @@ fn test_rpc() {
 #[cfg(not(target_arch = "wasm32"))]
 fn test_mm_start() {
     if let Ok(conf) = var("_MM2_TEST_CONF") {
-        log!("test_mm_start] Starting the MarketMaker...");
-        let conf: Json = json::from_str(&conf).unwrap();
-        let params = LpMainParams::with_conf(conf);
-        block_on(lp_main(params, &|_ctx| ())).unwrap()
+        if let Ok(log_var) = var("RUST_LOG") {
+            if let Ok(filter) = LogLevel::from_str(&log_var) {
+                log!("test_mm_start] Starting the MarketMaker...");
+                let conf: Json = json::from_str(&conf).unwrap();
+                let params = LpMainParams::with_conf(conf).log_filter(Some(filter));
+                block_on(lp_main(params, &|_ctx| ())).unwrap()
+            }
+        }
     }
 }
 
@@ -8186,7 +8191,7 @@ fn test_enable_lightning() {
           }
     ]);
 
-    let mut mm = MarketMakerIt::start(
+    let mm = MarketMakerIt::start(
         json! ({
             "gui": "nogui",
             "netid": 9998,
@@ -8221,10 +8226,6 @@ fn test_enable_lightning() {
 
     let enable_lightning = block_on(enable_lightning(&mm, "tBTC-TEST-lightning"));
     assert_eq!(enable_lightning["result"]["platform_coin"], "tBTC-TEST-segwit");
-
-    block_on(mm.wait_for_log(60., |log| log.contains("Calling ChannelManager's timer_tick_occurred"))).unwrap();
-
-    block_on(mm.wait_for_log(60., |log| log.contains("Calling PeerManager's timer_tick_occurred"))).unwrap();
 
     block_on(mm.stop()).unwrap();
 }
