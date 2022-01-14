@@ -1,13 +1,11 @@
 use super::*;
 use bitcoin::blockdata::script::Script;
-use bitcoin::blockdata::transaction::{Transaction, TxOut};
+use bitcoin::blockdata::transaction::Transaction;
 use common::executor::{spawn, Timer};
 use common::log;
 use core::time::Duration;
 use lightning::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator};
 use lightning::chain::keysinterface::SpendableOutputDescriptor;
-use lightning::chain::transaction::OutPoint;
-use lightning::chain::Filter;
 use lightning::util::events::{Event, EventHandler, PaymentPurpose};
 use parking_lot::Mutex as PaMutex;
 use rand::Rng;
@@ -32,20 +30,15 @@ impl EventHandler for LightningEventHandler {
         match event {
             Event::FundingGenerationReady {
                 temporary_channel_id,
-                channel_value_satoshis,
                 output_script,
                 user_channel_id,
+                ..
             } => {
                 log::info!(
                     "Handling FundingGenerationReady event for temporary_channel_id: {}",
                     hex::encode(temporary_channel_id)
                 );
-                self.handle_funding_generation_ready(
-                    *temporary_channel_id,
-                    *channel_value_satoshis,
-                    output_script,
-                    *user_channel_id,
-                );
+                self.handle_funding_generation_ready(*temporary_channel_id, output_script, *user_channel_id);
             },
             Event::PaymentReceived {
                 payment_hash,
@@ -161,7 +154,6 @@ impl LightningEventHandler {
     fn handle_funding_generation_ready(
         &self,
         temporary_channel_id: [u8; 32],
-        channel_value_satoshis: u64,
         output_script: &Script,
         user_channel_id: u64,
     ) {
@@ -179,42 +171,11 @@ impl LightningEventHandler {
             },
         };
         // Give the funding transaction back to LDK for opening the channel.
-        match self
+        if let Err(e) = self
             .channel_manager
-            .funding_transaction_generated(&temporary_channel_id, funding_tx.clone())
+            .funding_transaction_generated(&temporary_channel_id, funding_tx)
         {
-            Ok(_) => {
-                let txid = funding_tx.txid();
-                self.filter.register_tx(&txid, output_script);
-                let output_to_be_registered = TxOut {
-                    value: channel_value_satoshis,
-                    script_pubkey: output_script.clone(),
-                };
-                let output_index = match funding_tx
-                    .output
-                    .iter()
-                    .position(|tx_out| tx_out == &output_to_be_registered)
-                {
-                    Some(i) => i,
-                    None => {
-                        log::error!(
-                            "Output to register is not found in the output of the transaction: {}",
-                            txid
-                        );
-                        return;
-                    },
-                };
-                self.filter.register_output(WatchedOutput {
-                    block_hash: None,
-                    outpoint: OutPoint {
-                        txid,
-                        index: output_index as u16,
-                    },
-                    script_pubkey: output_script.clone(),
-                });
-            },
-            // When transaction is unconfirmed by process_txs_confirmations LDK will try to rebroadcast the tx
-            Err(e) => log::error!("{:?}", e),
+            log::error!("{:?}", e);
         }
     }
 
