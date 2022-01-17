@@ -903,11 +903,32 @@ fn test_utxo_lock() {
     }
 }
 
+/*#[test]
+fn test_spv_fraud_proof() {
+    let secret = [0; 20];
+    let client = electrum_client_for_test(RICK_ELECTRUM_ADDRS);
+    let coin = utxo_coin_for_test(
+        client.into(),
+        Some("spice describe gravity federal blast come thank unfair canal monkey style afraid"),
+        false,
+    );
+    let CoinBalance { spendable, unspendable } = coin.my_balance().wait().unwrap();
+    println!("{} {}", spendable, unspendable);
+    let timeout = (now_ms() / 1000) + 240; // timeout if test takes more than 240 seconds to run
+    let my_public_key = coin.my_public_key().unwrap();
+    let time_lock = (now_ms() / 1000) as u32 - 3600;
+
+    let tx = coin
+        .send_maker_payment(time_lock, my_public_key, &[0; 20], 1u64.into(), &None)
+        .wait()
+        .unwrap();
+    println!("yay");
+}*/
+
 #[test]
-#[ignore]
 fn test_spv_proof() {
     ElectrumClient::get_transaction_bytes.mock_safe(move |_, _| {
-        let bytes: BytesJson = hex::decode("400008085202f8901acbb02c7ef68832b3e768f8177da3dd09f0703675c4a6bbc9b0af4f4d86ff48c020000006a4730440220108f40ab98a1b7cd46195814efb7f37a7a7ec8fe4953cf411fae5bd920af98bd022029e40468d3ab873c81901ae1f5b291d8bc5745c693f62bc8b19884318b0f2c0f012102031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3ffffffff0300e1f5050000000017a9142bd37349752d1751d5cc49eed71029010a83f828870000000000000000166a14b8bcb07f6344b42ab04250c86a6e8b75d3fdbbc612d3d42c000000001976a91405aab5342166f8594baf17a7d9bef5d56744332788ac5dc4e361000000000000000000000000000000").unwrap().into();
+        let bytes: BytesJson = hex::decode("0400008085202f8901acbb02c7ef68832b3e768f8177da3dd09f0703675c4a6bbc9b0af4f4d86ff48c020000006a473044022064318d9178eb8d5d098c1d2c9e90b7685521a9946fbbf6c4d482e6ce2e82959a0220425a675c1665f159109001176a4425e4a35a52c81b4a8a42e34ed18485e1d44d012102031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3ffffffff0300e1f5050000000017a9147f4d6f4db8587bd878e05c83660f515800d75098870000000000000000166a14000000000000000000000000000000000000000012d3d42c000000001976a91405aab5342166f8594baf17a7d9bef5d56744332788ac7c10e561000000000000000000000000000000").unwrap().into();
         MockResult::Return(Box::new(futures01::future::ok(bytes)))
     });
     let client = electrum_client_for_test(RICK_ELECTRUM_ADDRS);
@@ -923,8 +944,11 @@ fn test_spv_proof() {
         .get_transaction_bytes(&empty_hash)
         .wait()
         .unwrap();
-    let expected: BytesJson = hex::decode("400008085202f8901acbb02c7ef68832b3e768f8177da3dd09f0703675c4a6bbc9b0af4f4d86ff48c020000006a4730440220108f40ab98a1b7cd46195814efb7f37a7a7ec8fe4953cf411fae5bd920af98bd022029e40468d3ab873c81901ae1f5b291d8bc5745c693f62bc8b19884318b0f2c0f012102031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3ffffffff0300e1f5050000000017a9142bd37349752d1751d5cc49eed71029010a83f828870000000000000000166a14b8bcb07f6344b42ab04250c86a6e8b75d3fdbbc612d3d42c000000001976a91405aab5342166f8594baf17a7d9bef5d56744332788ac5dc4e361000000000000000000000000000000").unwrap().into();
+    let expected: BytesJson = hex::decode("0400008085202f8901acbb02c7ef68832b3e768f8177da3dd09f0703675c4a6bbc9b0af4f4d86ff48c020000006a473044022064318d9178eb8d5d098c1d2c9e90b7685521a9946fbbf6c4d482e6ce2e82959a0220425a675c1665f159109001176a4425e4a35a52c81b4a8a42e34ed18485e1d44d012102031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3ffffffff0300e1f5050000000017a9147f4d6f4db8587bd878e05c83660f515800d75098870000000000000000166a14000000000000000000000000000000000000000012d3d42c000000001976a91405aab5342166f8594baf17a7d9bef5d56744332788ac7c10e561000000000000000000000000000000").unwrap().into();
     assert_eq!(result, expected);
+
+    //! get_transaction_bytes return a crafted transaction
+    //validate_spv()
 }
 
 #[test]
