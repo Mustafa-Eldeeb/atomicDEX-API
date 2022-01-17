@@ -33,10 +33,10 @@ use lightning_background_processor::BackgroundProcessor;
 use lightning_invoice::utils::create_invoice_from_channelmanager;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::Invoice;
-use ln_errors::{ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
-                GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, ListChannelsError,
-                ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult,
-                SendPaymentError, SendPaymentResult};
+use ln_errors::{CloseChannelError, CloseChannelResult, ConnectToNodeError, ConnectToNodeResult, EnableLightningError,
+                EnableLightningResult, GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult,
+                ListChannelsError, ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError,
+                OpenChannelResult, SendPaymentError, SendPaymentResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
@@ -814,4 +814,37 @@ pub async fn list_payments(ctx: MmArc, req: ListPaymentsReq) -> ListPaymentsResu
         inbound_payments,
         outbound_payments,
     })
+}
+
+#[derive(Deserialize)]
+pub struct CloseChannelReq {
+    pub coin: String,
+    pub channel: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn close_channel(_ctx: MmArc, _req: CloseChannelReq) -> CloseChannelResult<String> {
+    MmError::err(CloseChannelError::UnsupportedMode(
+        "'close_channel'".into(),
+        "native".into(),
+    ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn close_channel(ctx: MmArc, req: CloseChannelReq) -> CloseChannelResult<String> {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(CloseChannelError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let mut channel_id = [0; 32];
+    channel_id.copy_from_slice(
+        &hex::decode(req.channel.clone()).map_to_mm(|e| CloseChannelError::DecodeError(format!("{}", e)))?,
+    );
+    ln_coin
+        .channel_manager
+        .close_channel(&channel_id)
+        .map_to_mm(|e| CloseChannelError::CloseChannelError(format!("{:?}", e)))?;
+
+    Ok(format!("Initiated closing of channel: {}", req.channel))
 }

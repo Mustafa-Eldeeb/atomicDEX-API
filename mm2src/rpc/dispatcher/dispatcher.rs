@@ -7,8 +7,8 @@ use crate::{mm2::lp_stats::{add_node_to_version_stat, remove_node_from_version_s
             mm2::lp_swap::{recreate_swap_data, trade_preimage_rpc},
             mm2::rpc::get_public_key::get_public_key};
 use coins::init_withdraw::{init_withdraw, withdraw_status, withdraw_user_action};
-use coins::lightning::{connect_to_lightning_node, generate_invoice, get_ln_node_id, list_channels, list_payments,
-                       open_channel, send_payment, LightningCoin};
+use coins::lightning::{close_channel, connect_to_lightning_node, generate_invoice, get_ln_node_id, list_channels,
+                       list_payments, open_channel, send_payment, LightningCoin};
 use coins::my_tx_history_v2::my_tx_history_v2_rpc;
 use coins::utxo::bch::BchCoin;
 use coins::utxo::slp::SlpToken;
@@ -106,6 +106,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         // "activate_bch_protocol_coin" => handle_mmrpc(ctx, request, activate_bch_protocol_coin).await,
         "add_delegation" => handle_mmrpc(ctx, request, add_delegation).await,
         "add_node_to_version_stat" => handle_mmrpc(ctx, request, add_node_to_version_stat).await,
+        "close_channel" => handle_mmrpc(ctx, request, close_channel).await,
         "connect_to_lightning_node" => handle_mmrpc(ctx, request, connect_to_lightning_node).await,
         "enable_bch_with_tokens" => handle_mmrpc(ctx, request, enable_platform_coin_with_tokens::<BchCoin>).await,
         "enable_lightning" => handle_mmrpc(ctx, request, enable_l2::<LightningCoin>).await,

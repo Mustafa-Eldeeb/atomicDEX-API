@@ -16,6 +16,7 @@ pub type GenerateInvoiceResult<T> = Result<T, MmError<GenerateInvoiceError>>;
 pub type GetNodeIdResult<T> = Result<T, MmError<GetNodeIdError>>;
 pub type SendPaymentResult<T> = Result<T, MmError<SendPaymentError>>;
 pub type ListPaymentsResult<T> = Result<T, MmError<ListPaymentsError>>;
+pub type CloseChannelResult<T> = Result<T, MmError<CloseChannelError>>;
 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -341,6 +342,42 @@ impl From<CoinFindError> for ListPaymentsError {
     fn from(e: CoinFindError) -> Self {
         match e {
             CoinFindError::NoSuchCoin { coin } => ListPaymentsError::NoSuchCoin(coin),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
+pub enum CloseChannelError {
+    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
+    UnsupportedMode(String, String),
+    #[display(fmt = "Lightning network is not supported for {}", _0)]
+    UnsupportedCoin(String),
+    #[display(fmt = "No such coin {}", _0)]
+    NoSuchCoin(String),
+    #[display(fmt = "Hex decoding error: {}", _0)]
+    DecodeError(String),
+    #[display(fmt = "Closing channel error: {}", _0)]
+    CloseChannelError(String),
+}
+
+impl HttpStatusCode for CloseChannelError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            CloseChannelError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
+            CloseChannelError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
+            CloseChannelError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
+            CloseChannelError::CloseChannelError(_) | CloseChannelError::DecodeError(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
+        }
+    }
+}
+
+impl From<CoinFindError> for CloseChannelError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => CloseChannelError::NoSuchCoin(coin),
         }
     }
 }

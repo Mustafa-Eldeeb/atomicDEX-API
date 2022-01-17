@@ -82,8 +82,13 @@ impl EventHandler for LightningEventHandler {
                 self.handle_spendable_outputs(outputs)
             },
             Event::PaymentForwarded { .. } => log::info!("Handling PaymentForwarded event!"),
-            Event::ChannelClosed { channel_id, .. } => {
-                log::info!("Handling ChannelClosed event for channel: {}", hex::encode(channel_id))
+            Event::ChannelClosed { channel_id, reason, .. } => {
+                // Todo: Use storage to store channels history
+                log::info!(
+                    "Channel: {} closed for the following reason: {}",
+                    hex::encode(channel_id),
+                    reason
+                )
             },
             Event::DiscardFunding { channel_id, .. } => {
                 log::info!("Handling DiscardFunding event for channel: {}", hex::encode(channel_id))
