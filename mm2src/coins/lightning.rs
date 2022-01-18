@@ -336,8 +336,8 @@ impl MmCoin for LightningCoin {
 
     async fn get_sender_trade_fee(
         &self,
-        value: TradePreimageValue,
-        stage: FeeApproxStage,
+        _value: TradePreimageValue,
+        _stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }

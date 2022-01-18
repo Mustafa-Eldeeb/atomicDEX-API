@@ -1140,8 +1140,8 @@ impl MmCoin for ZCoin {
 
     async fn get_sender_trade_fee(
         &self,
-        value: TradePreimageValue,
-        stage: FeeApproxStage,
+        _value: TradePreimageValue,
+        _stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
         let fee = self.get_tx_fee().await?;
         match fee {
