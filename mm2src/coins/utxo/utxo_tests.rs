@@ -930,15 +930,14 @@ fn test_spv_fraud_proof() {
 #[test]
 fn test_spv_proof_block_header() {
     let client = electrum_client_for_test(RICK_ELECTRUM_ADDRS);
-    let res_block_header = block_on(client.blockchain_block_header(958318).compat()).unwrap();
-    let block_header: BlockHeader = deserialize(res_block_header.0.as_slice()).unwrap();
     let tx_id: H256 = "7e9797a05abafbc1542449766ef9a41838ebbf6d24cd3223d361aa07c51981df".into();
     let height = 958318;
     let merkle_root: H256 = "41f138275d13690e3c5d735e2f88eb6f1aaade1207eb09fa27a65b40711f3ae0".into();
     let merkle_branch = block_on(client.blockchain_transaction_get_merkle(tx_id.into(), height).compat()).unwrap();
     let mut vec: Vec<u8> = vec![];
     for merkle_node in merkle_branch.merkle {
-        vec.append(&mut merkle_node.0.as_slice().to_vec());
+        println!("{:?}", merkle_node.reversed());
+        vec.append(&mut merkle_node.reversed().0.as_slice().to_vec());
     }
     let nodes = bitcoin_spv::types::MerkleArray::new(vec.as_slice()).unwrap();
     println!("{}", nodes.len());
@@ -947,8 +946,8 @@ fn test_spv_proof_block_header() {
     println!(
         "{}",
         bitcoin_spv::validatespv::prove(
-            tx_id.take().into(),
-            merkle_root.take().into(),
+            tx_id.reversed().take().into(),
+            merkle_root.reversed().take().into(),
             &nodes,
             merkle_branch.pos as u64,
         )
