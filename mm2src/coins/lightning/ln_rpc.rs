@@ -19,6 +19,7 @@ use keys::hash::H256;
 use lightning::chain::{chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator},
                        Filter, WatchedOutput};
 use rpc::v1::types::H256 as H256Json;
+use std::cmp;
 use std::convert::TryFrom;
 
 impl FeeEstimator for UtxoStandardCoin {
@@ -48,13 +49,15 @@ impl FeeEstimator for UtxoStandardCoin {
             .rpc_client
             .estimate_fee_sat(
                 self.decimals(),
-                &EstimateFeeMethod::SmartFee,
+                // Todo: when implementing Native client detect_fee_method should be used for Native and
+                // EstimateFeeMethod::Standard for Electrum
+                &EstimateFeeMethod::Standard,
                 &conf.estimate_fee_mode,
                 n_blocks,
             )
             .wait()
             .unwrap_or(default_fee);
-        (fee_per_kb as f64 / 4.0).ceil() as u32
+        cmp::max((fee_per_kb as f64 / 4.0).ceil() as u32, 253)
     }
 }
 
@@ -91,7 +94,7 @@ pub async fn find_watched_output_spend_with_header(
     let utxo_client: UtxoRpcClientEnum = electrum_client.clone().into();
     let output_spend = match utxo_client
         .find_output_spend(
-            H256::from(output.outpoint.txid.as_hash().into_inner()).reversed(),
+            H256::from(output.outpoint.txid.as_hash().into_inner()),
             output.script_pubkey.as_ref(),
             output.outpoint.index.into(),
             BlockHashOrHeight::Hash(Default::default()),
@@ -140,7 +143,7 @@ impl Filter for PlatformFields {
         // when implementing lightning for native clients
         let output_spend_fut = client
             .find_output_spend(
-                H256::from(output.outpoint.txid.as_hash().into_inner()).reversed(),
+                H256::from(output.outpoint.txid.as_hash().into_inner()),
                 output.script_pubkey.as_ref(),
                 output.outpoint.index.into(),
                 BlockHashOrHeight::Hash(block_hash),
