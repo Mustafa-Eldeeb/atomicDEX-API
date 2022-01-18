@@ -7,7 +7,9 @@ use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardC
 #[cfg(not(target_arch = "wasm32"))] use crate::WithdrawFee;
 use crate::{CoinBalance, StakingInfosDetails, SwapOps, TradePreimageValue, TxFeeDetails};
 use bigdecimal::{BigDecimal, Signed};
-use chain::OutPoint;
+use bitcoin_spv::std_types::BitcoinHeader;
+use bitcoin_spv::types::{Hash256Digest, RawHeader, SPVError};
+use chain::BlockHeader;
 use common::mm_ctx::MmCtxBuilder;
 use common::privkey::key_pair_from_seed;
 use common::{block_on, now_ms, OrdRange, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -926,6 +928,34 @@ fn test_spv_fraud_proof() {
 }*/
 
 #[test]
+fn test_spv_proof_block_header() {
+    let client = electrum_client_for_test(RICK_ELECTRUM_ADDRS);
+    let res_block_header = block_on(client.blockchain_block_header(958318).compat()).unwrap();
+    let block_header: BlockHeader = deserialize(res_block_header.0.as_slice()).unwrap();
+    let tx_id: H256 = "7e9797a05abafbc1542449766ef9a41838ebbf6d24cd3223d361aa07c51981df".into();
+    let height = 958318;
+    let merkle_root: H256 = "41f138275d13690e3c5d735e2f88eb6f1aaade1207eb09fa27a65b40711f3ae0".into();
+    let merkle_branch = block_on(client.blockchain_transaction_get_merkle(tx_id.into(), height).compat()).unwrap();
+    let mut vec: Vec<u8> = vec![];
+    for merkle_node in merkle_branch.merkle {
+        vec.append(&mut merkle_node.0.as_slice().to_vec());
+    }
+    let nodes = bitcoin_spv::types::MerkleArray::new(vec.as_slice()).unwrap();
+    println!("{}", nodes.len());
+    println!("{}", merkle_branch.pos);
+    println!("{:?}", nodes);
+    println!(
+        "{}",
+        bitcoin_spv::validatespv::prove(
+            tx_id.take().into(),
+            merkle_root.take().into(),
+            &nodes,
+            merkle_branch.pos as u64,
+        )
+    );
+}
+
+#[test]
 fn test_spv_proof() {
     ElectrumClient::get_transaction_bytes.mock_safe(move |_, _| {
         let bytes: BytesJson = hex::decode("0400008085202f8901acbb02c7ef68832b3e768f8177da3dd09f0703675c4a6bbc9b0af4f4d86ff48c020000006a473044022064318d9178eb8d5d098c1d2c9e90b7685521a9946fbbf6c4d482e6ce2e82959a0220425a675c1665f159109001176a4425e4a35a52c81b4a8a42e34ed18485e1d44d012102031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3ffffffff0300e1f5050000000017a9147f4d6f4db8587bd878e05c83660f515800d75098870000000000000000166a14000000000000000000000000000000000000000012d3d42c000000001976a91405aab5342166f8594baf17a7d9bef5d56744332788ac7c10e561000000000000000000000000000000").unwrap().into();
@@ -946,9 +976,13 @@ fn test_spv_proof() {
         .unwrap();
     let expected: BytesJson = hex::decode("0400008085202f8901acbb02c7ef68832b3e768f8177da3dd09f0703675c4a6bbc9b0af4f4d86ff48c020000006a473044022064318d9178eb8d5d098c1d2c9e90b7685521a9946fbbf6c4d482e6ce2e82959a0220425a675c1665f159109001176a4425e4a35a52c81b4a8a42e34ed18485e1d44d012102031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3ffffffff0300e1f5050000000017a9147f4d6f4db8587bd878e05c83660f515800d75098870000000000000000166a14000000000000000000000000000000000000000012d3d42c000000001976a91405aab5342166f8594baf17a7d9bef5d56744332788ac7c10e561000000000000000000000000000000").unwrap().into();
     assert_eq!(result, expected);
+    let tx_str = "0400008085202f8901acbb02c7ef68832b3e768f8177da3dd09f0703675c4a6bbc9b0af4f4d86ff48c020000006a473044022064318d9178eb8d5d098c1d2c9e90b7685521a9946fbbf6c4d482e6ce2e82959a0220425a675c1665f159109001176a4425e4a35a52c81b4a8a42e34ed18485e1d44d012102031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3ffffffff0300e1f5050000000017a9147f4d6f4db8587bd878e05c83660f515800d75098870000000000000000166a14000000000000000000000000000000000000000012d3d42c000000001976a91405aab5342166f8594baf17a7d9bef5d56744332788ac7c10e561000000000000000000000000000000";
+    let tx: UtxoTx = tx_str.into();
+    let empty: Vec<u8> = vec![];
+    let res = block_on(utxo_common::validate_spv_proof(coin.clone(), tx, empty.into()));
 
-    //! get_transaction_bytes return a crafted transaction
-    //validate_spv()
+    // empty pubkey -> empty history -> error
+    assert_eq!(res.is_err(), true);
 }
 
 #[test]

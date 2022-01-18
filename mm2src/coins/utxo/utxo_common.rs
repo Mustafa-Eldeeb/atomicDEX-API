@@ -5,9 +5,11 @@ use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentI
 use crate::utxo::utxo_withdraw::{InitUtxoWithdraw, StandardUtxoWithdraw, UtxoWithdraw};
 use crate::{CanRefundHtlc, CoinBalance, TradePreimageValue, TxFeeDetails, ValidateAddressResult, WithdrawResult};
 use bigdecimal::{BigDecimal, Zero};
+use bitcoin_spv::std_types::{BitcoinHeader, SPVProof};
+use bitcoin_spv::types::SPVError;
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
 use chain::constants::SEQUENCE_FINAL;
-use chain::{OutPoint, TransactionOutput};
+use chain::{BlockHeader, OutPoint, TransactionOutput};
 use common::executor::Timer;
 use common::jsonrpc_client::{JsonRpcError, JsonRpcErrorType};
 use common::log::{error, info, warn};
@@ -2662,6 +2664,71 @@ pub fn address_from_pubkey(
     }
 }
 
+pub async fn validate_spv_proof<T>(coin: T, tx: UtxoTx, script_pubkey: Bytes) -> Result<(), String>
+where
+    T: AsRef<UtxoCoinFields> + Send + Sync + 'static,
+{
+    // todo: refactor to real error type
+    let script_pubkey_str = hex::encode(&script_pubkey);
+    let client = match &coin.as_ref().rpc_client {
+        UtxoRpcClientEnum::Native(_) => return ERR!("Native not supported for spv proof."),
+        UtxoRpcClientEnum::Electrum(electrum_client) => electrum_client,
+    };
+    let history = client
+        .scripthash_get_history(script_pubkey_str.as_str())
+        .compat()
+        .await
+        .unwrap_or_default();
+    if history.is_empty() {
+        return ERR!("Unable to get scripthash history - invalid transaction");
+    }
+    let mut height: u64 = 0;
+    for item in history {
+        if item.tx_hash == H256Json(*tx.hash()) && item.height > 0 {
+            println!("height: {}", item.height);
+            height = item.height as u64;
+            break;
+        }
+    }
+    if height == 0 {
+        return ERR!("Unable to get a proper transaction height - invalid transaction");
+    }
+
+    let block_header = client.blockchain_block_header(height).compat().await;
+
+    match block_header {
+        Ok(header_bytes) => {
+            // todo: deserialize into block_header and convert it to BitcoinHeader for the spv proof library
+        },
+        Err(err) => return ERR!("Unable to get a block header - invalid transaction"),
+    };
+
+    // todo: implement get merkle tree tsc
+
+    // todo: fill the SPVProof data structure correctly
+    let proof = SPVProof {
+        version: vec![],
+        vin: vec![],
+        vout: vec![],
+        locktime: vec![],
+        tx_id: Default::default(),
+        index: 0,
+        confirming_header: BitcoinHeader {
+            hash: Default::default(),
+            raw: Default::default(),
+            height: 0,
+            prevhash: Default::default(),
+            merkle_root: Default::default(),
+        },
+        intermediate_nodes: vec![],
+    };
+    match proof.validate() {
+        Ok(_) => {},
+        Err(err) => return ERR!("{:?}", err),
+    };
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn validate_payment<T>(
     coin: T,
@@ -2727,7 +2794,7 @@ where
                     expected_output
                 );
             }
-            return Ok(());
+            return validate_spv_proof(coin, tx, expected_output.script_pubkey).await;
         }
     };
     Box::new(fut.boxed().compat())
