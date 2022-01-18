@@ -661,10 +661,9 @@ fn test_sender_trade_preimage_zero_allowance() {
     );
     let sender_refund_fee = big_decimal_from_sat(CONTRACT_CALL_GAS_FEE + EXPECTED_TX_FEE, coin.utxo.decimals);
 
-    let actual = coin
-        .get_sender_trade_fee(TradePreimageValue::Exact(1.into()), FeeApproxStage::WithoutApprox)
-        .wait()
-        .expect("!get_sender_trade_fee");
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(1.into()), FeeApproxStage::WithoutApprox))
+            .expect("!get_sender_trade_fee");
     // one `approve` contract call should be included into the expected trade fee
     let expected = TradeFee {
         coin: "QTUM".to_owned(),
@@ -700,10 +699,9 @@ fn test_sender_trade_preimage_with_allowance() {
     );
     let sender_refund_fee = big_decimal_from_sat(CONTRACT_CALL_GAS_FEE + EXPECTED_TX_FEE, coin.utxo.decimals);
 
-    let actual = coin
-        .get_sender_trade_fee(TradePreimageValue::Exact(2.5.into()), FeeApproxStage::WithoutApprox)
-        .wait()
-        .expect("!get_sender_trade_fee");
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(2.5.into()), FeeApproxStage::WithoutApprox))
+            .expect("!get_sender_trade_fee");
     // the expected fee should not include any `approve` contract call
     let expected = TradeFee {
         coin: "QTUM".to_owned(),
@@ -712,10 +710,9 @@ fn test_sender_trade_preimage_with_allowance() {
     };
     assert_eq!(actual, expected);
 
-    let actual = coin
-        .get_sender_trade_fee(TradePreimageValue::Exact(3.5.into()), FeeApproxStage::WithoutApprox)
-        .wait()
-        .expect("!get_sender_trade_fee");
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(3.5.into()), FeeApproxStage::WithoutApprox))
+            .expect("!get_sender_trade_fee");
     // two `approve` contract calls should be included into the expected trade fee
     let expected = TradeFee {
         coin: "QTUM".to_owned(),
@@ -765,15 +762,13 @@ fn test_taker_fee_tx_fee() {
     // check if the coin's tx fee is expected
     check_tx_fee(&coin, ActualTxFee::FixedPerKb(EXPECTED_TX_FEE as u64));
     let expected_balance = CoinBalance {
-        spendable: BigDecimal::from(5),
-        unspendable: BigDecimal::from(0),
+        spendable: BigDecimal::from(5u32),
+        unspendable: BigDecimal::from(0u32),
     };
     assert_eq!(coin.my_balance().wait().expect("!my_balance"), expected_balance);
 
-    let dex_fee_amount = BigDecimal::from(5);
-    let actual = coin
-        .get_fee_to_send_taker_fee(dex_fee_amount, FeeApproxStage::WithoutApprox)
-        .wait()
+    let dex_fee_amount = BigDecimal::from(5u32);
+    let actual = block_on(coin.get_fee_to_send_taker_fee(dex_fee_amount, FeeApproxStage::WithoutApprox))
         .expect("!get_fee_to_send_taker_fee");
     // only one contract call should be included into the expected trade fee
     let expected_receiver_fee = big_decimal_from_sat(CONTRACT_CALL_GAS_FEE + EXPECTED_TX_FEE, coin.utxo.decimals);

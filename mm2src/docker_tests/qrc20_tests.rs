@@ -888,7 +888,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     let mut mm = MarketMakerIt::start(
         json! ({
             "gui": "nogui",
-            "netid": 9000,
+            "netid": 9000u32,
             "dht": "on",  // Enable DHT without delay.
             "passphrase": format!("0x{}", hex::encode(priv_key)),
             "coins": coins,
@@ -912,13 +912,11 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     // - `max_trade_fee = trade_fee(balance)`
     // Please note if we pass the exact value, the `get_sender_trade_fee` will fail with 'Not sufficient balance: Couldn't collect enough value from utxos'.
     // So we should deduct trade fee from the output.
-    let max_trade_fee = coin
-        .get_sender_trade_fee(
-            TradePreimageValue::UpperBound(qtum_balance.clone()),
-            FeeApproxStage::TradePreimage,
-        )
-        .wait()
-        .expect("!get_sender_trade_fee");
+    let max_trade_fee = block_on(coin.get_sender_trade_fee(
+        TradePreimageValue::UpperBound(qtum_balance.clone()),
+        FeeApproxStage::TradePreimage,
+    ))
+    .expect("!get_sender_trade_fee");
     let max_trade_fee = max_trade_fee.amount.to_decimal();
     debug!("max_trade_fee: {}", max_trade_fee);
 
@@ -935,10 +933,9 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
 
     // - `max_fee_to_send_taker_fee = fee_to_send_taker_fee(max_dex_fee)`
     // `taker_fee` is sent using general withdraw, and the fee get be obtained from withdraw result
-    let max_fee_to_send_taker_fee = coin
-        .get_fee_to_send_taker_fee(max_dex_fee.to_decimal(), FeeApproxStage::TradePreimage)
-        .wait()
-        .expect("!get_fee_to_send_taker_fee");
+    let max_fee_to_send_taker_fee =
+        block_on(coin.get_fee_to_send_taker_fee(max_dex_fee.to_decimal(), FeeApproxStage::TradePreimage))
+            .expect("!get_fee_to_send_taker_fee");
     let max_fee_to_send_taker_fee = max_fee_to_send_taker_fee.amount.to_decimal();
     debug!("max_fee_to_send_taker_fee: {}", max_fee_to_send_taker_fee);
 
@@ -972,7 +969,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
         "method": "sell",
         "base": "QTUM",
         "rel": "MYCOIN",
-        "price": 1,
+        "price": 1u64,
         "volume": expected_max_taker_vol.to_fraction(),
     })))
     .unwrap();
@@ -1003,7 +1000,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     let my_balance = coin.my_spendable_balance().wait().expect("!my_balance");
     assert_eq!(
         my_balance,
-        0.into(),
+        BigDecimal::from(0u32),
         "NOT AN ERROR, but it would be better if the balance remained zero"
     );
 }
