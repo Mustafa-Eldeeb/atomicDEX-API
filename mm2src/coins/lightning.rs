@@ -8,8 +8,9 @@ use crate::utxo::BlockchainNetwork;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::{sat_from_big_decimal, FeePolicy, UtxoCommonOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
-            NegotiateSwapContractAddrErr, SwapOps, TradeFee, TradePreimageFut, TradePreimageValue, TransactionEnum,
-            TransactionFut, UtxoStandardCoin, ValidateAddressResult, WithdrawFut, WithdrawRequest};
+            NegotiateSwapContractAddrErr, SwapOps, TradeFee, TradePreimageFut, TradePreimageResult,
+            TradePreimageValue, TransactionEnum, TransactionFut, UtxoStandardCoin, ValidateAddressResult, WithdrawFut,
+            WithdrawRequest};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcoin::blockdata::script::Script;
@@ -315,6 +316,7 @@ impl MarketCoinOps for LightningCoin {
     fn min_trading_vol(&self) -> MmNumber { unimplemented!() }
 }
 
+#[async_trait]
 impl MmCoin for LightningCoin {
     fn is_asset_chain(&self) -> bool { unimplemented!() }
 
@@ -332,17 +334,21 @@ impl MmCoin for LightningCoin {
 
     fn get_trade_fee(&self) -> Box<dyn Future<Item = TradeFee, Error = String> + Send> { unimplemented!() }
 
-    fn get_sender_trade_fee(&self, _value: TradePreimageValue, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
+    async fn get_sender_trade_fee(
+        &self,
+        value: TradePreimageValue,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }
 
     fn get_receiver_trade_fee(&self, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> { unimplemented!() }
 
-    fn get_fee_to_send_taker_fee(
+    async fn get_fee_to_send_taker_fee(
         &self,
         _dex_fee_amount: BigDecimal,
         _stage: FeeApproxStage,
-    ) -> TradePreimageFut<TradeFee> {
+    ) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }
 

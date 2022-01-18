@@ -11,9 +11,9 @@ use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualTxFee, Addit
                   UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
             MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, PrivKeyNotAllowed, SwapOps,
-            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageValue, TransactionDetails, TransactionEnum,
-            TransactionFut, TxFeeDetails, ValidateAddressResult, WithdrawError, WithdrawFee, WithdrawFut,
-            WithdrawRequest};
+            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
+            TransactionDetails, TransactionEnum, TransactionFut, TxFeeDetails, ValidateAddressResult, WithdrawError,
+            WithdrawFee, WithdrawFut, WithdrawRequest};
 
 use async_trait::async_trait;
 use bitcrypto::dhash160;
@@ -1437,6 +1437,7 @@ impl From<SlpFeeDetails> for TxFeeDetails {
     fn from(slp: SlpFeeDetails) -> TxFeeDetails { TxFeeDetails::Slp(slp) }
 }
 
+#[async_trait]
 impl MmCoin for SlpToken {
     fn is_asset_chain(&self) -> bool { false }
 
@@ -1602,37 +1603,36 @@ impl MmCoin for SlpToken {
         utxo_common::get_trade_fee(self.platform_coin.clone())
     }
 
-    fn get_sender_trade_fee(&self, value: TradePreimageValue, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
-        let coin = self.clone();
-        let fut = async move {
-            let slp_amount = match value {
-                TradePreimageValue::Exact(decimal) | TradePreimageValue::UpperBound(decimal) => {
-                    sat_from_big_decimal(&decimal, coin.decimals())?
-                },
-            };
-            // can use dummy P2SH script_pubkey here
-            let script_pubkey = ScriptBuilder::build_p2sh(&H160::default().into()).into();
-            let slp_out = SlpOutput {
-                amount: slp_amount,
-                script_pubkey,
-            };
-            let (preimage, _) = coin.generate_slp_tx_preimage(vec![slp_out]).await?;
-            let fee = utxo_common::preimage_trade_fee_required_to_send_outputs(
-                &coin.platform_coin,
-                preimage.outputs,
-                FeePolicy::SendExact,
-                None,
-                &stage,
-            )
-            .await?;
-            Ok(TradeFee {
-                coin: coin.platform_coin.ticker().into(),
-                amount: fee.into(),
-                paid_from_trading_vol: false,
-            })
+    async fn get_sender_trade_fee(
+        &self,
+        value: TradePreimageValue,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
+        let slp_amount = match value {
+            TradePreimageValue::Exact(decimal) | TradePreimageValue::UpperBound(decimal) => {
+                sat_from_big_decimal(&decimal, self.decimals())?
+            },
         };
-
-        Box::new(fut.boxed().compat())
+        // can use dummy P2SH script_pubkey here
+        let script_pubkey = ScriptBuilder::build_p2sh(&H160::default().into()).into();
+        let slp_out = SlpOutput {
+            amount: slp_amount,
+            script_pubkey,
+        };
+        let (preimage, _) = self.generate_slp_tx_preimage(vec![slp_out]).await?;
+        let fee = utxo_common::preimage_trade_fee_required_to_send_outputs(
+            &self.platform_coin,
+            preimage.outputs,
+            FeePolicy::SendExact,
+            None,
+            &stage,
+        )
+        .await?;
+        Ok(TradeFee {
+            coin: self.platform_coin.ticker().into(),
+            amount: fee.into(),
+            paid_from_trading_vol: false,
+        })
     }
 
     fn get_receiver_trade_fee(&self, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
@@ -1652,37 +1652,32 @@ impl MmCoin for SlpToken {
         Box::new(fut.boxed().compat())
     }
 
-    fn get_fee_to_send_taker_fee(
+    async fn get_fee_to_send_taker_fee(
         &self,
         dex_fee_amount: BigDecimal,
         stage: FeeApproxStage,
-    ) -> TradePreimageFut<TradeFee> {
-        let coin = self.clone();
-        let fut = async move {
-            let slp_amount = sat_from_big_decimal(&dex_fee_amount, coin.decimals())?;
-            // can use dummy P2PKH script_pubkey here
-            let script_pubkey = ScriptBuilder::build_p2pkh(&H160::default().into()).into();
-            let slp_out = SlpOutput {
-                amount: slp_amount,
-                script_pubkey,
-            };
-            let (preimage, _) = coin.generate_slp_tx_preimage(vec![slp_out]).await?;
-            let fee = utxo_common::preimage_trade_fee_required_to_send_outputs(
-                &coin.platform_coin,
-                preimage.outputs,
-                FeePolicy::SendExact,
-                None,
-                &stage,
-            )
-            .await?;
-            Ok(TradeFee {
-                coin: coin.platform_coin.ticker().into(),
-                amount: fee.into(),
-                paid_from_trading_vol: false,
-            })
+    ) -> TradePreimageResult<TradeFee> {
+        let slp_amount = sat_from_big_decimal(&dex_fee_amount, self.decimals())?;
+        // can use dummy P2PKH script_pubkey here
+        let script_pubkey = ScriptBuilder::build_p2pkh(&H160::default().into()).into();
+        let slp_out = SlpOutput {
+            amount: slp_amount,
+            script_pubkey,
         };
-
-        Box::new(fut.boxed().compat())
+        let (preimage, _) = self.generate_slp_tx_preimage(vec![slp_out]).await?;
+        let fee = utxo_common::preimage_trade_fee_required_to_send_outputs(
+            &self.platform_coin,
+            preimage.outputs,
+            FeePolicy::SendExact,
+            None,
+            &stage,
+        )
+        .await?;
+        Ok(TradeFee {
+            coin: self.platform_coin.ticker().into(),
+            amount: fee.into(),
+            paid_from_trading_vol: false,
+        })
     }
 
     fn required_confirmations(&self) -> u64 { self.conf.required_confirmations.load(AtomicOrdering::Relaxed) }

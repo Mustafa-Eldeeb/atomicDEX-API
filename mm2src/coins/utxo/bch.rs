@@ -1106,6 +1106,7 @@ impl UtxoStandardOps for BchCoin {
     }
 }
 
+#[async_trait]
 impl MmCoin for BchCoin {
     fn is_asset_chain(&self) -> bool { utxo_common::is_asset_chain(&self.utxo_arc) }
 
@@ -1136,20 +1137,24 @@ impl MmCoin for BchCoin {
         utxo_common::get_trade_fee(self.clone())
     }
 
-    fn get_sender_trade_fee(&self, value: TradePreimageValue, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
-        utxo_common::get_sender_trade_fee(self.clone(), value, stage)
+    async fn get_sender_trade_fee(
+        &self,
+        value: TradePreimageValue,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
+        utxo_common::get_sender_trade_fee(self, value, stage).await
     }
 
     fn get_receiver_trade_fee(&self, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
         utxo_common::get_receiver_trade_fee(self.clone())
     }
 
-    fn get_fee_to_send_taker_fee(
+    async fn get_fee_to_send_taker_fee(
         &self,
         dex_fee_amount: BigDecimal,
         stage: FeeApproxStage,
-    ) -> TradePreimageFut<TradeFee> {
-        utxo_common::get_fee_to_send_taker_fee(self.clone(), dex_fee_amount, stage)
+    ) -> TradePreimageResult<TradeFee> {
+        utxo_common::get_fee_to_send_taker_fee(self, dex_fee_amount, stage).await
     }
 
     fn required_confirmations(&self) -> u64 { utxo_common::required_confirmations(&self.utxo_arc) }

@@ -64,6 +64,7 @@ pub use ethcore_transaction::SignedTransaction as SignedEthTx;
 pub use rlp;
 
 mod web3_transport;
+use crate::TradePreimageResult;
 use common::mm_number::MmNumber;
 use web3_transport::{EthFeeHistoryNamespace, Web3Transport};
 
@@ -2880,6 +2881,7 @@ impl EthTxFeeDetails {
     }
 }
 
+#[async_trait]
 impl MmCoin for EthCoin {
     fn is_asset_chain(&self) -> bool { false }
 
@@ -2954,58 +2956,57 @@ impl MmCoin for EthCoin {
         )
     }
 
-    fn get_sender_trade_fee(&self, value: TradePreimageValue, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
-        let coin = self.clone();
-        let fut = async move {
-            let gas_price = coin.get_gas_price().compat().await?;
-            let gas_price = increase_gas_price_by_stage(gas_price, &stage);
-            let gas_limit = match coin.coin_type {
-                EthCoinType::Eth => {
-                    // this gas_limit includes gas for `ethPayment` and `senderRefund` contract calls
+    async fn get_sender_trade_fee(
+        &self,
+        value: TradePreimageValue,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
+        let gas_price = self.get_gas_price().compat().await?;
+        let gas_price = increase_gas_price_by_stage(gas_price, &stage);
+        let gas_limit = match self.coin_type {
+            EthCoinType::Eth => {
+                // this gas_limit includes gas for `ethPayment` and `senderRefund` contract calls
+                U256::from(300_000)
+            },
+            EthCoinType::Erc20 { token_addr, .. } => {
+                let value = match value {
+                    TradePreimageValue::Exact(value) | TradePreimageValue::UpperBound(value) => {
+                        wei_from_big_decimal(&value, self.decimals)?
+                    },
+                };
+                let allowed = self.allowance(self.swap_contract_address).compat().await?;
+                if allowed < value {
+                    // estimate gas for the `approve` contract call
+
+                    // Pass a dummy spender. Let's use `my_address`.
+                    let spender = self.my_address;
+                    let approve_function = ERC20_CONTRACT.function("approve")?;
+                    let approve_data = approve_function.encode_input(&[Token::Address(spender), Token::Uint(value)])?;
+                    let approve_gas_limit = self
+                        .estimate_gas_for_contract_call(token_addr, Bytes::from(approve_data))
+                        .compat()
+                        .await?;
+
+                    // this gas_limit includes gas for `approve`, `erc20Payment` and `senderRefund` contract calls
+                    U256::from(300_000) + approve_gas_limit
+                } else {
+                    // this gas_limit includes gas for `erc20Payment` and `senderRefund` contract calls
                     U256::from(300_000)
-                },
-                EthCoinType::Erc20 { token_addr, .. } => {
-                    let value = match value {
-                        TradePreimageValue::Exact(value) | TradePreimageValue::UpperBound(value) => {
-                            wei_from_big_decimal(&value, coin.decimals)?
-                        },
-                    };
-                    let allowed = coin.allowance(coin.swap_contract_address).compat().await?;
-                    if allowed < value {
-                        // estimate gas for the `approve` contract call
-
-                        // Pass a dummy spender. Let's use `my_address`.
-                        let spender = coin.my_address;
-                        let approve_function = ERC20_CONTRACT.function("approve")?;
-                        let approve_data =
-                            approve_function.encode_input(&[Token::Address(spender), Token::Uint(value)])?;
-                        let approve_gas_limit = coin
-                            .estimate_gas_for_contract_call(token_addr, Bytes::from(approve_data))
-                            .compat()
-                            .await?;
-
-                        // this gas_limit includes gas for `approve`, `erc20Payment` and `senderRefund` contract calls
-                        U256::from(300_000) + approve_gas_limit
-                    } else {
-                        // this gas_limit includes gas for `erc20Payment` and `senderRefund` contract calls
-                        U256::from(300_000)
-                    }
-                },
-            };
-
-            let total_fee = gas_limit * gas_price;
-            let amount = u256_to_big_decimal(total_fee, 18)?;
-            let fee_coin = match &coin.coin_type {
-                EthCoinType::Eth => &coin.ticker,
-                EthCoinType::Erc20 { platform, .. } => platform,
-            };
-            Ok(TradeFee {
-                coin: fee_coin.into(),
-                amount: amount.into(),
-                paid_from_trading_vol: false,
-            })
+                }
+            },
         };
-        Box::new(fut.boxed().compat())
+
+        let total_fee = gas_limit * gas_price;
+        let amount = u256_to_big_decimal(total_fee, 18)?;
+        let fee_coin = match &self.coin_type {
+            EthCoinType::Eth => &self.ticker,
+            EthCoinType::Erc20 { platform, .. } => platform,
+        };
+        Ok(TradeFee {
+            coin: fee_coin.into(),
+            amount: amount.into(),
+            paid_from_trading_vol: false,
+        })
     }
 
     fn get_receiver_trade_fee(&self, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
@@ -3028,52 +3029,48 @@ impl MmCoin for EthCoin {
         Box::new(fut.boxed().compat())
     }
 
-    fn get_fee_to_send_taker_fee(
+    async fn get_fee_to_send_taker_fee(
         &self,
         dex_fee_amount: BigDecimal,
         stage: FeeApproxStage,
-    ) -> TradePreimageFut<TradeFee> {
-        let coin = self.clone();
-        let fut = async move {
-            let dex_fee_amount = wei_from_big_decimal(&dex_fee_amount, coin.decimals)?;
+    ) -> TradePreimageResult<TradeFee> {
+        let dex_fee_amount = wei_from_big_decimal(&dex_fee_amount, self.decimals)?;
 
-            // pass the dummy params
-            let to_addr = addr_from_raw_pubkey(&DEX_FEE_ADDR_RAW_PUBKEY)
-                .expect("addr_from_raw_pubkey should never fail with DEX_FEE_ADDR_RAW_PUBKEY");
-            let (eth_value, data, call_addr, fee_coin) = match &coin.coin_type {
-                EthCoinType::Eth => (dex_fee_amount, Vec::new(), &to_addr, &coin.ticker),
-                EthCoinType::Erc20 { platform, token_addr } => {
-                    let function = ERC20_CONTRACT.function("transfer")?;
-                    let data = function.encode_input(&[Token::Address(to_addr), Token::Uint(dex_fee_amount)])?;
-                    (0.into(), data, token_addr, platform)
-                },
-            };
-
-            let gas_price = coin.get_gas_price().compat().await?;
-            let gas_price = increase_gas_price_by_stage(gas_price, &stage);
-            let estimate_gas_req = CallRequest {
-                value: Some(eth_value),
-                data: Some(data.clone().into()),
-                from: Some(coin.my_address),
-                to: *call_addr,
-                gas: None,
-                // gas price must be supplied because some smart contracts base their
-                // logic on gas price, e.g. TUSD: https://github.com/KomodoPlatform/atomicDEX-API/issues/643
-                gas_price: Some(gas_price),
-            };
-
-            // Please note if the wallet's balance is insufficient to withdraw, then `estimate_gas` may fail with the `Exception` error.
-            // Ideally we should determine the case when we have the insufficient balance and return `TradePreimageError::NotSufficientBalance` error.
-            let gas_limit = coin.estimate_gas(estimate_gas_req).compat().await?;
-            let total_fee = gas_limit * gas_price;
-            let amount = u256_to_big_decimal(total_fee, 18)?;
-            Ok(TradeFee {
-                coin: fee_coin.into(),
-                amount: amount.into(),
-                paid_from_trading_vol: false,
-            })
+        // pass the dummy params
+        let to_addr = addr_from_raw_pubkey(&DEX_FEE_ADDR_RAW_PUBKEY)
+            .expect("addr_from_raw_pubkey should never fail with DEX_FEE_ADDR_RAW_PUBKEY");
+        let (eth_value, data, call_addr, fee_coin) = match &self.coin_type {
+            EthCoinType::Eth => (dex_fee_amount, Vec::new(), &to_addr, &self.ticker),
+            EthCoinType::Erc20 { platform, token_addr } => {
+                let function = ERC20_CONTRACT.function("transfer")?;
+                let data = function.encode_input(&[Token::Address(to_addr), Token::Uint(dex_fee_amount)])?;
+                (0.into(), data, token_addr, platform)
+            },
         };
-        Box::new(fut.boxed().compat())
+
+        let gas_price = self.get_gas_price().compat().await?;
+        let gas_price = increase_gas_price_by_stage(gas_price, &stage);
+        let estimate_gas_req = CallRequest {
+            value: Some(eth_value),
+            data: Some(data.clone().into()),
+            from: Some(self.my_address),
+            to: *call_addr,
+            gas: None,
+            // gas price must be supplied because some smart contracts base their
+            // logic on gas price, e.g. TUSD: https://github.com/KomodoPlatform/atomicDEX-API/issues/643
+            gas_price: Some(gas_price),
+        };
+
+        // Please note if the wallet's balance is insufficient to withdraw, then `estimate_gas` may fail with the `Exception` error.
+        // Ideally we should determine the case when we have the insufficient balance and return `TradePreimageError::NotSufficientBalance` error.
+        let gas_limit = self.estimate_gas(estimate_gas_req).compat().await?;
+        let total_fee = gas_limit * gas_price;
+        let amount = u256_to_big_decimal(total_fee, 18)?;
+        Ok(TradeFee {
+            coin: fee_coin.into(),
+            amount: amount.into(),
+            paid_from_trading_vol: false,
+        })
     }
 
     fn required_confirmations(&self) -> u64 { self.required_confirmations.load(AtomicOrderding::Relaxed) }

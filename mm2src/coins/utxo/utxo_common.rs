@@ -2325,36 +2325,37 @@ where
 /// Even if refund will be required the fee will be deducted from P2SH input.
 /// Please note the `get_sender_trade_fee` satisfies the following condition:
 /// `get_sender_trade_fee(x) <= get_sender_trade_fee(y)` for any `x < y`.
-pub fn get_sender_trade_fee<T>(coin: T, value: TradePreimageValue, stage: FeeApproxStage) -> TradePreimageFut<TradeFee>
+pub async fn get_sender_trade_fee<T>(
+    coin: &T,
+    value: TradePreimageValue,
+    stage: FeeApproxStage,
+) -> TradePreimageResult<TradeFee>
 where
     T: AsRef<UtxoCoinFields> + MarketCoinOps + UtxoCommonOps + Send + Sync + 'static,
 {
-    let fut = async move {
-        let (amount, fee_policy) = match value {
-            TradePreimageValue::UpperBound(upper_bound) => (upper_bound, FeePolicy::DeductFromOutput(0)),
-            TradePreimageValue::Exact(amount) => (amount, FeePolicy::SendExact),
-        };
-
-        // pass the dummy params
-        let time_lock = (now_ms() / 1000) as u32;
-        let other_pub = &[0; 33]; // H264 is 33 bytes
-        let secret_hash = &[0; 20]; // H160 is 20 bytes
-
-        // `generate_swap_payment_outputs` may fail due to either invalid `other_pub` or a number conversation error
-        let SwapPaymentOutputsResult { outputs, .. } =
-            generate_swap_payment_outputs(&coin, time_lock, other_pub, secret_hash, amount)
-                .map_to_mm(TradePreimageError::InternalError)?;
-        let gas_fee = None;
-        let fee_amount = coin
-            .preimage_trade_fee_required_to_send_outputs(outputs, fee_policy, gas_fee, &stage)
-            .await?;
-        Ok(TradeFee {
-            coin: coin.as_ref().conf.ticker.clone(),
-            amount: fee_amount.into(),
-            paid_from_trading_vol: false,
-        })
+    let (amount, fee_policy) = match value {
+        TradePreimageValue::UpperBound(upper_bound) => (upper_bound, FeePolicy::DeductFromOutput(0)),
+        TradePreimageValue::Exact(amount) => (amount, FeePolicy::SendExact),
     };
-    Box::new(fut.boxed().compat())
+
+    // pass the dummy params
+    let time_lock = (now_ms() / 1000) as u32;
+    let other_pub = &[0; 33]; // H264 is 33 bytes
+    let secret_hash = &[0; 20]; // H160 is 20 bytes
+
+    // `generate_swap_payment_outputs` may fail due to either invalid `other_pub` or a number conversation error
+    let SwapPaymentOutputsResult { outputs, .. } =
+        generate_swap_payment_outputs(&coin, time_lock, other_pub, secret_hash, amount)
+            .map_to_mm(TradePreimageError::InternalError)?;
+    let gas_fee = None;
+    let fee_amount = coin
+        .preimage_trade_fee_required_to_send_outputs(outputs, fee_policy, gas_fee, &stage)
+        .await?;
+    Ok(TradeFee {
+        coin: coin.as_ref().conf.ticker.clone(),
+        amount: fee_amount.into(),
+        paid_from_trading_vol: false,
+    })
 }
 
 /// The fee to spend (receive) other payment is deducted from the trading amount so we should display it
@@ -2374,32 +2375,29 @@ where
     Box::new(fut.boxed().compat())
 }
 
-pub fn get_fee_to_send_taker_fee<T>(
-    coin: T,
+pub async fn get_fee_to_send_taker_fee<T>(
+    coin: &T,
     dex_fee_amount: BigDecimal,
     stage: FeeApproxStage,
-) -> TradePreimageFut<TradeFee>
+) -> TradePreimageResult<TradeFee>
 where
     T: AsRef<UtxoCoinFields> + MarketCoinOps + UtxoCommonOps + Send + Sync + 'static,
 {
     let decimals = coin.as_ref().decimals;
-    let fut = async move {
-        let value = sat_from_big_decimal(&dex_fee_amount, decimals)?;
-        let output = TransactionOutput {
-            value,
-            script_pubkey: Builder::build_p2pkh(&AddressHashEnum::default_address_hash()).to_bytes(),
-        };
-        let gas_fee = None;
-        let fee_amount = coin
-            .preimage_trade_fee_required_to_send_outputs(vec![output], FeePolicy::SendExact, gas_fee, &stage)
-            .await?;
-        Ok(TradeFee {
-            coin: coin.ticker().to_owned(),
-            amount: fee_amount.into(),
-            paid_from_trading_vol: false,
-        })
+    let value = sat_from_big_decimal(&dex_fee_amount, decimals)?;
+    let output = TransactionOutput {
+        value,
+        script_pubkey: Builder::build_p2pkh(&AddressHashEnum::default_address_hash()).to_bytes(),
     };
-    Box::new(fut.boxed().compat())
+    let gas_fee = None;
+    let fee_amount = coin
+        .preimage_trade_fee_required_to_send_outputs(vec![output], FeePolicy::SendExact, gas_fee, &stage)
+        .await?;
+    Ok(TradeFee {
+        coin: coin.ticker().to_owned(),
+        amount: fee_amount.into(),
+        paid_from_trading_vol: false,
+    })
 }
 
 pub fn required_confirmations(coin: &UtxoCoinFields) -> u64 {

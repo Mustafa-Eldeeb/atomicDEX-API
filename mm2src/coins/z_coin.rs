@@ -1039,6 +1039,7 @@ impl SwapOps for ZCoin {
     }
 }
 
+#[async_trait]
 impl MmCoin for ZCoin {
     fn is_asset_chain(&self) -> bool { self.utxo_arc.conf.asset_chain }
 
@@ -1137,20 +1138,38 @@ impl MmCoin for ZCoin {
         utxo_common::get_trade_fee(self.clone())
     }
 
-    fn get_sender_trade_fee(&self, value: TradePreimageValue, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
-        utxo_common::get_sender_trade_fee(self.clone(), value, stage)
+    async fn get_sender_trade_fee(
+        &self,
+        value: TradePreimageValue,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
+        let fee = self.get_tx_fee().await?;
+        match fee {
+            ActualTxFee::Dynamic(fee) | ActualTxFee::FixedPerKb(fee) => Ok(TradeFee {
+                coin: self.ticker().to_owned(),
+                amount: big_decimal_from_sat_unsigned(fee, self.decimals()).into(),
+                paid_from_trading_vol: false,
+            }),
+        }
     }
 
     fn get_receiver_trade_fee(&self, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
         utxo_common::get_receiver_trade_fee(self.clone())
     }
 
-    fn get_fee_to_send_taker_fee(
+    async fn get_fee_to_send_taker_fee(
         &self,
-        dex_fee_amount: BigDecimal,
-        stage: FeeApproxStage,
-    ) -> TradePreimageFut<TradeFee> {
-        utxo_common::get_fee_to_send_taker_fee(self.clone(), dex_fee_amount, stage)
+        _dex_fee_amount: BigDecimal,
+        _stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
+        let fee = self.get_tx_fee().await?;
+        match fee {
+            ActualTxFee::Dynamic(fee) | ActualTxFee::FixedPerKb(fee) => Ok(TradeFee {
+                coin: self.ticker().to_owned(),
+                amount: big_decimal_from_sat_unsigned(fee, self.decimals()).into(),
+                paid_from_trading_vol: false,
+            }),
+        }
     }
 
     fn required_confirmations(&self) -> u64 { utxo_common::required_confirmations(&self.utxo_arc) }
