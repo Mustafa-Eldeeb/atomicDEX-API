@@ -45,6 +45,7 @@ use num_rational::BigRational;
 use num_traits::identities::Zero;
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::H256 as H256Json;
+use secp256k1::SecretKey;
 use serde_json::{self as json, Value as Json};
 use sp_trie::{delta_trie_root, MemoryDB, Trie, TrieConfiguration, TrieDB, TrieDBMut, TrieHash, TrieMut};
 use std::collections::hash_map::{Entry, HashMap, RawEntryMut};
@@ -64,6 +65,7 @@ use crate::mm2::lp_swap::{calc_max_maker_vol, check_balance_for_maker_swap, chec
                           RunMakerSwapInput, RunTakerSwapInput, SwapConfirmationsSettings, TakerSwap};
 
 pub use best_orders::best_orders_rpc;
+use common::privkey::key_pair_from_secret;
 use my_orders_storage::{delete_my_maker_order, delete_my_taker_order, save_maker_order_on_update,
                         save_my_new_maker_order, save_my_new_taker_order, MyActiveOrders, MyOrdersFilteringHistory,
                         MyOrdersHistory, MyOrdersStorage};
@@ -875,10 +877,20 @@ fn maker_order_created_p2p_notify(
         rel_protocol_info,
     };
 
-    let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
     let to_broadcast = new_protocol::OrdermatchMessage::MakerOrderCreated(message.clone());
-    let encoded_msg = encode_and_sign(&to_broadcast, &*key_pair.private().secret).unwrap();
-    let order: OrderbookItem = (message, hex::encode(&**key_pair.public())).into();
+    let (secret, public) = match &order.p2p_privkey {
+        Some(priv_key) => {
+            let key_pair = key_pair_from_secret(priv_key.0).expect("valid priv key");
+            (priv_key.0, *key_pair.public())
+        },
+        None => {
+            let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
+            (key_pair.private().secret.take(), *key_pair.public())
+        },
+    };
+
+    let encoded_msg = encode_and_sign(&to_broadcast, &secret).unwrap();
+    let order: OrderbookItem = (message, hex::encode(&*public)).into();
     insert_or_update_order(&ctx, order);
     broadcast_p2p_msg(&ctx, vec![topic], encoded_msg);
 }
@@ -894,10 +906,21 @@ fn process_my_maker_order_updated(ctx: &MmArc, message: &new_protocol::MakerOrde
     }
 }
 
-fn maker_order_updated_p2p_notify(ctx: MmArc, topic: String, message: new_protocol::MakerOrderUpdated) {
+fn maker_order_updated_p2p_notify(
+    ctx: MmArc,
+    topic: String,
+    message: new_protocol::MakerOrderUpdated,
+    p2p_privkey: &Option<H256Json>,
+) {
     let msg: new_protocol::OrdermatchMessage = message.clone().into();
-    let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
-    let encoded_msg = encode_and_sign(&msg, &*key_pair.private().secret).unwrap();
+    let secret = match p2p_privkey {
+        Some(priv_key) => priv_key.0,
+        None => {
+            let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
+            key_pair.private().secret.take()
+        },
+    };
+    let encoded_msg = encode_and_sign(&msg, &secret).unwrap();
     process_my_maker_order_updated(&ctx, &message);
     broadcast_p2p_msg(&ctx, vec![topic], encoded_msg);
 }
@@ -910,7 +933,7 @@ fn maker_order_cancelled_p2p_notify(ctx: MmArc, order: &MakerOrder) {
     });
     delete_my_order(&ctx, order.uuid);
     log::debug!("maker_order_cancelled_p2p_notify called, message {:?}", message);
-    broadcast_ordermatch_message(&ctx, vec![order.orderbook_topic()], message);
+    broadcast_ordermatch_message(&ctx, vec![order.orderbook_topic()], message, &order.p2p_privkey);
 }
 
 pub struct BalanceUpdateOrdermatchHandler {
@@ -970,7 +993,7 @@ impl BalanceTradeFeeUpdatedHandler for BalanceUpdateOrdermatchHandler {
                 order.max_base_vol = &order.reserved_amount() + &new_volume;
                 let mut update_msg = new_protocol::MakerOrderUpdated::new(order.uuid);
                 update_msg.with_new_max_volume(order.available_amount().into());
-                maker_order_updated_p2p_notify(ctx.clone(), order.orderbook_topic(), update_msg);
+                maker_order_updated_p2p_notify(ctx.clone(), order.orderbook_topic(), update_msg, &order.p2p_privkey);
             }
         }
     }
@@ -1507,6 +1530,9 @@ pub struct MakerOrder {
     base_orderbook_ticker: Option<String>,
     #[serde(default)]
     rel_orderbook_ticker: Option<String>,
+    /// A custom priv key for more privacy to prevent linking orders of the same maker between each other
+    /// Commonly used with privacy coins (ARRR, ZCash, etc.)
+    p2p_privkey: Option<H256Json>,
 }
 
 pub struct MakerOrderBuilder<'a> {
@@ -1734,6 +1760,15 @@ impl<'a> MakerOrderBuilder<'a> {
         )?;
 
         let created_at = now_ms();
+
+        let p2p_privkey = if self.base_coin.is_private() {
+            let mut rng = rand6::thread_rng();
+            let priv_key = SecretKey::new(&mut rng);
+            Some((*priv_key.as_ref()).into())
+        } else {
+            None
+        };
+
         Ok(MakerOrder {
             base: self.base_coin.ticker().to_owned(),
             rel: self.rel_coin.ticker().to_owned(),
@@ -1750,6 +1785,7 @@ impl<'a> MakerOrderBuilder<'a> {
             save_in_history: self.save_in_history,
             base_orderbook_ticker: self.base_orderbook_ticker,
             rel_orderbook_ticker: self.rel_orderbook_ticker,
+            p2p_privkey,
         })
     }
 
@@ -1772,6 +1808,7 @@ impl<'a> MakerOrderBuilder<'a> {
             save_in_history: false,
             base_orderbook_ticker: None,
             rel_orderbook_ticker: None,
+            p2p_privkey: None,
         }
     }
 }
@@ -1899,6 +1936,7 @@ impl From<TakerOrder> for MakerOrder {
                 save_in_history: taker_order.save_in_history,
                 base_orderbook_ticker: taker_order.base_orderbook_ticker,
                 rel_orderbook_ticker: taker_order.rel_orderbook_ticker,
+                p2p_privkey: None,
             },
             // The "buy" taker order is recreated with reversed pair as Maker order is always considered as "sell"
             TakerAction::Buy => {
@@ -1920,6 +1958,7 @@ impl From<TakerOrder> for MakerOrder {
                     save_in_history: taker_order.save_in_history,
                     base_orderbook_ticker: taker_order.rel_orderbook_ticker,
                     rel_orderbook_ticker: taker_order.base_orderbook_ticker,
+                    p2p_privkey: None,
                 }
             },
         }
@@ -2078,7 +2117,7 @@ pub async fn broadcast_maker_orders_keep_alive_loop(ctx: MmArc) {
             timestamp: now_ms() / 1000,
         };
 
-        broadcast_ordermatch_message(&ctx, topics, message.into());
+        broadcast_ordermatch_message(&ctx, topics, message.into(), &None);
     }
 }
 
@@ -2086,9 +2125,16 @@ fn broadcast_ordermatch_message(
     ctx: &MmArc,
     topics: impl IntoIterator<Item = String>,
     msg: new_protocol::OrdermatchMessage,
+    p2p_privkey: &Option<H256Json>,
 ) {
-    let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
-    let encoded_msg = encode_and_sign(&msg, &*key_pair.private().secret).unwrap();
+    let secret = match p2p_privkey {
+        Some(priv_key) => priv_key.0,
+        None => {
+            let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
+            key_pair.private().secret.take()
+        },
+    };
+    let encoded_msg = encode_and_sign(&msg, &secret).unwrap();
     broadcast_p2p_msg(ctx, topics.into_iter().collect(), encoded_msg);
 }
 
@@ -3080,7 +3126,7 @@ async fn process_maker_reserved(ctx: MmArc, from_pubkey: H256Json, reserved_msg:
                     maker_order_uuid: reserved_msg.maker_order_uuid,
                 };
                 let topic = my_order.orderbook_topic();
-                broadcast_ordermatch_message(&ctx, vec![topic], connect.clone().into());
+                broadcast_ordermatch_message(&ctx, vec![topic], connect.clone().into(), &None);
                 let taker_match = TakerMatch {
                     reserved: reserved_msg,
                     connect,
@@ -3192,7 +3238,7 @@ async fn process_taker_request(ctx: MmArc, from_pubkey: H256Json, taker_request:
                 };
                 let topic = order.orderbook_topic();
                 log::debug!("Request matched sending reserved {:?}", reserved);
-                broadcast_ordermatch_message(&ctx, vec![topic], reserved.clone().into());
+                broadcast_ordermatch_message(&ctx, vec![topic], reserved.clone().into(), &order.p2p_privkey);
                 let maker_match = MakerMatch {
                     request: taker_request,
                     reserved,
@@ -3257,13 +3303,13 @@ async fn process_taker_connect(ctx: MmArc, sender_pubkey: H256Json, connect_msg:
         my_order.started_swaps.push(order_match.request.uuid);
         lp_connect_start_bob(ctx.clone(), order_match, my_order.clone());
         let topic = my_order.orderbook_topic();
-        broadcast_ordermatch_message(&ctx, vec![topic.clone()], connected.into());
+        broadcast_ordermatch_message(&ctx, vec![topic.clone()], connected.into(), &my_order.p2p_privkey);
 
         // If volume is less order will be cancelled a bit later
         if my_order.available_amount() >= my_order.min_base_vol {
             let mut updated_msg = new_protocol::MakerOrderUpdated::new(my_order.uuid);
             updated_msg.with_new_max_volume(my_order.available_amount().into());
-            maker_order_updated_p2p_notify(ctx.clone(), topic, updated_msg);
+            maker_order_updated_p2p_notify(ctx.clone(), topic, updated_msg, &my_order.p2p_privkey);
         }
         MyOrdersStorage::new(ctx)
             .update_active_maker_order(&my_order)
@@ -3487,7 +3533,7 @@ pub async fn lp_auto_buy(
         )
         .await
     );
-    broadcast_ordermatch_message(ctx, vec![order.orderbook_topic()], order.clone().into());
+    broadcast_ordermatch_message(ctx, vec![order.orderbook_topic()], order.clone().into(), &None);
 
     let result = json!({ "result": LpautobuyResult {
         request: (&order.request).into(),
@@ -4272,7 +4318,7 @@ pub async fn update_maker_order(ctx: &MmArc, req: MakerOrderUpdateReq) -> Result
         return ERR!("Error on saving updated order state to database:{}", e);
     }
     update_msg.with_new_max_volume((new_volume - reserved_amount).into());
-    maker_order_updated_p2p_notify(ctx.clone(), order.orderbook_topic(), update_msg);
+    maker_order_updated_p2p_notify(ctx.clone(), order.orderbook_topic(), update_msg, &order.p2p_privkey);
     Ok(order.clone())
 }
 

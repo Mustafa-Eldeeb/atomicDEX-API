@@ -257,7 +257,7 @@ impl ZCoin {
                 &z_cash_tx,
                 &ext,
             );
-            println!("Decrypted len {}", decrypted.len());
+
             let decrypted_output = decrypted
                 .iter()
                 .find(|out| out.index as u32 == unspent.out_index)
@@ -711,6 +711,8 @@ impl MarketCoinOps for ZCoin {
     fn min_tx_amount(&self) -> BigDecimal { utxo_common::min_tx_amount(self.as_ref()) }
 
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
+
+    fn is_private(&self) -> bool { true }
 }
 
 #[async_trait]

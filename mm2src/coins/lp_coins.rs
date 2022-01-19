@@ -432,6 +432,8 @@ pub trait MarketCoinOps {
 
     /// Get the minimum amount to trade.
     fn min_trading_vol(&self) -> MmNumber;
+
+    fn is_private(&self) -> bool { false }
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
