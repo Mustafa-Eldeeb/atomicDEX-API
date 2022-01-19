@@ -292,6 +292,10 @@ pub enum SendPaymentError {
     NoSuchCoin(String),
     #[display(fmt = "Couldn't parse invoice: {}", _0)]
     InvalidInvoice(String),
+    #[display(fmt = "Couldn't parse destination pubkey: {}", _0)]
+    InvalidDestination(String),
+    #[display(fmt = "Couldn't find a route for payment: {}", _0)]
+    NoRouteFound(String),
     #[display(fmt = "Payment error: {}", _0)]
     PaymentError(String),
 }
@@ -302,9 +306,10 @@ impl HttpStatusCode for SendPaymentError {
             SendPaymentError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             SendPaymentError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             SendPaymentError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
-            SendPaymentError::InvalidInvoice(_) | SendPaymentError::PaymentError(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            },
+            SendPaymentError::InvalidInvoice(_)
+            | SendPaymentError::PaymentError(_)
+            | SendPaymentError::InvalidDestination(_)
+            | SendPaymentError::NoRouteFound(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

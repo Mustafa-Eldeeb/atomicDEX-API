@@ -159,7 +159,7 @@ pub async fn start_lightning(
     let fee_estimator = Arc::new(platform_coin.clone());
 
     // Initialize the Logger
-    let logger = ctx.log.clone();
+    let logger = ctx.log.0.clone();
 
     // Initialize the BroadcasterInterface. UtxoStandardCoin implements the BroadcasterInterface trait, so it'll act as our transaction
     // broadcaster.
@@ -187,7 +187,7 @@ pub async fn start_lightning(
     let chain_monitor: Arc<ChainMonitor> = Arc::new(chainmonitor::ChainMonitor::new(
         filter.clone(),
         broadcaster.clone(),
-        logger.0.clone(),
+        logger.clone(),
         fee_estimator.clone(),
         persister.clone(),
     ));
@@ -250,7 +250,7 @@ pub async fn start_lightning(
                 fee_estimator.clone(),
                 chain_monitor.clone(),
                 broadcaster.clone(),
-                logger.0.clone(),
+                logger.clone(),
                 user_config,
                 channel_monitor_mut_references,
             );
@@ -267,7 +267,7 @@ pub async fn start_lightning(
                 fee_estimator.clone(),
                 chain_monitor.clone(),
                 broadcaster.clone(),
-                logger.0.clone(),
+                logger.clone(),
                 keys_manager.clone(),
                 user_config,
                 chain_params,
@@ -314,7 +314,7 @@ pub async fn start_lightning(
     let network_gossip = Arc::new(NetGraphMsgHandler::new(
         network_graph.clone(),
         None::<Arc<dyn Access + Send + Sync>>,
-        logger.0.clone(),
+        logger.clone(),
     ));
     let network_graph_persist = network_graph.clone();
     spawn(async move {
@@ -342,7 +342,7 @@ pub async fn start_lightning(
         lightning_msg_handler,
         keys_manager.get_node_secret(),
         &ephemeral_bytes,
-        logger.0.clone(),
+        logger.clone(),
         Arc::new(IgnoringMessageHandler {}),
     ));
 
@@ -391,12 +391,12 @@ pub async fn start_lightning(
     });
 
     // Create InvoicePayer
-    let router = DefaultRouter::new(network_graph, logger.0.clone());
+    let router = DefaultRouter::new(network_graph.clone(), logger.clone());
     let invoice_payer = Arc::new(InvoicePayer::new(
         channel_manager.clone(),
         router,
-        scorer,
-        logger.0.clone(),
+        scorer.clone(),
+        logger.clone(),
         event_handler.clone(),
         // TODO: payment retries
         payment::RetryAttempts(5),
@@ -418,7 +418,7 @@ pub async fn start_lightning(
         channel_manager.clone(),
         Some(network_gossip),
         peer_manager.clone(),
-        logger.0,
+        logger.clone(),
     );
 
     // If node is restarting read other nodes data from disk and reconnect to channel nodes/peers if possible.
@@ -450,6 +450,9 @@ pub async fn start_lightning(
         channel_manager,
         keys_manager,
         invoice_payer,
+        network_graph,
+        scorer,
+        logger,
         inbound_payments,
         outbound_payments,
     })
