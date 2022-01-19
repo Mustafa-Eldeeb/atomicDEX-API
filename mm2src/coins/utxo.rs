@@ -654,7 +654,7 @@ pub trait UtxoTxBroadcastOps {
 #[async_trait]
 #[cfg_attr(test, mockable)]
 pub trait UtxoTxGenerationOps {
-    async fn get_tx_fee(&self) -> Result<ActualTxFee, JsonRpcError>;
+    async fn get_tx_fee(&self) -> UtxoRpcResult<ActualTxFee>;
 
     /// Calculates interest if the coin is KMD
     /// Adds the value to existing output to my_script_pub or creates additional interest output

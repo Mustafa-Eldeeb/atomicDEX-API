@@ -9,7 +9,7 @@ pub use bitcrypto::{dhash160, sha256, ChecksumType};
 use chain::constants::SEQUENCE_FINAL;
 use chain::{OutPoint, TransactionOutput};
 use common::executor::Timer;
-use common::jsonrpc_client::{JsonRpcError, JsonRpcErrorType};
+use common::jsonrpc_client::JsonRpcErrorType;
 use common::log::{error, info, warn};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
@@ -163,7 +163,7 @@ pub struct UtxoMergeParams {
     max_merge_at_once: usize,
 }
 
-pub async fn get_tx_fee(coin: &UtxoCoinFields) -> Result<ActualTxFee, JsonRpcError> {
+pub async fn get_tx_fee(coin: &UtxoCoinFields) -> UtxoRpcResult<ActualTxFee> {
     let conf = &coin.conf;
     match &coin.tx_fee {
         TxFee::Dynamic(method) => {

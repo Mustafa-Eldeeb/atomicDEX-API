@@ -19,7 +19,6 @@ use async_trait::async_trait;
 use bitcrypto::dhash160;
 use chain::constants::SEQUENCE_FINAL;
 use chain::{OutPoint, TransactionOutput};
-use common::jsonrpc_client::JsonRpcError;
 use common::log::warn;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
@@ -1034,7 +1033,7 @@ impl UtxoTxBroadcastOps for SlpToken {
 
 #[async_trait]
 impl UtxoTxGenerationOps for SlpToken {
-    async fn get_tx_fee(&self) -> Result<ActualTxFee, JsonRpcError> { self.platform_coin.get_tx_fee().await }
+    async fn get_tx_fee(&self) -> UtxoRpcResult<ActualTxFee> { self.platform_coin.get_tx_fee().await }
 
     async fn calc_interest_if_required(
         &self,

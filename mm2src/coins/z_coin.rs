@@ -15,7 +15,6 @@ use bitcrypto::dhash160;
 use chain::constants::SEQUENCE_FINAL;
 use chain::{Transaction as UtxoTx, TransactionOutput};
 use common::executor::{spawn, Timer};
-use common::jsonrpc_client::JsonRpcError;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_number::{BigDecimal, MmNumber};
@@ -36,7 +35,6 @@ use serialization::{deserialize, serialize_list, CoinVariant, Reader};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use zcash_client_backend::decrypt_transaction;
@@ -183,6 +181,15 @@ impl ZCoin {
         Ok(unspents)
     }
 
+    async fn get_one_kbyte_tx_fee(&self) -> UtxoRpcResult<BigDecimal> {
+        let fee = self.get_tx_fee().await?;
+        match fee {
+            ActualTxFee::Dynamic(fee) | ActualTxFee::FixedPerKb(fee) => {
+                Ok(big_decimal_from_sat_unsigned(fee, self.decimals()))
+            },
+        }
+    }
+
     /// Generates a tx sending outputs from our address
     async fn gen_tx(
         &self,
@@ -193,8 +200,7 @@ impl ZCoin {
         while !self.z_fields.sapling_state_synced.load(AtomicOrdering::Relaxed) {
             Timer::sleep(0.5).await
         }
-        // TODO use the tx_fee from coin here
-        let tx_fee: BigDecimal = "0.00001".parse().unwrap();
+        let tx_fee = self.get_one_kbyte_tx_fee().await?;
         let t_output_sat: u64 = t_outputs.iter().fold(0, |cur, out| cur + u64::from(out.value));
         let z_output_sat: u64 = z_outputs.iter().fold(0, |cur, out| cur + u64::from(out.amount));
         let total_output_sat = t_output_sat + z_output_sat;
@@ -1056,8 +1062,9 @@ impl MmCoin for ZCoin {
                 .map_to_mm(|e| WithdrawError::InvalidAddress(format!("{}", e)))?
                 .or_mm_err(|| WithdrawError::InvalidAddress(format!("Address {} decoded to None", req.to)))?;
             let amount = if req.max {
+                let fee = coin.get_one_kbyte_tx_fee().await?;
                 let balance = coin.my_balance().compat().await?;
-                balance.spendable - BigDecimal::from_str("0.00001").expect("No failure")
+                balance.spendable - fee
             } else {
                 req.amount
             };
@@ -1143,14 +1150,11 @@ impl MmCoin for ZCoin {
         _value: TradePreimageValue,
         _stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
-        let fee = self.get_tx_fee().await?;
-        match fee {
-            ActualTxFee::Dynamic(fee) | ActualTxFee::FixedPerKb(fee) => Ok(TradeFee {
-                coin: self.ticker().to_owned(),
-                amount: big_decimal_from_sat_unsigned(fee, self.decimals()).into(),
-                paid_from_trading_vol: false,
-            }),
-        }
+        Ok(TradeFee {
+            coin: self.ticker().to_owned(),
+            amount: self.get_one_kbyte_tx_fee().await?.into(),
+            paid_from_trading_vol: false,
+        })
     }
 
     fn get_receiver_trade_fee(&self, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
@@ -1162,14 +1166,11 @@ impl MmCoin for ZCoin {
         _dex_fee_amount: BigDecimal,
         _stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
-        let fee = self.get_tx_fee().await?;
-        match fee {
-            ActualTxFee::Dynamic(fee) | ActualTxFee::FixedPerKb(fee) => Ok(TradeFee {
-                coin: self.ticker().to_owned(),
-                amount: big_decimal_from_sat_unsigned(fee, self.decimals()).into(),
-                paid_from_trading_vol: false,
-            }),
-        }
+        Ok(TradeFee {
+            coin: self.ticker().to_owned(),
+            amount: self.get_one_kbyte_tx_fee().await?.into(),
+            paid_from_trading_vol: false,
+        })
     }
 
     fn required_confirmations(&self) -> u64 { utxo_common::required_confirmations(&self.utxo_arc) }
@@ -1197,7 +1198,7 @@ impl MmCoin for ZCoin {
 
 #[async_trait]
 impl UtxoTxGenerationOps for ZCoin {
-    async fn get_tx_fee(&self) -> Result<ActualTxFee, JsonRpcError> { utxo_common::get_tx_fee(&self.utxo_arc).await }
+    async fn get_tx_fee(&self) -> UtxoRpcResult<ActualTxFee> { utxo_common::get_tx_fee(&self.utxo_arc).await }
 
     async fn calc_interest_if_required(
         &self,

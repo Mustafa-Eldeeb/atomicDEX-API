@@ -20,7 +20,7 @@ use bigdecimal::BigDecimal;
 use bitcrypto::{dhash160, sha256};
 use chain::TransactionOutput;
 use common::executor::Timer;
-use common::jsonrpc_client::{JsonRpcClient, JsonRpcError, JsonRpcRequest, RpcRes};
+use common::jsonrpc_client::{JsonRpcClient, JsonRpcRequest, RpcRes};
 use common::log::{error, warn};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
@@ -544,7 +544,7 @@ impl UtxoTxBroadcastOps for Qrc20Coin {
 #[cfg_attr(test, mockable)]
 impl UtxoTxGenerationOps for Qrc20Coin {
     /// Get only QTUM transaction fee.
-    async fn get_tx_fee(&self) -> Result<ActualTxFee, JsonRpcError> { utxo_common::get_tx_fee(&self.utxo).await }
+    async fn get_tx_fee(&self) -> UtxoRpcResult<ActualTxFee> { utxo_common::get_tx_fee(&self.utxo).await }
 
     async fn calc_interest_if_required(
         &self,
