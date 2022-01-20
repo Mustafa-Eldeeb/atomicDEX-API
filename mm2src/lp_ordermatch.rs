@@ -1327,6 +1327,19 @@ impl<'a> TakerOrderBuilder<'a> {
             });
         }
 
+        let my_coin = match &self.action {
+            TakerAction::Buy => &self.rel_coin,
+            TakerAction::Sell => &self.base_coin,
+        };
+
+        let p2p_privkey = if my_coin.is_private() {
+            let mut rng = rand6::thread_rng();
+            let priv_key = SecretKey::new(&mut rng);
+            Some((*priv_key.as_ref()).into())
+        } else {
+            None
+        };
+
         Ok(TakerOrder {
             created_at: now_ms(),
             request: TakerRequest {
@@ -1350,6 +1363,7 @@ impl<'a> TakerOrderBuilder<'a> {
             save_in_history: self.save_in_history,
             base_orderbook_ticker: self.base_orderbook_ticker,
             rel_orderbook_ticker: self.rel_orderbook_ticker,
+            p2p_privkey,
         })
     }
 
@@ -1379,6 +1393,7 @@ impl<'a> TakerOrderBuilder<'a> {
             save_in_history: false,
             base_orderbook_ticker: None,
             rel_orderbook_ticker: None,
+            p2p_privkey: None,
         }
     }
 }
@@ -1420,6 +1435,9 @@ pub struct TakerOrder {
     base_orderbook_ticker: Option<String>,
     #[serde(default)]
     rel_orderbook_ticker: Option<String>,
+    /// A custom priv key for more privacy to prevent linking orders of the same node between each other
+    /// Commonly used with privacy coins (ARRR, ZCash, etc.)
+    p2p_privkey: Option<H256Json>,
 }
 
 /// Result of match_reserved function
@@ -1530,7 +1548,7 @@ pub struct MakerOrder {
     base_orderbook_ticker: Option<String>,
     #[serde(default)]
     rel_orderbook_ticker: Option<String>,
-    /// A custom priv key for more privacy to prevent linking orders of the same maker between each other
+    /// A custom priv key for more privacy to prevent linking orders of the same node between each other
     /// Commonly used with privacy coins (ARRR, ZCash, etc.)
     p2p_privkey: Option<H256Json>,
 }
@@ -3126,7 +3144,7 @@ async fn process_maker_reserved(ctx: MmArc, from_pubkey: H256Json, reserved_msg:
                     maker_order_uuid: reserved_msg.maker_order_uuid,
                 };
                 let topic = my_order.orderbook_topic();
-                broadcast_ordermatch_message(&ctx, vec![topic], connect.clone().into(), &None);
+                broadcast_ordermatch_message(&ctx, vec![topic], connect.clone().into(), &my_order.p2p_privkey);
                 let taker_match = TakerMatch {
                     reserved: reserved_msg,
                     connect,
@@ -3533,7 +3551,12 @@ pub async fn lp_auto_buy(
         )
         .await
     );
-    broadcast_ordermatch_message(ctx, vec![order.orderbook_topic()], order.clone().into(), &None);
+    broadcast_ordermatch_message(
+        ctx,
+        vec![order.orderbook_topic()],
+        order.clone().into(),
+        &order.p2p_privkey,
+    );
 
     let result = json!({ "result": LpautobuyResult {
         request: (&order.request).into(),

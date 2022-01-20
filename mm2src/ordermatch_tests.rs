@@ -476,6 +476,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -519,6 +520,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -562,6 +564,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -605,6 +608,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -648,6 +652,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -691,6 +696,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -734,6 +740,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -777,6 +784,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -820,6 +828,7 @@ fn test_taker_match_reserved() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
@@ -866,6 +875,7 @@ fn test_taker_order_cancellable() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     assert!(order.is_cancellable());
@@ -895,6 +905,7 @@ fn test_taker_order_cancellable() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     order.matches.insert(Uuid::new_v4(), TakerMatch {
@@ -1019,6 +1030,7 @@ fn prepare_for_cancel_by(ctx: &MmArc) -> mpsc::Receiver<AdexBehaviourCmd> {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     });
     rx
 }
@@ -1122,6 +1134,7 @@ fn test_taker_order_match_by() {
         save_in_history: false,
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
+        p2p_privkey: None,
     };
 
     let reserved = MakerReserved {
