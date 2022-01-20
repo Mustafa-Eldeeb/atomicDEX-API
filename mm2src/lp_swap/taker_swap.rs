@@ -24,6 +24,7 @@ use http::Response;
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::H264;
 use rpc::v1::types::{Bytes as BytesJson, H160 as H160Json, H256 as H256Json, H264 as H264Json};
+use secp256k1::SecretKey;
 use serde_json::{self as json, Value as Json};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -426,6 +427,8 @@ pub struct TakerSwapData {
     pub maker_coin_swap_contract_address: Option<BytesJson>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub taker_coin_swap_contract_address: Option<BytesJson>,
+    /// Temporary privkey used in HTLC redeem script when applicable
+    pub htlc_privkey: Option<H256Json>,
 }
 
 pub struct TakerSwapMut {
@@ -774,6 +777,9 @@ impl TakerSwap {
         let maker_coin_swap_contract_address = self.maker_coin.swap_contract_address();
         let taker_coin_swap_contract_address = self.taker_coin.swap_contract_address();
 
+        let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
+        let htlc_privkey = Some((*secp_privkey.as_ref()).into());
+
         let data = TakerSwapData {
             taker_coin: self.taker_coin.ticker().to_owned(),
             maker_coin: self.maker_coin.ticker().to_owned(),
@@ -797,6 +803,7 @@ impl TakerSwap {
             maker_payment_spend_trade_fee: Some(SavedTradeFee::from(maker_payment_spend_trade_fee)),
             maker_coin_swap_contract_address,
             taker_coin_swap_contract_address,
+            htlc_privkey,
         };
 
         Ok((Some(TakerSwapCommand::Negotiate), vec![TakerSwapEvent::Started(data)]))
