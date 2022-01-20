@@ -5339,6 +5339,7 @@ name = "spv_validation"
 version = "0.1.0"
 dependencies = [
  "bitcoin-spv",
+ "chain",
  "primitives",
 ]
 

@@ -5,4 +5,5 @@ authors = ["Roman Sztergbaum <rmscastle@gmail.com>"]
 
 [dependencies]
 bitcoin-spv = "5.0.0"
+chain = {path = "../chain"}
 primitives = { path = "../primitives" }
