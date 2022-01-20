@@ -62,9 +62,14 @@ impl EventHandler for LightningEventHandler {
                 );
                 self.handle_payment_sent(*payment_preimage, *payment_hash);
             },
-            Event::PaymentPathFailed { payment_hash, .. } => log::info!(
-                "Handling PaymentPathFailed event for payment_hash: {}",
-                hex::encode(payment_hash.0)
+            // Handling updating channel penalties after a payment fails to route through a channel is done by the InvoicePayer.
+            // Also abandoning or retrying a payment is handled by the InvoicePayer. 
+            Event::PaymentPathFailed { payment_hash, rejected_by_dest, all_paths_failed, path, .. } => log::info!(
+                "Payment path: {:?}, failed for payment hash: {}, Was rejected by destination?: {}, All paths failed?: {}",
+                path.iter().map(|hop| hop.pubkey.to_string()).collect::<Vec<_>>(),
+                hex::encode(payment_hash.0),
+                rejected_by_dest,
+                all_paths_failed,
             ),
             Event::PaymentFailed { payment_hash, .. } => {
                 log::info!(
@@ -93,12 +98,14 @@ impl EventHandler for LightningEventHandler {
             Event::DiscardFunding { channel_id, .. } => {
                 log::info!("Handling DiscardFunding event for channel: {}", hex::encode(channel_id))
             },
+            // Handling updating channel penalties after successfully routing a payment along a path is done by the InvoicePayer.
             Event::PaymentPathSuccessful {
                 payment_id,
                 payment_hash,
-                ..
+                path,
             } => log::info!(
-                "Handling PaymentPathSuccessful event for payment_hash: {}, payment_id: {}",
+                "Payment path: {:?}, successful for payment hash: {}, payment id: {}",
+                path.iter().map(|hop| hop.pubkey.to_string()).collect::<Vec<_>>(),
                 hex::encode(payment_hash.map(|h| hex::encode(h.0)).unwrap_or_default()),
                 hex::encode(payment_id.0)
             ),

@@ -14,28 +14,25 @@ use bigdecimal::BigDecimal;
 use bitcoin::blockdata::script::Script;
 use bitcoin::hash_types::Txid;
 #[cfg(not(target_arch = "wasm32"))] use bitcoin::hashes::Hash;
+#[cfg(not(target_arch = "wasm32"))]
+use bitcoin_hashes::sha256::Hash as Sha256;
 #[cfg(not(target_arch = "wasm32"))] use chain::TransactionOutput;
 #[cfg(not(target_arch = "wasm32"))] use common::async_blocking;
 #[cfg(not(target_arch = "wasm32"))]
 use common::ip_addr::myipaddr;
-use common::log::LogState;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_number::MmNumber;
 use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
+#[cfg(not(target_arch = "wasm32"))]
+use lightning::chain::keysinterface::KeysInterface;
 use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
 use lightning::ln::channelmanager::ChannelDetails;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning::ln::channelmanager::PaymentId;
 use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
-use lightning::routing::network_graph::NetworkGraph;
-#[cfg(not(target_arch = "wasm32"))]
-use lightning::routing::router;
-#[cfg(not(target_arch = "wasm32"))]
-use lightning::routing::router::{Payee, RouteParameters};
-use lightning::routing::scoring::Scorer;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_background_processor::BackgroundProcessor;
 #[cfg(not(target_arch = "wasm32"))]
@@ -62,7 +59,7 @@ use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 #[cfg(not(target_arch = "wasm32"))] use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub mod ln_errors;
 #[cfg(not(target_arch = "wasm32"))] mod ln_events;
@@ -148,9 +145,6 @@ pub struct LightningCoin {
     /// The lightning node invoice payer.
     #[cfg(not(target_arch = "wasm32"))]
     pub invoice_payer: Arc<InvoicePayer<Arc<LightningEventHandler>>>,
-    pub network_graph: Arc<NetworkGraph>,
-    pub scorer: Arc<Mutex<Scorer>>,
-    pub logger: Arc<LogState>,
     /// The mutex storing the inbound payments info.
     pub inbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
     /// The mutex storing the outbound payments info.
@@ -186,40 +180,28 @@ impl LightningCoin {
     fn keysend(
         &self,
         destination: String,
-        final_value_msat: u64,
+        amount_msat: u64,
         final_cltv_expiry_delta: u32,
     ) -> SendPaymentResult<(PaymentId, PaymentHash, PaymentInfo)> {
         let destination_pubkey =
             PublicKey::from_str(&destination).map_to_mm(|e| SendPaymentError::InvalidDestination(e.to_string()))?;
-
-        let first_hops = self.channel_manager.list_usable_channels();
-        let my_node_pubkey = self.channel_manager.get_our_node_id();
-
-        let payee = Payee::for_keysend(destination_pubkey);
-        let params = RouteParameters {
-            payee,
-            final_value_msat,
-            final_cltv_expiry_delta,
-        };
-        let route = router::find_route(
-            &my_node_pubkey,
-            &params,
-            &self.network_graph,
-            Some(&first_hops.iter().collect::<Vec<_>>()),
-            self.logger.clone(),
-            &self.scorer.lock().unwrap(),
-        )
-        .map_to_mm(|e| SendPaymentError::NoRouteFound(e.err))?;
-        let (payment_hash, payment_id) = self
-            .channel_manager
-            .send_spontaneous_payment(&route, None)
+        let payment_preimage = PaymentPreimage(self.keys_manager.get_secure_random_bytes());
+        let payment_id = self
+            .invoice_payer
+            .pay_pubkey(
+                destination_pubkey,
+                payment_preimage,
+                amount_msat,
+                final_cltv_expiry_delta,
+            )
             .map_to_mm(|e| SendPaymentError::PaymentError(format!("{:?}", e)))?;
+        let payment_hash = PaymentHash(Sha256::hash(&payment_preimage.0).into_inner());
 
         Ok((payment_id, payment_hash, PaymentInfo {
-            preimage: None,
+            preimage: Some(payment_preimage),
             secret: None,
             status: HTLCStatus::Pending,
-            amt_msat: Some(final_value_msat),
+            amt_msat: Some(amount_msat),
         }))
     }
 }

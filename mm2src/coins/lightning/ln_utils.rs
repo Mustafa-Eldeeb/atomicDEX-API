@@ -391,11 +391,11 @@ pub async fn start_lightning(
     });
 
     // Create InvoicePayer
-    let router = DefaultRouter::new(network_graph.clone(), logger.clone());
+    let router = DefaultRouter::new(network_graph, logger.clone());
     let invoice_payer = Arc::new(InvoicePayer::new(
         channel_manager.clone(),
         router,
-        scorer.clone(),
+        scorer,
         logger.clone(),
         event_handler.clone(),
         // TODO: payment retries
@@ -418,7 +418,7 @@ pub async fn start_lightning(
         channel_manager.clone(),
         Some(network_gossip),
         peer_manager.clone(),
-        logger.clone(),
+        logger,
     );
 
     // If node is restarting read other nodes data from disk and reconnect to channel nodes/peers if possible.
@@ -450,9 +450,6 @@ pub async fn start_lightning(
         channel_manager,
         keys_manager,
         invoice_payer,
-        network_graph,
-        scorer,
-        logger,
         inbound_payments,
         outbound_payments,
     })
