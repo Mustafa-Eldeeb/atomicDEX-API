@@ -1,0 +1,8 @@
+[package]
+name = "spv_validation"
+version = "0.1.0"
+authors = ["Roman Sztergbaum <rmscastle@gmail.com>"]
+
+[dependencies]
+bitcoin-spv = "5.0.0"
+primitives = { path = "../primitives" }
