@@ -23,6 +23,8 @@ pub type CloseChannelResult<T> = Result<T, MmError<CloseChannelError>>;
 pub enum EnableLightningError {
     #[display(fmt = "Invalid request: {}", _0)]
     InvalidRequest(String),
+    #[display(fmt = "Invalid configuration: {}", _0)]
+    InvalidConfiguration(String),
     #[display(fmt = "{} is only supported in {} mode", _0, _1)]
     UnsupportedMode(String, String),
     #[display(fmt = "I/O error {}", _0)]
@@ -50,7 +52,8 @@ impl HttpStatusCode for EnableLightningError {
             | EnableLightningError::SystemTimeError(_)
             | EnableLightningError::IOError(_)
             | EnableLightningError::HashError(_)
-            | EnableLightningError::ConnectToNodeError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            | EnableLightningError::ConnectToNodeError(_)
+            | EnableLightningError::InvalidConfiguration(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

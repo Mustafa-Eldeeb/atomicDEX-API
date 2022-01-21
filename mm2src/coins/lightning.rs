@@ -2,6 +2,7 @@
 use super::{lp_coinfind_or_err, MmCoinEnum};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::rpc_clients::UtxoRpcClientEnum;
+use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::utxo_common::UtxoTxBuilder;
 #[cfg(not(target_arch = "wasm32"))]
@@ -103,9 +104,21 @@ impl PlatformFields {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LightningCoinConf {
     ticker: String,
+    decimals: u8,
+}
+
+impl LightningCoinConf {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn from_value(conf: Json) -> Result<Self, MmError<EnableLightningError>> {
+        let ticker = serde_json::from_value(conf["coin"].clone())
+            .map_to_mm(|e| EnableLightningError::InvalidConfiguration(e.to_string()))?;
+        let decimals = serde_json::from_value(conf["decimals"].clone())
+            .map_to_mm(|e| EnableLightningError::InvalidConfiguration(e.to_string()))?;
+        Ok(LightningCoinConf { ticker, decimals })
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -129,7 +142,7 @@ pub struct PaymentInfo {
 #[derive(Clone)]
 pub struct LightningCoin {
     pub platform_fields: Arc<PlatformFields>,
-    pub conf: Arc<LightningCoinConf>,
+    pub conf: LightningCoinConf,
     /// The lightning node peer manager that takes care of connecting to peers, etc..
     #[cfg(not(target_arch = "wasm32"))]
     pub peer_manager: Arc<PeerManager>,
@@ -157,6 +170,32 @@ impl fmt::Debug for LightningCoin {
 
 impl LightningCoin {
     fn platform_coin(&self) -> &UtxoStandardCoin { &self.platform_fields.platform_coin }
+
+    #[cfg(target_arch = "wasm32")]
+    fn my_node_id(&self) -> String { unimplemented!() }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn my_node_id(&self) -> String { self.channel_manager.get_our_node_id().to_string() }
+
+    #[cfg(target_arch = "wasm32")]
+    fn get_balance_msat(&self) -> (u64, u64) { unimplemented!() }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn get_balance_msat(&self) -> (u64, u64) {
+        self.channel_manager
+            .list_channels()
+            .iter()
+            .fold((0, 0), |(spendable, unspendable), chan| {
+                if chan.is_usable {
+                    (
+                        spendable + chan.outbound_capacity_msat,
+                        unspendable + chan.balance_msat - chan.outbound_capacity_msat,
+                    )
+                } else {
+                    (spendable, unspendable + chan.balance_msat)
+                }
+            })
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn pay_invoice(&self, encoded_invoice: String) -> SendPaymentResult<(PaymentId, PaymentHash, PaymentInfo)> {
@@ -360,13 +399,21 @@ impl SwapOps for LightningCoin {
 impl MarketCoinOps for LightningCoin {
     fn ticker(&self) -> &str { &self.conf.ticker }
 
-    // Returns platform_coin address for now
-    fn my_address(&self) -> Result<String, String> { self.platform_coin().my_address() }
+    fn my_address(&self) -> Result<String, String> { Ok(self.my_node_id()) }
 
-    // Returns platform_coin balance for now
-    fn my_balance(&self) -> BalanceFut<CoinBalance> { self.platform_coin().my_balance() }
+    fn my_balance(&self) -> BalanceFut<CoinBalance> {
+        let decimals = self.decimals();
+        let (spendable_msat, unspendable_msat) = self.get_balance_msat();
+        let my_balance = CoinBalance {
+            spendable: big_decimal_from_sat_unsigned(spendable_msat, decimals),
+            unspendable: big_decimal_from_sat_unsigned(unspendable_msat, decimals),
+        };
+        Box::new(futures01::future::ok(my_balance))
+    }
 
-    fn base_coin_balance(&self) -> BalanceFut<BigDecimal> { unimplemented!() }
+    fn base_coin_balance(&self) -> BalanceFut<BigDecimal> {
+        Box::new(self.platform_coin().my_balance().map(|res| res.spendable))
+    }
 
     fn send_raw_tx(&self, _tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> { unimplemented!() }
 
@@ -409,7 +456,7 @@ impl MmCoin for LightningCoin {
 
     fn withdraw(&self, _req: WithdrawRequest) -> WithdrawFut { unimplemented!() }
 
-    fn decimals(&self) -> u8 { unimplemented!() }
+    fn decimals(&self) -> u8 { self.conf.decimals }
 
     fn convert_to_address(&self, _from: &str, _to_address_format: Json) -> Result<String, String> { unimplemented!() }
 
@@ -760,7 +807,7 @@ pub async fn get_ln_node_id(ctx: MmArc, req: GetNodeIdReq) -> GetNodeIdResult<Ge
         MmCoinEnum::LightningCoin(c) => c,
         _ => return MmError::err(GetNodeIdError::UnsupportedCoin(coin.ticker().to_string())),
     };
-    let node_id = ln_coin.channel_manager.get_our_node_id().to_string();
+    let node_id = ln_coin.my_node_id();
     Ok(GetNodeIdResponse { node_id })
 }
 

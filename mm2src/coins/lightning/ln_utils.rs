@@ -38,6 +38,7 @@ cfg_native! {
     use rand::RngCore;
     use rpc::v1::types::H256;
     use secp256k1::PublicKey;
+    use serde_json::Value as Json;
     use std::cmp::Ordering;
     use std::collections::HashMap;
     use std::convert::TryInto;
@@ -120,7 +121,7 @@ pub struct LightningParams {
 pub async fn start_lightning(
     _ctx: &MmArc,
     _platform_coin: UtxoStandardCoin,
-    _ticker: String,
+    _coin_conf: Json,
     _params: LightningParams,
 ) -> EnableLightningResult<LightningCoin> {
     MmError::err(EnableLightningError::UnsupportedMode(
@@ -133,9 +134,10 @@ pub async fn start_lightning(
 pub async fn start_lightning(
     ctx: &MmArc,
     platform_coin: UtxoStandardCoin,
-    ticker: String,
+    coin_conf: Json,
     params: LightningParams,
 ) -> EnableLightningResult<LightningCoin> {
+    let conf = LightningCoinConf::from_value(coin_conf)?;
     // Todo: add support for Hardware wallets for funding transactions and spending spendable outputs (channel closing transactions)
     if let DerivationMethod::HDWallet(_) = platform_coin.as_ref().derivation_method {
         return MmError::err(EnableLightningError::UnsupportedMode(
@@ -166,6 +168,7 @@ pub async fn start_lightning(
     let broadcaster = Arc::new(platform_coin.clone());
 
     // Initialize Persist
+    let ticker = conf.ticker.clone();
     let ln_data_dir = ln_storage::my_ln_data_dir(ctx, &ticker)
         .as_path()
         .to_str()
@@ -444,7 +447,7 @@ pub async fn start_lightning(
 
     Ok(LightningCoin {
         platform_fields,
-        conf: Arc::new(LightningCoinConf { ticker }),
+        conf,
         peer_manager,
         background_processor: Arc::new(background_processor),
         channel_manager,

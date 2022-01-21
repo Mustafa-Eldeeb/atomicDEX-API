@@ -8182,6 +8182,7 @@ fn test_enable_lightning() {
           {
             "coin": "tBTC-TEST-lightning",
             "mm2": 1,
+            "decimals": 11,
             "protocol": {
               "type": "LIGHTNING",
               "protocol_data":{
@@ -8226,6 +8227,12 @@ fn test_enable_lightning() {
 
     let enable_lightning = block_on(enable_lightning(&mm, "tBTC-TEST-lightning"));
     assert_eq!(enable_lightning["result"]["platform_coin"], "tBTC-TEST-segwit");
+    assert_eq!(
+        enable_lightning["result"]["address"],
+        "02ce55b18d617bf4ac27b0f045301a0bb4e71669ae45cb5f2529f2f217520ffca1"
+    );
+    assert_eq!(enable_lightning["result"]["balance"]["spendable"], "0");
+    assert_eq!(enable_lightning["result"]["balance"]["unspendable"], "0");
 
     block_on(mm.stop()).unwrap();
 }

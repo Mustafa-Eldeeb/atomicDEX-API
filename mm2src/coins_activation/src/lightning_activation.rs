@@ -6,12 +6,14 @@ use coins::lightning::ln_utils::{start_lightning, LightningParams};
 use coins::lightning::{LightningCoin, LightningProtocolConf};
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::utxo::UtxoCommonOps;
-use coins::{CoinProtocol, MarketCoinOps, MmCoinEnum};
+use coins::{BalanceError, CoinBalance, CoinProtocol, MarketCoinOps, MmCoinEnum};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use derive_more::Display;
+use futures::compat::Future01CompatExt;
 use ser_error_derive::SerializeErrorType;
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value as Json;
 
 const DEFAULT_LISTENING_PORT: u16 = 9735;
 
@@ -71,12 +73,16 @@ pub enum LightningValidationErr {
 #[derive(Debug, Serialize)]
 pub struct LightningInitResult {
     platform_coin: String,
+    address: String,
+    balance: CoinBalance,
 }
 
 #[derive(Debug)]
 pub enum LightningInitError {
     EnableLightningError(EnableLightningError),
     LightningValidationErr(LightningValidationErr),
+    MyBalanceError(BalanceError),
+    MyAddressError(String),
 }
 
 impl From<LightningInitError> for EnableL2Error {
@@ -87,6 +93,11 @@ impl From<LightningInitError> for EnableL2Error {
                 enable_error => EnableL2Error::Internal(enable_error.to_string()),
             },
             LightningInitError::LightningValidationErr(req_err) => EnableL2Error::Internal(req_err.to_string()),
+            LightningInitError::MyBalanceError(balance_err) => match balance_err {
+                BalanceError::Transport(e) => EnableL2Error::Transport(e),
+                balance_error => EnableL2Error::Internal(balance_error.to_string()),
+            },
+            LightningInitError::MyAddressError(e) => EnableL2Error::Internal(e),
         }
     }
 }
@@ -152,14 +163,24 @@ impl L2ActivationOps for LightningCoin {
 
     async fn init_l2(
         ctx: &MmArc,
-        ticker: String,
         platform_coin: Self::PlatformCoin,
         validated_params: Self::ValidatedParams,
         _protocol_conf: Self::ProtocolInfo,
+        coin_conf: Json,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>> {
-        let lightning_coin = start_lightning(ctx, platform_coin.clone(), ticker, validated_params).await?;
+        let lightning_coin = start_lightning(ctx, platform_coin.clone(), coin_conf, validated_params).await?;
+        let balance = lightning_coin
+            .my_balance()
+            .compat()
+            .await
+            .mm_err(LightningInitError::MyBalanceError)?;
+        let address = lightning_coin
+            .my_address()
+            .map_to_mm(LightningInitError::MyAddressError)?;
         let init_result = LightningInitResult {
             platform_coin: platform_coin.ticker().into(),
+            address,
+            balance,
         };
         Ok((lightning_coin, init_result))
     }

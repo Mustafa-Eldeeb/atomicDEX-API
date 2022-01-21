@@ -9,6 +9,7 @@ use common::{HttpStatusCode, NotSame, StatusCode};
 use derive_more::Display;
 use ser_error_derive::SerializeErrorType;
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value as Json;
 
 pub trait L2ProtocolParams {
     fn platform_coin_ticker(&self) -> &str;
@@ -33,10 +34,10 @@ pub trait L2ActivationOps: Into<MmCoinEnum> {
 
     async fn init_l2(
         ctx: &MmArc,
-        ticker: String,
         platform_coin: Self::PlatformCoin,
         validated_params: Self::ValidatedParams,
         protocol_conf: Self::ProtocolInfo,
+        coin_conf: Json,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>>;
 }
 
@@ -102,7 +103,7 @@ where
         return MmError::err(EnableL2Error::L2IsAlreadyActivated(req.ticker));
     }
 
-    let (_, l2_protocol): (_, L2::ProtocolInfo) = coin_conf_with_protocol(&ctx, &req.ticker)?;
+    let (coin_conf, l2_protocol): (_, L2::ProtocolInfo) = coin_conf_with_protocol(&ctx, &req.ticker)?;
 
     let platform_coin = lp_coinfind_or_err(&ctx, l2_protocol.platform_coin_ticker())
         .await
@@ -118,7 +119,7 @@ where
 
     let validated_params = L2::validate_activation_params(req.activation_params)?;
 
-    let (l2, activation_result) = L2::init_l2(&ctx, req.ticker, platform_coin, validated_params, l2_protocol).await?;
+    let (l2, activation_result) = L2::init_l2(&ctx, platform_coin, validated_params, l2_protocol, coin_conf).await?;
 
     let coins_ctx = CoinsContext::from_ctx(&ctx).unwrap();
     coins_ctx
