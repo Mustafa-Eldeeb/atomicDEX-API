@@ -40,6 +40,7 @@ use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcoin::network::constants::Network as BitcoinNetwork;
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
+pub use chain::Transaction as UtxoTx;
 use chain::{OutPoint, TransactionOutput, TxHashAlgo};
 #[cfg(not(target_arch = "wasm32"))]
 use common::first_char_to_upper;
@@ -49,7 +50,7 @@ use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsArc;
 use common::now_ms;
 use crypto::trezor::utxo::TrezorUtxoCoin;
-use crypto::{Bip32Error, ChildNumber, DerivationPath, Secp256k1ExtendedPublicKey};
+use crypto::{ChildNumber, DerivationPath, Secp256k1ExtendedPublicKey};
 use derive_more::Display;
 #[cfg(not(target_arch = "wasm32"))] use dirs::home_dir;
 use futures::channel::mpsc;
@@ -83,16 +84,15 @@ use utxo_common::{big_decimal_from_sat, UtxoTxBuilder};
 use utxo_signer::with_key_pair::sign_tx;
 use utxo_signer::{TxProvider, TxProviderError, UtxoSignTxError, UtxoSignTxResult};
 
-pub use chain::Transaction as UtxoTx;
-
-use self::rpc_clients::{ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode, UnspentInfo, UtxoRpcClientEnum,
-                        UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
+use self::rpc_clients::{electrum_script_hash, ElectrumClient, ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode,
+                        NativeClient, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
 use super::{BalanceError, BalanceFut, BalanceResult, CoinsContext, DerivationMethod, DerivationMethodNotSupported,
             FeeApproxStage, FoundSwapTxSpend, HDAddress, HDWalletCoinOps, HistorySyncState, KmdRewardsDetails,
             MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy,
             RpcTransportEventHandler, RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut,
             TradePreimageResult, Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError,
             WithdrawRequest};
+use crate::coin_balance::HDAddressBalanceChecker;
 
 #[cfg(test)] pub mod utxo_tests;
 #[cfg(target_arch = "wasm32")] pub mod utxo_wasm_tests;
@@ -605,13 +605,60 @@ pub trait UtxoTxGenerationOps {
     ) -> UtxoRpcResult<(TransactionInputSigner, AdditionalTxData)>;
 }
 
-pub trait UtxoHDWalletOps: HDWalletCoinOps<HDWallet = UtxoHDWallet> {
-    fn derive_address(
-        &self,
-        account: &UtxoHDAccount,
-        address_id: u32,
-        change: bool,
-    ) -> MmResult<HDAddress<Address>, Bip32Error>;
+/// The UTXO address balance checker.
+/// If the coin is initialized with a native RPC client, it's better to request the list of used addresses
+/// right on `UtxoAddressBalanceChecker` initialization.
+/// See [`NativeClientImpl::list_transactions`].
+pub enum UtxoAddressBalanceChecker {
+    Native { non_empty_addresses: HashSet<String> },
+    Electrum(ElectrumClient),
+}
+
+#[async_trait]
+impl HDAddressBalanceChecker for UtxoAddressBalanceChecker {
+    type Address = Address;
+
+    async fn is_address_used(&self, address: &Self::Address) -> BalanceResult<bool> {
+        let is_used = match self {
+            UtxoAddressBalanceChecker::Native { non_empty_addresses } => {
+                non_empty_addresses.contains(&address.to_string())
+            },
+            UtxoAddressBalanceChecker::Electrum(electrum_client) => {
+                let script = output_script(address, ScriptType::P2PKH);
+                let script_hash = electrum_script_hash(&script);
+
+                let electrum_history = electrum_client
+                    .scripthash_get_history(&hex::encode(script_hash))
+                    .compat()
+                    .await?;
+
+                !electrum_history.is_empty()
+            },
+        };
+        Ok(is_used)
+    }
+}
+
+impl UtxoAddressBalanceChecker {
+    pub async fn init(rpc_client: UtxoRpcClientEnum) -> UtxoRpcResult<UtxoAddressBalanceChecker> {
+        match rpc_client {
+            UtxoRpcClientEnum::Native(native) => UtxoAddressBalanceChecker::init_with_native_client(&native).await,
+            UtxoRpcClientEnum::Electrum(electrum) => Ok(UtxoAddressBalanceChecker::Electrum(electrum)),
+        }
+    }
+
+    pub async fn init_with_native_client(native: &NativeClient) -> UtxoRpcResult<UtxoAddressBalanceChecker> {
+        const STEP: u64 = 100;
+
+        let non_empty_addresses = native
+            .list_all_transactions(STEP)
+            .compat()
+            .await?
+            .into_iter()
+            .map(|tx_item| tx_item.address)
+            .collect();
+        Ok(UtxoAddressBalanceChecker::Native { non_empty_addresses })
+    }
 }
 
 #[async_trait]

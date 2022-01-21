@@ -6,6 +6,8 @@ use chain::OutPoint;
 use common::grpc_web::{post_grpc_web, PostGrpcWebErr};
 use common::mm_error::prelude::*;
 use derive_more::Display;
+use futures::future::join_all;
+use futures::FutureExt;
 use get_slp_trusted_validation_response::validity_result::ValidityResultType;
 use keys::hash::H256;
 
@@ -28,17 +30,23 @@ where
     Res: prost::Message + Default + Send + 'static,
     Url: AsRef<str>,
 {
-    let mut results = Vec::new();
-    for url in urls {
-        let res = post_grpc_web::<_, Res>(url.as_ref(), req)
-            .await
-            .mm_err(|err| GrpcWebMultiUrlReqErr {
-                to_url: url.as_ref().to_string(),
-                err,
-            })?;
-        results.push((url, res))
-    }
-    Ok(results)
+    let futures = urls
+        .iter()
+        .map(|url| post_grpc_web::<_, Res>(url.as_ref(), req).map(move |res| (url, res)));
+
+    join_all(futures)
+        .await
+        .into_iter()
+        .map(|(url, response)| {
+            Ok((
+                url,
+                response.mm_err(|err| GrpcWebMultiUrlReqErr {
+                    to_url: url.as_ref().to_string(),
+                    err,
+                })?,
+            ))
+        })
+        .collect()
 }
 
 #[derive(Debug, Display)]

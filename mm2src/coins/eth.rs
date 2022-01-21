@@ -54,13 +54,13 @@ use web3::types::{Action as TraceAction, BlockId, BlockNumber, Bytes, CallReques
                   TraceFilterBuilder, Transaction as Web3Transaction, TransactionId};
 use web3::{self, Web3};
 
-use super::{BalanceError, BalanceFut, BalanceResult, CoinBalance, CoinProtocol, CoinTransportMetrics, CoinsContext,
-            FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr,
-            NumConversError, NumConversResult, RpcClientType, RpcTransportEventHandler,
-            RpcTransportEventHandlerShared, SwapOps, TradeFee, TradePreimageError, TradePreimageFut,
-            TradePreimageValue, Transaction, TransactionDetails, TransactionEnum, TransactionFut,
-            ValidateAddressResult, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
-use crate::coin_balance::{iguana_wallet_balance, WalletBalance, WalletBalanceOps};
+use super::{BalanceError, BalanceFut, CoinBalance, CoinProtocol, CoinTransportMetrics, CoinsContext, FeeApproxStage,
+            FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError,
+            NumConversResult, RpcClientType, RpcTransportEventHandler, RpcTransportEventHandlerShared, SwapOps,
+            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageValue, Transaction, TransactionDetails,
+            TransactionEnum, TransactionFut, ValidateAddressResult, WithdrawError, WithdrawFee, WithdrawFut,
+            WithdrawRequest, WithdrawResult};
+
 pub use ethcore_transaction::SignedTransaction as SignedEthTx;
 pub use rlp;
 
@@ -3099,11 +3099,6 @@ impl MmCoin for EthCoin {
     fn coin_protocol_info(&self) -> Vec<u8> { Vec::new() }
 
     fn is_coin_protocol_supported(&self, _info: &Option<Vec<u8>>) -> bool { true }
-}
-
-#[async_trait]
-impl WalletBalanceOps for EthCoin {
-    async fn wallet_balance(&self) -> BalanceResult<WalletBalance> { iguana_wallet_balance(self).await }
 }
 
 pub trait TryToAddress {

@@ -1,9 +1,12 @@
 use super::*;
-use crate::coin_balance::{AddressBalanceOps, AddressBalanceStatus, HDAccountBalance, HDWalletBalanceOps};
+use crate::coin_balance::{common_impl, AddressBalanceOps, CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse,
+                          HDAccountBalanceParams, HDAccountBalanceResponse, HDAccountBalanceRpcError,
+                          HDAddressBalance, HDWalletBalance, HDWalletBalanceOps, HDWalletBalanceRpcOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
-use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, NegotiateSwapContractAddrErr, SwapOps,
-            TradePreimageValue, ValidateAddressResult, WithdrawFut};
+use crate::{AddressDerivingError, Bip44Chain, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod,
+            InvalidBip44ChainError, NegotiateSwapContractAddrErr, SwapOps, TradePreimageValue, ValidateAddressResult,
+            WithdrawFut};
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use crypto::trezor::utxo::TrezorUtxoCoin;
@@ -590,19 +593,45 @@ impl CoinWithDerivationMethod for UtxoStandardCoin {
 }
 
 impl HDWalletCoinOps for UtxoStandardCoin {
+    type Address = Address;
     type HDWallet = UtxoHDWallet;
+    type HDAccount = UtxoHDAccount;
 
     fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32 { hd_wallet.gap_limit }
-}
 
-impl UtxoHDWalletOps for UtxoStandardCoin {
+    fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount> {
+        utxo_common::get_hd_account(hd_wallet, account_id)
+    }
+
+    fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> Vec<Self::HDAccount> {
+        utxo_common::get_hd_accounts(hd_wallet)
+    }
+
+    fn number_of_used_account_addresses(
+        &self,
+        hd_account: &Self::HDAccount,
+        chain: Bip44Chain,
+    ) -> MmResult<u32, InvalidBip44ChainError> {
+        utxo_common::number_of_used_account_addresses(hd_account, chain)
+    }
+
+    fn apply_account_changes(&self, hd_wallet: &Self::HDWallet, hd_account: Self::HDAccount) {
+        utxo_common::apply_account_changes(hd_wallet, hd_account)
+    }
+
+    fn account_derivation_path(&self, hd_account: &Self::HDAccount) -> DerivationPath {
+        hd_account.account_derivation_path.clone()
+    }
+
+    fn account_id(&self, hd_account: &Self::HDAccount) -> u32 { hd_account.account_id }
+
     fn derive_address(
         &self,
-        account: &UtxoHDAccount,
+        hd_account: &Self::HDAccount,
+        chain: Bip44Chain,
         address_id: u32,
-        change: bool,
-    ) -> MmResult<HDAddress<Address>, Bip32Error> {
-        utxo_common::derive_address(self, account, address_id, change)
+    ) -> MmResult<HDAddress<Self::Address>, AddressDerivingError> {
+        utxo_common::derive_address(self, hd_account, chain, address_id)
     }
 }
 
@@ -610,20 +639,39 @@ impl UtxoHDWalletOps for UtxoStandardCoin {
 impl HDWalletBalanceOps for UtxoStandardCoin {
     type HDWallet = UtxoHDWallet;
     type HDAccount = UtxoHDAccount;
+    type HDAddressChecker = UtxoAddressBalanceChecker;
 
-    async fn hd_wallet_balance(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<Vec<HDAccountBalance>> {
-        utxo_common::hd_wallet_balance(self, hd_wallet).await
+    async fn produce_hd_address_checker(&self) -> BalanceResult<Self::HDAddressChecker> {
+        utxo_common::produce_hd_address_checker(self).await
     }
 
-    async fn hd_account_balance(
+    async fn enable_hd_wallet_balance(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<HDWalletBalance> {
+        common_impl::enable_hd_wallet_balance(self, hd_wallet).await
+    }
+
+    async fn check_hd_account_balance(
         &self,
-        hd_wallet: &Self::HDWallet,
         hd_account: &mut Self::HDAccount,
-    ) -> BalanceResult<HDAccountBalance> {
-        utxo_common::hd_account_balance(self, hd_wallet, hd_account).await
+        address_checker: &Self::HDAddressChecker,
+        gap_limit: u32,
+    ) -> BalanceResult<Vec<HDAddressBalance>> {
+        utxo_common::check_hd_account_balance(self, hd_account, address_checker, gap_limit).await
+    }
+}
+
+#[async_trait]
+impl HDWalletBalanceRpcOps for UtxoStandardCoin {
+    async fn hd_account_balance_rpc(
+        &self,
+        params: HDAccountBalanceParams,
+    ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError> {
+        common_impl::hd_account_balance_rpc(self, params).await
     }
 
-    async fn check_address_balance(&self, address: &Self::Address) -> BalanceResult<AddressBalanceStatus<CoinBalance>> {
-        utxo_common::check_address_balance(self.as_ref(), address.clone()).await
+    async fn check_hd_account_balance_rpc(
+        &self,
+        params: CheckHDAccountBalanceParams,
+    ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError> {
+        common_impl::check_hd_account_balance_rpc(self, params).await
     }
 }

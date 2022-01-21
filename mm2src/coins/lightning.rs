@@ -1,6 +1,5 @@
 #[cfg(not(target_arch = "wasm32"))]
 use super::{lp_coinfind_or_err, MmCoinEnum};
-use crate::coin_balance::{iguana_wallet_balance, WalletBalance, WalletBalanceOps};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::rpc_clients::UtxoRpcClientEnum;
 #[cfg(not(target_arch = "wasm32"))]
@@ -8,9 +7,9 @@ use crate::utxo::utxo_common::UtxoTxBuilder;
 use crate::utxo::BlockchainNetwork;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::{sat_from_big_decimal, FeePolicy, UtxoCommonOps, UtxoTxGenerationOps};
-use crate::{BalanceFut, BalanceResult, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps,
-            MmCoin, NegotiateSwapContractAddrErr, SwapOps, TradeFee, TradePreimageFut, TradePreimageValue,
-            TransactionEnum, TransactionFut, UtxoStandardCoin, ValidateAddressResult, WithdrawFut, WithdrawRequest};
+use crate::{BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
+            NegotiateSwapContractAddrErr, SwapOps, TradeFee, TradePreimageFut, TradePreimageValue, TransactionEnum,
+            TransactionFut, UtxoStandardCoin, ValidateAddressResult, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcoin::blockdata::script::Script;
@@ -362,11 +361,6 @@ impl MmCoin for LightningCoin {
     fn coin_protocol_info(&self) -> Vec<u8> { unimplemented!() }
 
     fn is_coin_protocol_supported(&self, _info: &Option<Vec<u8>>) -> bool { unimplemented!() }
-}
-
-#[async_trait]
-impl WalletBalanceOps for LightningCoin {
-    async fn wallet_balance(&self) -> BalanceResult<WalletBalance> { iguana_wallet_balance(self).await }
 }
 
 #[derive(Deserialize)]

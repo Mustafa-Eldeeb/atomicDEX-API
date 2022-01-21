@@ -39,7 +39,7 @@ use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsWeak;
 use common::mm_number::MmNumber;
 use common::{calc_total_pages, now_ms, ten, HttpStatusCode};
-use crypto::{Bip32Error, CryptoCtx, DerivationPath};
+use crypto::{Bip32Error, ChildNumber, CryptoCtx, DerivationPath};
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
@@ -53,7 +53,7 @@ use serde_json::{self as json, Value as Json};
 use std::collections::hash_map::{HashMap, RawEntryMut};
 use std::fmt;
 use std::num::NonZeroUsize;
-use std::ops::Deref;
+use std::ops::{Add, Deref};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -172,6 +172,21 @@ pub enum PrivKeyNotAllowed {
 pub enum DerivationMethodNotSupported {
     #[display(fmt = "HD wallets are not supported")]
     HdWalletNotSupported,
+}
+
+pub enum AddressDerivingError {
+    Bip32Error(Bip32Error),
+}
+
+impl From<Bip32Error> for AddressDerivingError {
+    fn from(e: Bip32Error) -> Self { AddressDerivingError::Bip32Error(e) }
+}
+
+/// Currently, we suppose that ETH/ERC20/QRC20 don't have [`Bip44Chain::Internal`] addresses.
+#[derive(Display)]
+#[display(fmt = "Coin doesn't support the given BIP44 chain: {:?}", chain)]
+pub struct InvalidBip44ChainError {
+    chain: Bip44Chain,
 }
 
 pub trait Transaction: fmt::Debug + 'static {
@@ -700,7 +715,7 @@ pub struct CoinBalance {
 }
 
 impl CoinBalance {
-    pub fn spendable(spendable: BigDecimal) -> CoinBalance {
+    pub fn new(spendable: BigDecimal) -> CoinBalance {
         CoinBalance {
             spendable,
             unspendable: BigDecimal::from(0),
@@ -710,6 +725,17 @@ impl CoinBalance {
     pub fn into_total(self) -> BigDecimal { self.spendable + self.unspendable }
 
     pub fn get_total(&self) -> BigDecimal { &self.spendable + &self.unspendable }
+}
+
+impl Add for CoinBalance {
+    type Output = CoinBalance;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        CoinBalance {
+            spendable: self.spendable + rhs.spendable,
+            unspendable: self.unspendable + rhs.unspendable,
+        }
+    }
 }
 
 pub struct HDAddress<Address> {
@@ -880,6 +906,14 @@ impl From<DerivationMethodNotSupported> for BalanceError {
 
 impl From<Bip32Error> for BalanceError {
     fn from(e: Bip32Error) -> Self { BalanceError::Internal(e.to_string()) }
+}
+
+impl From<AddressDerivingError> for BalanceError {
+    fn from(e: AddressDerivingError) -> Self {
+        match e {
+            AddressDerivingError::Bip32Error(bip32) => BalanceError::Internal(bip32.to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
@@ -1540,6 +1574,21 @@ impl<'a> PrivKeyBuildPolicy<'a> {
     }
 }
 
+#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Serialize)]
+pub enum Bip44Chain {
+    Internal,
+    External,
+}
+
+impl Bip44Chain {
+    pub fn to_child_number(&self) -> ChildNumber {
+        match self {
+            Bip44Chain::Internal => ChildNumber::from(1),
+            Bip44Chain::External => ChildNumber::from(0),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum DerivationMethod<Address, HDWallet> {
     Iguana(Address),
@@ -1559,6 +1608,13 @@ impl<Address, HDWallet> DerivationMethod<Address, HDWallet> {
             .or_mm_err(|| DerivationMethodNotSupported::HdWalletNotSupported)
     }
 
+    pub fn hd_wallet(&self) -> Option<&HDWallet> {
+        match self {
+            DerivationMethod::Iguana(_) => None,
+            DerivationMethod::HDWallet(hd_wallet) => Some(hd_wallet),
+        }
+    }
+
     /// # Panic
     ///
     /// Panic if the address mode is [`DerivationMethod::HDWallet`].
@@ -1575,9 +1631,40 @@ pub trait CoinWithDerivationMethod {
 
 // #[async_trait]
 pub trait HDWalletCoinOps {
+    type Address;
     type HDWallet;
+    type HDAccount;
 
-    fn gap_limit(&self, _hd_wallet: &Self::HDWallet) -> u32;
+    fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32;
+
+    /// Get a copy of an account by the given `account_id` if it's activated.
+    fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount>;
+
+    /// Get copies of every activated accounts.
+    fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> Vec<Self::HDAccount>;
+
+    /// The method can return an `InvalidBip44ChainError` error if the coin doesn't support the given `chain`.
+    fn number_of_used_account_addresses(
+        &self,
+        hd_account: &Self::HDAccount,
+        chain: Bip44Chain,
+    ) -> MmResult<u32, InvalidBip44ChainError>;
+
+    /// Apply changes of the given `hd_account` if it's needed.
+    /// This method is used particularly to update number of known/used addresses of the HD account.
+    fn apply_account_changes(&self, hd_wallet: &Self::HDWallet, hd_account: Self::HDAccount);
+
+    fn account_derivation_path(&self, hd_account: &Self::HDAccount) -> DerivationPath;
+
+    /// Get an index of the given `hd_account`.
+    fn account_id(&self, hd_account: &Self::HDAccount) -> u32;
+
+    fn derive_address(
+        &self,
+        hd_account: &Self::HDAccount,
+        chain: Bip44Chain,
+        address_id: u32,
+    ) -> MmResult<HDAddress<Self::Address>, AddressDerivingError>;
 }
 
 #[allow(clippy::upper_case_acronyms)]

@@ -328,6 +328,7 @@ pub struct ValidateAddressRes {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(test, derive(Default))]
 pub struct ListTransactionsItem {
     pub account: Option<String>,
     #[serde(default)]
@@ -789,22 +790,20 @@ impl NativeClient {
         Box::new(fut.boxed().compat())
     }
 
-    pub fn is_address_list_transactions_empty(&self, address: String) -> RpcRes<bool> {
-        const STEP: u64 = 100;
-
+    pub fn list_all_transactions(&self, step: u64) -> RpcRes<Vec<ListTransactionsItem>> {
         let selfi = self.clone();
-        let mut from = 0;
         let fut = async move {
+            let mut from = 0;
+            let mut transaction_list = Vec::new();
+
             loop {
-                let transactions = selfi.list_transactions(STEP, from).compat().await?;
+                let transactions = selfi.list_transactions(step, from).compat().await?;
                 if transactions.is_empty() {
-                    return Ok(true);
+                    return Ok(transaction_list);
                 }
 
-                if transactions.iter().any(|item| item.address == address) {
-                    return Ok(false);
-                }
-                from += STEP;
+                transaction_list.extend(transactions.into_iter());
+                from += step;
             }
         };
         Box::new(fut.boxed().compat())

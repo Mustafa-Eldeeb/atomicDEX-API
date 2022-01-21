@@ -1,11 +1,11 @@
 use super::*;
-use crate::coin_balance::{AddressBalanceStatus, HDAccountBalance, HDAddressBalance, HDWalletBalanceOps};
+use crate::coin_balance::{AddressBalanceStatus, HDAddressBalance, HDWalletBalanceOps};
 use crate::init_withdraw::WithdrawTaskHandle;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
 use crate::utxo::utxo_withdraw::{InitUtxoWithdraw, StandardUtxoWithdraw, UtxoWithdraw};
-use crate::{CanRefundHtlc, CoinBalance, HDAddress, TradePreimageValue, TxFeeDetails, ValidateAddressResult,
-            WithdrawResult};
+use crate::{AddressDerivingError, Bip44Chain, CanRefundHtlc, CoinBalance, HDAddress, InvalidBip44ChainError,
+            TradePreimageValue, TxFeeDetails, ValidateAddressResult, WithdrawResult};
 use bigdecimal::{BigDecimal, Zero};
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
 use chain::constants::SEQUENCE_FINAL;
@@ -76,16 +76,65 @@ pub async fn get_tx_fee(coin: &UtxoCoinFields) -> Result<ActualTxFee, JsonRpcErr
     }
 }
 
+pub fn get_hd_account(hd_wallet: &UtxoHDWallet, account_id: u32) -> Option<UtxoHDAccount> {
+    let hd_account = hd_wallet.accounts.lock().get(account_id as usize).cloned()?;
+    if hd_account.account_id != account_id {
+        warn!(
+            "'UtxoHDWallet::accounts[{}].account_id = {}",
+            account_id, hd_account.account_id
+        );
+        return None;
+    }
+    Some(hd_account)
+}
+
+pub fn get_hd_accounts(hd_wallet: &UtxoHDWallet) -> Vec<UtxoHDAccount> { hd_wallet.accounts.lock().clone() }
+
+pub fn number_of_used_account_addresses(
+    hd_account: &UtxoHDAccount,
+    chain: Bip44Chain,
+) -> MmResult<u32, InvalidBip44ChainError> {
+    match chain {
+        Bip44Chain::External => Ok(hd_account.external_addresses_number),
+        Bip44Chain::Internal => Ok(hd_account.internal_addresses_number),
+    }
+}
+
+pub fn apply_account_changes(hd_wallet: &UtxoHDWallet, hd_account: UtxoHDAccount) {
+    let mut accounts = hd_wallet.accounts.lock();
+    let prev_account = match accounts.get_mut(hd_account.account_id as usize) {
+        Some(prev_account) => prev_account,
+        None => {
+            warn!("Couldn't find an account with the '{}' index", hd_account.account_id);
+            return;
+        },
+    };
+    if prev_account.account_id != hd_account.account_id {
+        warn!(
+            "'UtxoHDWallet::accounts[{}].account_id = {}",
+            hd_account.account_id, prev_account.account_id
+        );
+        return;
+    }
+
+    if prev_account.external_addresses_number < hd_account.external_addresses_number {
+        prev_account.external_addresses_number = hd_account.external_addresses_number;
+    }
+    if prev_account.internal_addresses_number < hd_account.internal_addresses_number {
+        prev_account.internal_addresses_number = hd_account.internal_addresses_number;
+    }
+}
+
 pub fn derive_address<T>(
     coin: &T,
     hd_account: &UtxoHDAccount,
+    chain: Bip44Chain,
     address_id: u32,
-    change: bool,
-) -> MmResult<HDAddress<Address>, Bip32Error>
+) -> MmResult<HDAddress<Address>, AddressDerivingError>
 where
     T: UtxoCommonOps,
 {
-    let change_child = ChildNumber::from(change as u32);
+    let change_child = chain.to_child_number();
     let address_id_child = ChildNumber::from(address_id);
 
     let derived_pubkey = hd_account
@@ -103,212 +152,107 @@ where
     })
 }
 
-pub async fn hd_wallet_balance<T>(coin: &T, hd_wallet: &UtxoHDWallet) -> BalanceResult<Vec<HDAccountBalance>>
+pub async fn produce_hd_address_checker<T>(coin: &T) -> BalanceResult<UtxoAddressBalanceChecker>
 where
-    T: UtxoCommonOps
-        + UtxoHDWalletOps
-        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address>,
+    T: AsRef<UtxoCoinFields>,
 {
-    let orig_accounts = hd_wallet.accounts.lock().clone();
-    let mut accounts = orig_accounts.clone();
-    let mut balances = Vec::with_capacity(accounts.len());
-
-    for hd_account in accounts.iter_mut() {
-        balances.push(coin.hd_account_balance(hd_wallet, hd_account).await?);
-    }
-
-    // Update the accounts container if it hasn't been changed already while we requested the balances.
-    let mut current_accounts = hd_wallet.accounts.lock();
-    if *current_accounts == orig_accounts {
-        *current_accounts = accounts;
-    }
-
-    Ok(balances)
+    Ok(UtxoAddressBalanceChecker::init(coin.as_ref().rpc_client.clone()).await?)
 }
 
-pub async fn hd_account_balance<T>(
+pub async fn check_hd_account_balance<T>(
     coin: &T,
-    hd_wallet: &UtxoHDWallet,
     hd_account: &mut UtxoHDAccount,
-) -> BalanceResult<HDAccountBalance>
-where
-    T: UtxoCommonOps
-        + UtxoHDWalletOps
-        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address>
-        + Sync,
-{
-    let mut account_balance = HDAccountBalance {
-        account_index: hd_account.account_id as u32,
-        derivation_path: RpcDerivationPath(hd_account.account_derivation_path.clone()),
-        addresses: Vec::new(),
-    };
-
-    let external_addresses = false;
-    let internal_addresses = true;
-
-    // Request balances of the external addresses.
-    account_balance.addresses.extend(
-        balance_of_hd_account_used_addresses(coin, hd_account, external_addresses)
-            .await?
-            .into_iter(),
-    );
-    account_balance.addresses.extend(
-        check_balance_of_hd_account_unknown_addresses(coin, hd_wallet, hd_account, external_addresses)
-            .await?
-            .into_iter(),
-    );
-
-    // Request balances of the internal addresses.
-    account_balance.addresses.extend(
-        balance_of_hd_account_used_addresses(coin, hd_account, internal_addresses)
-            .await?
-            .into_iter(),
-    );
-    account_balance.addresses.extend(
-        check_balance_of_hd_account_unknown_addresses(coin, hd_wallet, hd_account, internal_addresses)
-            .await?
-            .into_iter(),
-    );
-
-    Ok(account_balance)
-}
-
-/// Requests balances of HD account addresses that have been used already.
-pub async fn balance_of_hd_account_used_addresses<T>(
-    coin: &T,
-    hd_account: &UtxoHDAccount,
-    change: bool,
+    address_checker: &UtxoAddressBalanceChecker,
+    gap_limit: u32,
 ) -> BalanceResult<Vec<HDAddressBalance>>
 where
-    T: UtxoCommonOps
-        + UtxoHDWalletOps
-        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address>
-        + Sync,
+    T: HDWalletCoinOps<Address = Address, HDAccount = UtxoHDAccount>
+        + HDWalletBalanceOps<
+            Address = Address,
+            HDWallet = UtxoHDWallet,
+            HDAccount = UtxoHDAccount,
+            HDAddressChecker = UtxoAddressBalanceChecker,
+        > + Sync,
 {
-    let non_empty_addresses_number = if change {
-        hd_account.internal_addresses_number
-    } else {
-        hd_account.external_addresses_number
-    };
-    let mut balances = Vec::with_capacity(non_empty_addresses_number as usize);
+    let mut addresses =
+        check_hd_account_balance_impl(coin, hd_account, address_checker, Bip44Chain::External, gap_limit).await?;
+    addresses.extend(
+        check_hd_account_balance_impl(coin, hd_account, address_checker, Bip44Chain::Internal, gap_limit).await?,
+    );
 
-    for address_id in 0..non_empty_addresses_number {
-        if address_id >= ChildNumber::HARDENED_FLAG {
-            warn!(
-                "address_id '{}' is too large. Stop the account '{}' loop",
-                address_id, hd_account.account_id
-            );
-            break;
-        }
-
-        let HDAddress {
-            address,
-            derivation_path,
-        } = coin.derive_address(hd_account, address_id, change)?;
-
-        let balance = coin.known_address_balance(&address).await?;
-        balances.push(HDAddressBalance {
-            address: address.to_string(),
-            derivation_path: RpcDerivationPath(derivation_path),
-            balance,
-        });
-    }
-    Ok(balances)
+    Ok(addresses)
 }
 
 /// Checks addresses that either had empty transaction history last time we checked or has not been checked before.
-/// The checking stops at the moment when we find [`HDWalletBalanceOps::gap_limit`] consecutive empty addresses.
-pub async fn check_balance_of_hd_account_unknown_addresses<T>(
+/// The checking stops at the moment when we find `gap_limit` consecutive empty addresses.
+pub async fn check_hd_account_balance_impl<T>(
     coin: &T,
-    hd_wallet: &UtxoHDWallet,
     hd_account: &mut UtxoHDAccount,
-    change: bool,
+    address_checker: &UtxoAddressBalanceChecker,
+    chain: Bip44Chain,
+    gap_limit: u32,
 ) -> BalanceResult<Vec<HDAddressBalance>>
 where
-    T: UtxoCommonOps
-        + UtxoHDWalletOps
-        + HDWalletBalanceOps<HDWallet = UtxoHDWallet, HDAccount = UtxoHDAccount, Address = Address>,
+    T: HDWalletCoinOps<Address = Address, HDAccount = UtxoHDAccount>
+        + HDWalletBalanceOps<
+            Address = Address,
+            HDWallet = UtxoHDWallet,
+            HDAccount = UtxoHDAccount,
+            HDAddressChecker = UtxoAddressBalanceChecker,
+        > + Sync,
 {
-    let gap_limit = coin.gap_limit(hd_wallet);
     let mut balances = Vec::with_capacity(gap_limit as usize);
 
     // Get the first unknown address id.
-    let mut checking_address_id = if change {
-        hd_account.internal_addresses_number
-    } else {
-        hd_account.external_addresses_number
-    };
+    let mut checking_address_id = coin
+        .number_of_used_account_addresses(hd_account, chain)
+        // A UTXO coin should support both [`Bip44Chain::External`] and [`Bip44Chain::Internal`].
+        .mm_err(|e| BalanceError::Internal(e.to_string()))?;
 
     let mut unused_addresses_counter = 0;
     while checking_address_id < ChildNumber::HARDENED_FLAG && unused_addresses_counter < gap_limit {
-        let checking_address = coin.derive_address(hd_account, checking_address_id, change)?;
+        let HDAddress {
+            address: checking_address,
+            derivation_path: checking_address_der_path,
+        } = coin.derive_address(hd_account, chain, checking_address_id)?;
 
-        match coin.check_address_balance(&checking_address.address).await? {
-            AddressBalanceStatus::Empty => unused_addresses_counter += 1,
+        match coin.check_address_balance(&checking_address, address_checker).await? {
             // We found a non-empty address, so we have to fill up the balance list
             // with zeros starting from `last_non_empty_address_id = checking_address_id - unused_addresses_counter`.
-            AddressBalanceStatus::NonEmpty(non_empty_balance) => {
+            AddressBalanceStatus::Used(non_empty_balance) => {
                 let last_non_empty_address_id = checking_address_id - unused_addresses_counter;
                 for empty_address_id in last_non_empty_address_id..checking_address_id {
-                    let empty_address = coin.derive_address(hd_account, empty_address_id, change)?;
+                    let empty_address = coin.derive_address(hd_account, chain, empty_address_id)?;
 
                     balances.push(HDAddressBalance {
                         address: empty_address.address.to_string(),
                         derivation_path: RpcDerivationPath(empty_address.derivation_path),
+                        chain,
                         balance: CoinBalance::default(),
                     });
                 }
 
                 balances.push(HDAddressBalance {
-                    address: checking_address.address.to_string(),
-                    derivation_path: RpcDerivationPath(checking_address.derivation_path),
+                    address: checking_address.to_string(),
+                    derivation_path: RpcDerivationPath(checking_address_der_path),
+                    chain,
                     balance: non_empty_balance,
                 });
                 // Reset the counter of unused addresses to zero since we found a non-empty address.
                 unused_addresses_counter = 0;
             },
+            AddressBalanceStatus::NotUsed => unused_addresses_counter += 1,
         }
 
         checking_address_id += 1;
     }
 
-    if change {
-        hd_account.internal_addresses_number = checking_address_id - unused_addresses_counter;
-    } else {
-        hd_account.external_addresses_number = checking_address_id - unused_addresses_counter;
+    match chain {
+        Bip44Chain::Internal => hd_account.internal_addresses_number = checking_address_id - unused_addresses_counter,
+        Bip44Chain::External => hd_account.external_addresses_number = checking_address_id - unused_addresses_counter,
     }
 
     Ok(balances)
-}
-
-pub async fn check_address_balance(
-    coin: &UtxoCoinFields,
-    address: Address,
-) -> BalanceResult<AddressBalanceStatus<CoinBalance>> {
-    let is_empty = match &coin.rpc_client {
-        UtxoRpcClientEnum::Native(native) => {
-            native
-                .is_address_list_transactions_empty(address.to_string())
-                .compat()
-                .await?
-        },
-        UtxoRpcClientEnum::Electrum(client) => {
-            let script = output_script(&address, ScriptType::P2PKH);
-            let script_hash = electrum_script_hash(&script);
-
-            let electrum_history = client
-                .scripthash_get_history(&hex::encode(script_hash))
-                .compat()
-                .await?;
-            electrum_history.is_empty()
-        },
-    };
-
-    if is_empty {
-        return Ok(AddressBalanceStatus::Empty);
-    }
-
-    address_balance(coin, address).await.map(AddressBalanceStatus::NonEmpty)
 }
 
 pub async fn address_balance(coin: &UtxoCoinFields, address: Address) -> BalanceResult<CoinBalance> {
