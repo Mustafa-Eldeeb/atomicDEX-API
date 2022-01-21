@@ -86,7 +86,15 @@ impl EventHandler for LightningEventHandler {
                 log::info!("Handling SpendableOutputs event!");
                 self.handle_spendable_outputs(outputs)
             },
-            Event::PaymentForwarded { .. } => log::info!("Handling PaymentForwarded event!"),
+            // Todo: an RPC for total amount earned
+            Event::PaymentForwarded { fee_earned_msat, claim_from_onchain_tx } => {
+                log::info!(
+                    "Recieved a fee of {} milli-satoshis for a successfully forwarded payment through our {} lightning node. Was the forwarded HTLC claimed by our counterparty via an on-chain transaction?: {}",
+                    fee_earned_msat.unwrap_or_default(),
+                    self.filter.platform_coin.ticker(),
+                    claim_from_onchain_tx,
+                )
+            },
             Event::ChannelClosed { channel_id, reason, .. } => {
                 // Todo: Use storage to store channels history
                 log::info!(
