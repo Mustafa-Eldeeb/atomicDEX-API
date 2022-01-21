@@ -93,6 +93,7 @@ use uuid::Uuid;
 mod swap_wasm_db;
 
 pub use check_balance::{check_other_coin_balance_for_swap, CheckBalanceError};
+use common::log::{debug, warn};
 use common::mm_error::MmError;
 use derive_more::Display;
 use maker_swap::MakerSwapEvent;
@@ -159,10 +160,16 @@ impl Drop for AbortOnDropHandle {
 
 /// Spawns the loop that broadcasts message every `interval` seconds returning the AbortOnDropHandle
 /// to stop it
-pub fn broadcast_swap_message_every(ctx: MmArc, topic: String, msg: SwapMsg, interval: f64) -> AbortOnDropHandle {
+pub fn broadcast_swap_message_every(
+    ctx: MmArc,
+    topic: String,
+    msg: SwapMsg,
+    interval: f64,
+    p2p_privkey: Option<H256Json>,
+) -> AbortOnDropHandle {
     let fut = async move {
         loop {
-            broadcast_swap_message(&ctx, topic.clone(), msg.clone());
+            broadcast_swap_message(&ctx, topic.clone(), msg.clone(), &p2p_privkey);
             Timer::sleep(interval).await;
         }
     };
@@ -172,9 +179,12 @@ pub fn broadcast_swap_message_every(ctx: MmArc, topic: String, msg: SwapMsg, int
 }
 
 /// Broadcast the swap message once
-pub fn broadcast_swap_message(ctx: &MmArc, topic: String, msg: SwapMsg) {
-    let key_pair = ctx.secp256k1_key_pair.or(&&|| panic!());
-    let encoded_msg = encode_and_sign(&msg, &*key_pair.private().secret).unwrap();
+pub fn broadcast_swap_message(ctx: &MmArc, topic: String, msg: SwapMsg, p2p_privkey: &Option<H256Json>) {
+    let p2p_private = match p2p_privkey {
+        Some(privkey) => privkey.0,
+        None => ctx.secp256k1_key_pair.or(&&|| panic!()).private().secret.take(),
+    };
+    let encoded_msg = encode_and_sign(&msg, &p2p_private).unwrap();
     broadcast_p2p_msg(ctx, vec![topic], encoded_msg);
 }
 
@@ -203,6 +213,8 @@ pub async fn process_msg(ctx: MmArc, topic: &str, msg: &[u8]) {
             return;
         },
     };
+
+    debug!("Processing swap msg {:?} for uuid {}", msg, uuid);
     let swap_ctx = SwapsContext::from_ctx(&ctx).unwrap();
     let mut msgs = swap_ctx.swap_msgs.lock().unwrap();
     if let Some(msg_store) = msgs.get_mut(&uuid) {
@@ -215,6 +227,8 @@ pub async fn process_msg(ctx: MmArc, topic: &str, msg: &[u8]) {
                 SwapMsg::MakerPayment(maker_payment) => msg_store.maker_payment = Some(maker_payment),
                 SwapMsg::TakerPayment(taker_payment) => msg_store.taker_payment = Some(taker_payment),
             }
+        } else {
+            warn!("Received message from unexpected sender for swap {}", uuid);
         }
     }
 }

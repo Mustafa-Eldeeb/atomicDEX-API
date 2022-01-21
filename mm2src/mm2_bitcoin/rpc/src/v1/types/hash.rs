@@ -12,6 +12,7 @@ use std::str::FromStr;
 macro_rules! impl_hash {
     ($name: ident, $other: ident, $size: expr) => {
         /// Hash serialization
+        #[derive(Clone, Copy)]
         pub struct $name(pub [u8; $size]);
 
         impl Default for $name {
@@ -82,14 +83,6 @@ macro_rules! impl_hash {
                 H: Hasher,
             {
                 $other::from(self.0.clone()).hash(state)
-            }
-        }
-
-        impl Clone for $name {
-            fn clone(&self) -> Self {
-                let mut r = [0; $size];
-                r.copy_from_slice(&self.0);
-                $name(r)
             }
         }
 

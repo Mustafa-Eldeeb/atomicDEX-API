@@ -15,7 +15,7 @@ use crate::mm2::MM_VERSION;
 use bigdecimal::BigDecimal;
 use bitcrypto::dhash160;
 use coins::{CanRefundHtlc, FeeApproxStage, FoundSwapTxSpend, MmCoinEnum, TradeFee, TradePreimageValue, TransactionEnum};
-use common::log::{error, warn};
+use common::log::{debug, error, warn};
 use common::mm_error::prelude::*;
 use common::{bits256, executor::Timer, mm_ctx::MmArc, mm_number::MmNumber, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use futures::{compat::Future01CompatExt, select, FutureExt};
@@ -136,6 +136,8 @@ pub struct MakerSwapData {
     pub taker_coin_swap_contract_address: Option<BytesJson>,
     /// Temporary privkey used in HTLC redeem script when applicable
     pub htlc_privkey: Option<H256Json>,
+    /// Temporary privkey used to sign P2P messages when applicable
+    pub p2p_privkey: Option<H256Json>,
 }
 
 pub struct MakerSwapMut {
@@ -167,6 +169,8 @@ pub struct MakerSwap {
     mutable: RwLock<MakerSwapMut>,
     conf_settings: SwapConfirmationsSettings,
     payment_locktime: u64,
+    /// Temporary privkey used to sign P2P messages when applicable
+    p2p_privkey: Option<H256Json>,
 }
 
 impl MakerSwap {
@@ -253,6 +257,7 @@ impl MakerSwap {
         maker_coin: MmCoinEnum,
         taker_coin: MmCoinEnum,
         payment_locktime: u64,
+        p2p_privkey: Option<H256Json>,
     ) -> Self {
         MakerSwap {
             ctx,
@@ -270,6 +275,7 @@ impl MakerSwap {
             taker_payment_confirmed: AtomicBool::new(false),
             conf_settings,
             payment_locktime,
+            p2p_privkey,
             mutable: RwLock::new(MakerSwapMut {
                 data: MakerSwapData::default(),
                 other_persistent_pub: H264::default(),
@@ -379,6 +385,7 @@ impl MakerSwap {
             maker_coin_swap_contract_address,
             taker_coin_swap_contract_address,
             htlc_privkey,
+            p2p_privkey: self.p2p_privkey,
         };
 
         Ok((Some(MakerSwapCommand::Negotiate), vec![MakerSwapEvent::Started(data)]))
@@ -395,11 +402,13 @@ impl MakerSwap {
         }));
         const NEGOTIATION_TIMEOUT: u64 = 90;
 
+        debug!("Sending maker negotiation data {:?}", maker_negotiation_data);
         let send_abort_handle = broadcast_swap_message_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
             maker_negotiation_data,
             NEGOTIATION_TIMEOUT as f64 / 6.,
+            self.p2p_privkey,
         );
         let recv_fut = recv_swap_msg(
             self.ctx.clone(),
@@ -477,6 +486,7 @@ impl MakerSwap {
             swap_topic(&self.uuid),
             negotiated,
             TAKER_FEE_RECV_TIMEOUT as f64 / 6.,
+            self.p2p_privkey,
         );
 
         let recv_fut = recv_swap_msg(
@@ -627,7 +637,8 @@ impl MakerSwap {
     async fn wait_for_taker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         let maker_payment_hex = self.r().maker_payment.as_ref().unwrap().tx_hex.0.clone();
         let msg = SwapMsg::MakerPayment(maker_payment_hex);
-        let abort_send_handle = broadcast_swap_message_every(self.ctx.clone(), swap_topic(&self.uuid), msg, 600.);
+        let abort_send_handle =
+            broadcast_swap_message_every(self.ctx.clone(), swap_topic(&self.uuid), msg, 600., self.p2p_privkey);
 
         let maker_payment_wait_confirm = self.r().data.started_at + (self.r().data.lock_duration * 2) / 5;
         let f = self.maker_coin.wait_for_confirmations(
@@ -930,6 +941,7 @@ impl MakerSwap {
             maker_coin,
             taker_coin,
             data.lock_duration,
+            data.p2p_privkey,
         );
         let command = saved.events.last().unwrap().get_command();
         for saved_event in saved.events {
@@ -1360,6 +1372,8 @@ impl MakerSavedSwap {
                 taker_payment_spend_trade_fee: None,
                 maker_coin_swap_contract_address: None,
                 taker_coin_swap_contract_address: None,
+                htlc_privkey: None,
+                p2p_privkey: None,
             }),
         });
         events.push(MakerSavedEvent {

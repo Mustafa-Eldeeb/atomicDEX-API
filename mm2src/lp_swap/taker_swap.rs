@@ -429,6 +429,8 @@ pub struct TakerSwapData {
     pub taker_coin_swap_contract_address: Option<BytesJson>,
     /// Temporary privkey used in HTLC redeem script when applicable
     pub htlc_privkey: Option<H256Json>,
+    /// Temporary privkey used to sign P2P messages when applicable
+    pub p2p_privkey: Option<H256Json>,
 }
 
 pub struct TakerSwapMut {
@@ -461,6 +463,7 @@ pub struct TakerSwap {
     mutable: RwLock<TakerSwapMut>,
     conf_settings: SwapConfirmationsSettings,
     payment_locktime: u64,
+    p2p_privkey: Option<H256Json>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -665,6 +668,7 @@ impl TakerSwap {
         maker_coin: MmCoinEnum,
         taker_coin: MmCoinEnum,
         payment_locktime: u64,
+        p2p_privkey: Option<H256Json>,
     ) -> Self {
         TakerSwap {
             ctx,
@@ -682,6 +686,7 @@ impl TakerSwap {
             errors: PaMutex::new(Vec::new()),
             conf_settings,
             payment_locktime,
+            p2p_privkey,
             mutable: RwLock::new(TakerSwapMut {
                 data: TakerSwapData::default(),
                 other_persistent_pub: H264::default(),
@@ -804,6 +809,7 @@ impl TakerSwap {
             maker_coin_swap_contract_address,
             taker_coin_swap_contract_address,
             htlc_privkey,
+            p2p_privkey: self.p2p_privkey,
         };
 
         Ok((Some(TakerSwapCommand::Negotiate), vec![TakerSwapEvent::Started(data)]))
@@ -827,6 +833,7 @@ impl TakerSwap {
             },
         };
 
+        debug!("Received maker negotiation data {:?}", maker_data);
         let time_dif = (self.r().data.started_at as i64 - maker_data.started_at() as i64).abs();
         if time_dif > 60 {
             return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
@@ -878,11 +885,13 @@ impl TakerSwap {
             maker_coin_swap_contract: maker_coin_swap_contract_addr.clone().map_or(vec![], |bytes| bytes.0),
             taker_coin_swap_contract: taker_coin_swap_contract_addr.clone().map_or(vec![], |bytes| bytes.0),
         }));
+        debug!("Sending taker negotiation data {:?}", taker_data);
         let send_abort_handle = broadcast_swap_message_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
             taker_data,
             NEGOTIATE_TIMEOUT as f64 / 6.,
+            self.p2p_privkey,
         );
         let recv_fut = recv_swap_msg(
             self.ctx.clone(),
@@ -963,6 +972,7 @@ impl TakerSwap {
             swap_topic(&self.uuid),
             msg,
             MAKER_PAYMENT_WAIT_TIMEOUT as f64 / 6.,
+            self.p2p_privkey,
         );
 
         let recv_fut = recv_swap_msg(
@@ -1105,7 +1115,8 @@ impl TakerSwap {
     async fn wait_for_taker_payment_spend(&self) -> Result<(Option<TakerSwapCommand>, Vec<TakerSwapEvent>), String> {
         let tx_hex = self.r().taker_payment.as_ref().unwrap().tx_hex.0.clone();
         let msg = SwapMsg::TakerPayment(tx_hex);
-        let send_abort_handle = broadcast_swap_message_every(self.ctx.clone(), swap_topic(&self.uuid), msg, 600.);
+        let send_abort_handle =
+            broadcast_swap_message_every(self.ctx.clone(), swap_topic(&self.uuid), msg, 600., self.p2p_privkey);
 
         let wait_duration = (self.r().data.lock_duration * 4) / 5;
         let wait_taker_payment = self.r().data.started_at + wait_duration;
@@ -1312,6 +1323,7 @@ impl TakerSwap {
             maker_coin,
             taker_coin,
             data.lock_duration,
+            data.p2p_privkey,
         );
         let command = saved.events.last().unwrap().get_command();
         for saved_event in saved.events {

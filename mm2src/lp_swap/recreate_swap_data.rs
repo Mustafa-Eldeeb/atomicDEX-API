@@ -145,6 +145,7 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
         maker_coin_swap_contract_address: negotiated_event.maker_coin_swap_contract_addr.clone(),
         taker_coin_swap_contract_address: negotiated_event.taker_coin_swap_contract_addr.clone(),
         htlc_privkey: None,
+        p2p_privkey: None,
     });
     maker_swap.events.push(MakerSavedEvent {
         timestamp: started_event_timestamp,
@@ -331,6 +332,7 @@ async fn recreate_taker_swap(ctx: MmArc, maker_swap: MakerSavedSwap) -> Recreate
         maker_coin_swap_contract_address: negotiated_event.maker_coin_swap_contract_addr.clone(),
         taker_coin_swap_contract_address: negotiated_event.taker_coin_swap_contract_addr.clone(),
         htlc_privkey: None,
+        p2p_privkey: None,
     });
     taker_swap.events.push(TakerSavedEvent {
         timestamp: started_event_timestamp,
