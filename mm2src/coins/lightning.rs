@@ -26,7 +26,6 @@ use common::mm_error::prelude::*;
 use common::mm_number::MmNumber;
 use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
-#[cfg(not(target_arch = "wasm32"))]
 use lightning::chain::keysinterface::KeysInterface;
 use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
@@ -246,6 +245,7 @@ impl LightningCoin {
 }
 
 #[async_trait]
+// Todo: Implement this when implementing swaps for lightning as it's is used only for swaps
 impl SwapOps for LightningCoin {
     fn send_taker_fee(&self, _fee_addr: &[u8], _amount: BigDecimal, _uuid: &[u8]) -> TransactionFut { unimplemented!() }
 
@@ -415,8 +415,13 @@ impl MarketCoinOps for LightningCoin {
         Box::new(self.platform_coin().my_balance().map(|res| res.spendable))
     }
 
-    fn send_raw_tx(&self, _tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> { unimplemented!() }
+    fn send_raw_tx(&self, _tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
+        Box::new(futures01::future::err(ERRL!(
+            "send_raw_tx is not supported for lightning, please use send_payment method instead."
+        )))
+    }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used mainly for swaps
     fn wait_for_confirmations(
         &self,
         _tx: &[u8],
@@ -428,6 +433,7 @@ impl MarketCoinOps for LightningCoin {
         unimplemented!()
     }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used mainly for swaps
     fn wait_for_tx_spend(
         &self,
         _transaction: &[u8],
@@ -438,16 +444,23 @@ impl MarketCoinOps for LightningCoin {
         unimplemented!()
     }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used mainly for swaps
     fn tx_enum_from_bytes(&self, _bytes: &[u8]) -> Result<TransactionEnum, String> { unimplemented!() }
 
+    // Todo: When implementing swaps for lightning, maker_coin_start_block and taker_coin_start_block
+    // will not be used. So the return type for this function should be Option<u64> if we want to avoid
+    // unnecessary calls to get current_block. It can be kept as it is and won't cause a problem but we will do
+    // unnecessary calls to electrums/daemons.
     fn current_block(&self) -> Box<dyn Future<Item = u64, Error = String> + Send> {
         self.platform_coin().current_block()
     }
 
-    fn display_priv_key(&self) -> Result<String, String> { unimplemented!() }
+    fn display_priv_key(&self) -> Result<String, String> { Ok(self.keys_manager.get_node_secret().to_string()) }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used only for swaps
     fn min_tx_amount(&self) -> BigDecimal { unimplemented!() }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used only for order matching/swaps
     fn min_trading_vol(&self) -> MmNumber { unimplemented!() }
 }
 

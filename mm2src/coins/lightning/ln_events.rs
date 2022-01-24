@@ -103,8 +103,13 @@ impl EventHandler for LightningEventHandler {
                     reason
                 )
             },
-            Event::DiscardFunding { channel_id, .. } => {
-                log::info!("Handling DiscardFunding event for channel: {}", hex::encode(channel_id))
+            // Todo: Add spent UTXOs to RecentlySpentOutPoints if it's not discarded
+            Event::DiscardFunding { channel_id, transaction } => {
+                log::info!(
+                    "Discarding funding tx: {} for channel {}",
+                    transaction.txid().to_string(),
+                    hex::encode(channel_id),
+                )
             },
             // Handling updating channel penalties after successfully routing a payment along a path is done by the InvoicePayer.
             Event::PaymentPathSuccessful {
