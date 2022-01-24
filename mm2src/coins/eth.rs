@@ -747,6 +747,7 @@ impl SwapOps for EthCoin {
         _time_lock: u32,
         _maker_pub: &[u8],
         secret: &[u8],
+        _htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx: UnverifiedTransaction = try_fus!(rlp::decode(maker_payment_tx));
@@ -764,6 +765,7 @@ impl SwapOps for EthCoin {
         _time_lock: u32,
         _maker_pub: &[u8],
         _secret_hash: &[u8],
+        _htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx: UnverifiedTransaction = try_fus!(rlp::decode(taker_payment_tx));
@@ -782,6 +784,7 @@ impl SwapOps for EthCoin {
         _time_lock: u32,
         _taker_pub: &[u8],
         _secret_hash: &[u8],
+        _htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx: UnverifiedTransaction = try_fus!(rlp::decode(maker_payment_tx));

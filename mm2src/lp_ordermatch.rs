@@ -880,7 +880,7 @@ fn maker_order_created_p2p_notify(
     let to_broadcast = new_protocol::OrdermatchMessage::MakerOrderCreated(message.clone());
     let (secret, public) = match &order.p2p_privkey {
         Some(priv_key) => {
-            let key_pair = key_pair_from_secret(priv_key.0).expect("valid priv key");
+            let key_pair = key_pair_from_secret(&priv_key.0).expect("valid priv key");
             (priv_key.0, *key_pair.public())
         },
         None => {

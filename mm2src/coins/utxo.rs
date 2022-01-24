@@ -705,6 +705,7 @@ pub trait UtxoCommonOps: UtxoTxGenerationOps + UtxoTxBroadcastOps {
         utxo_tx_map: &'b mut HistoryUtxoTxMap,
     ) -> UtxoRpcResult<&'b mut HistoryUtxoTx>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn p2sh_spending_tx(
         &self,
         prev_transaction: UtxoTx,
@@ -713,6 +714,7 @@ pub trait UtxoCommonOps: UtxoTxGenerationOps + UtxoTxBroadcastOps {
         script_data: Script,
         sequence: u32,
         lock_time: u32,
+        keypair: &KeyPair,
     ) -> Result<UtxoTx, String>;
 
     /// Get transaction outputs available to spend.

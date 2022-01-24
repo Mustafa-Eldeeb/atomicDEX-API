@@ -18,13 +18,14 @@ use common::executor::{spawn, Timer};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_number::{BigDecimal, MmNumber};
+use common::privkey::key_pair_from_secret;
 use common::{log, now_ms};
 use futures::compat::Future01CompatExt;
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
 use keys::hash::H256;
-use keys::Public;
+use keys::{KeyPair, Public};
 use primitives::bytes::Bytes;
 use rpc::v1::types::{Bytes as BytesJson, Transaction as RpcTransaction, H256 as H256Json};
 use rusqlite::types::Type;
@@ -777,7 +778,7 @@ impl SwapOps for ZCoin {
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx = try_fus!(ZTransaction::read(taker_payment_tx));
-        let key_pair = try_fus!(self.utxo_arc.priv_key_policy.key_pair_or_err());
+        let key_pair = try_fus!(key_pair_from_secret(htlc_privkey));
         let redeem_script = payment_script(
             time_lock,
             &*dhash160(secret),
@@ -790,7 +791,15 @@ impl SwapOps for ZCoin {
             .into_script();
         let selfi = self.clone();
         let fut = async move {
-            let tx_fut = z_p2sh_spend(&selfi, tx, time_lock, SEQUENCE_FINAL, redeem_script, script_data);
+            let tx_fut = z_p2sh_spend(
+                &selfi,
+                tx,
+                time_lock,
+                SEQUENCE_FINAL,
+                redeem_script,
+                script_data,
+                key_pair.private().secret.as_slice(),
+            );
             let tx = try_s!(tx_fut.await);
             Ok(tx.into())
         };
@@ -803,10 +812,11 @@ impl SwapOps for ZCoin {
         time_lock: u32,
         maker_pub: &[u8],
         secret: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx = try_fus!(ZTransaction::read(maker_payment_tx));
-        let key_pair = try_fus!(self.utxo_arc.priv_key_policy.key_pair_or_err());
+        let key_pair = try_fus!(key_pair_from_secret(htlc_privkey));
         let redeem_script = payment_script(
             time_lock,
             &*dhash160(secret),
@@ -819,7 +829,15 @@ impl SwapOps for ZCoin {
             .into_script();
         let selfi = self.clone();
         let fut = async move {
-            let tx_fut = z_p2sh_spend(&selfi, tx, time_lock, SEQUENCE_FINAL, redeem_script, script_data);
+            let tx_fut = z_p2sh_spend(
+                &selfi,
+                tx,
+                time_lock,
+                SEQUENCE_FINAL,
+                redeem_script,
+                script_data,
+                key_pair.private().secret.as_slice(),
+            );
             let tx = try_s!(tx_fut.await);
             Ok(tx.into())
         };
@@ -832,10 +850,11 @@ impl SwapOps for ZCoin {
         time_lock: u32,
         maker_pub: &[u8],
         secret_hash: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx = try_fus!(ZTransaction::read(taker_payment_tx));
-        let key_pair = try_fus!(self.utxo_arc.priv_key_policy.key_pair_or_err());
+        let key_pair = try_fus!(key_pair_from_secret(htlc_privkey));
         let redeem_script = payment_script(
             time_lock,
             secret_hash,
@@ -845,7 +864,15 @@ impl SwapOps for ZCoin {
         let script_data = ScriptBuilder::default().push_opcode(Opcode::OP_1).into_script();
         let selfi = self.clone();
         let fut = async move {
-            let tx_fut = z_p2sh_spend(&selfi, tx, time_lock, SEQUENCE_FINAL - 1, redeem_script, script_data);
+            let tx_fut = z_p2sh_spend(
+                &selfi,
+                tx,
+                time_lock,
+                SEQUENCE_FINAL - 1,
+                redeem_script,
+                script_data,
+                key_pair.private().secret.as_slice(),
+            );
             let tx = try_s!(tx_fut.await);
             Ok(tx.into())
         };
@@ -858,10 +885,11 @@ impl SwapOps for ZCoin {
         time_lock: u32,
         taker_pub: &[u8],
         secret_hash: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx = try_fus!(ZTransaction::read(maker_payment_tx));
-        let key_pair = try_fus!(self.utxo_arc.priv_key_policy.key_pair_or_err());
+        let key_pair = try_fus!(key_pair_from_secret(htlc_privkey));
         let redeem_script = payment_script(
             time_lock,
             secret_hash,
@@ -871,7 +899,15 @@ impl SwapOps for ZCoin {
         let script_data = ScriptBuilder::default().push_opcode(Opcode::OP_1).into_script();
         let selfi = self.clone();
         let fut = async move {
-            let tx_fut = z_p2sh_spend(&selfi, tx, time_lock, SEQUENCE_FINAL - 1, redeem_script, script_data);
+            let tx_fut = z_p2sh_spend(
+                &selfi,
+                tx,
+                time_lock,
+                SEQUENCE_FINAL - 1,
+                redeem_script,
+                script_data,
+                key_pair.private().secret.as_slice(),
+            );
             let tx = try_s!(tx_fut.await);
             Ok(tx.into())
         };
@@ -1273,6 +1309,7 @@ impl UtxoCommonOps for ZCoin {
         utxo_common::get_mut_verbose_transaction_from_map_or_rpc(self, tx_hash, utxo_tx_map).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn p2sh_spending_tx(
         &self,
         prev_transaction: UtxoTx,
@@ -1281,6 +1318,7 @@ impl UtxoCommonOps for ZCoin {
         script_data: Script,
         sequence: u32,
         lock_time: u32,
+        keypair: &KeyPair,
     ) -> Result<UtxoTx, String> {
         utxo_common::p2sh_spending_tx(
             self,
@@ -1290,6 +1328,7 @@ impl UtxoCommonOps for ZCoin {
             script_data,
             sequence,
             lock_time,
+            keypair,
         )
         .await
     }

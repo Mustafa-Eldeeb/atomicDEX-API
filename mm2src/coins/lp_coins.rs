@@ -297,6 +297,7 @@ pub trait SwapOps {
         time_lock: u32,
         taker_pub: &[u8],
         secret_hash: &[u8],
+        htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut;
 
@@ -310,6 +311,7 @@ pub trait SwapOps {
         uuid: &[u8],
     ) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
+    #[allow(clippy::too_many_arguments)]
     fn validate_maker_payment(
         &self,
         payment_tx: &[u8],
@@ -321,6 +323,7 @@ pub trait SwapOps {
         swap_contract_address: &Option<BytesJson>,
     ) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
+    #[allow(clippy::too_many_arguments)]
     fn validate_taker_payment(
         &self,
         payment_tx: &[u8],

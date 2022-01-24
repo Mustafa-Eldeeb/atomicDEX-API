@@ -114,6 +114,7 @@ impl UtxoCommonOps for UtxoStandardCoin {
         utxo_common::get_mut_verbose_transaction_from_map_or_rpc(self, tx_hash, utxo_tx_map).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn p2sh_spending_tx(
         &self,
         prev_transaction: UtxoTx,
@@ -122,6 +123,7 @@ impl UtxoCommonOps for UtxoStandardCoin {
         script_data: Script,
         sequence: u32,
         lock_time: u32,
+        keypair: &KeyPair,
     ) -> Result<UtxoTx, String> {
         utxo_common::p2sh_spending_tx(
             self,
@@ -131,6 +133,7 @@ impl UtxoCommonOps for UtxoStandardCoin {
             script_data,
             sequence,
             lock_time,
+            keypair,
         )
         .await
     }
@@ -270,35 +273,38 @@ impl SwapOps for UtxoStandardCoin {
 
     fn send_taker_spends_maker_payment(
         &self,
-        maker_payment_tx: &[u8],
+        maker_tx: &[u8],
         time_lock: u32,
         maker_pub: &[u8],
         secret: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
-        utxo_common::send_taker_spends_maker_payment(self.clone(), maker_payment_tx, time_lock, maker_pub, secret)
+        utxo_common::send_taker_spends_maker_payment(self.clone(), maker_tx, time_lock, maker_pub, secret, htlc_privkey)
     }
 
     fn send_taker_refunds_payment(
         &self,
-        taker_payment_tx: &[u8],
+        taker_tx: &[u8],
         time_lock: u32,
         maker_pub: &[u8],
         secret_hash: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
-        utxo_common::send_taker_refunds_payment(self.clone(), taker_payment_tx, time_lock, maker_pub, secret_hash)
+        utxo_common::send_taker_refunds_payment(self.clone(), taker_tx, time_lock, maker_pub, secret_hash, htlc_privkey)
     }
 
     fn send_maker_refunds_payment(
         &self,
-        maker_payment_tx: &[u8],
+        maker_tx: &[u8],
         time_lock: u32,
         taker_pub: &[u8],
         secret_hash: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
-        utxo_common::send_maker_refunds_payment(self.clone(), maker_payment_tx, time_lock, taker_pub, secret_hash)
+        utxo_common::send_maker_refunds_payment(self.clone(), maker_tx, time_lock, taker_pub, secret_hash, htlc_privkey)
     }
 
     fn validate_fee(

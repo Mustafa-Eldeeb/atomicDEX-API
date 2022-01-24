@@ -681,6 +681,7 @@ where
     Ok((unsigned, data))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn p2sh_spending_tx<T>(
     coin: &T,
     prev_transaction: UtxoTx,
@@ -689,11 +690,11 @@ pub async fn p2sh_spending_tx<T>(
     script_data: Script,
     sequence: u32,
     lock_time: u32,
+    keypair: &KeyPair,
 ) -> Result<UtxoTx, String>
 where
     T: AsRef<UtxoCoinFields> + UtxoCommonOps,
 {
-    let key_pair = try_s!(coin.as_ref().priv_key_policy.key_pair_or_err());
     let lock_time = try_s!(coin.p2sh_tx_locktime(lock_time).await);
     let n_time = if coin.as_ref().conf.is_pos {
         Some((now_ms() / 1000) as u32)
@@ -735,7 +736,7 @@ where
     let signed_input = try_s!(p2sh_spend(
         &unsigned,
         DEFAULT_SWAP_VOUT,
-        key_pair,
+        keypair,
         script_data,
         redeem_script.into(),
         coin.as_ref().conf.signature_version,
@@ -897,7 +898,8 @@ where
                 vec![output],
                 script_data,
                 SEQUENCE_FINAL,
-                time_lock
+                time_lock,
+                &key_pair,
             )
             .await
         );
@@ -914,11 +916,12 @@ pub fn send_taker_spends_maker_payment<T>(
     time_lock: u32,
     maker_pub: &[u8],
     secret: &[u8],
+    htlc_privkey: &[u8],
 ) -> TransactionFut
 where
     T: AsRef<UtxoCoinFields> + UtxoCommonOps + Send + Sync + 'static,
 {
-    let key_pair = try_fus!(coin.as_ref().priv_key_policy.key_pair_or_err());
+    let key_pair = try_fus!(key_pair_from_secret(htlc_privkey));
     let my_address = try_fus!(coin.as_ref().derivation_method.iguana_or_err()).clone();
 
     let mut prev_tx: UtxoTx = try_fus!(deserialize(maker_payment_tx).map_err(|e| ERRL!("{:?}", e)));
@@ -947,7 +950,8 @@ where
                 vec![output],
                 script_data,
                 SEQUENCE_FINAL,
-                time_lock
+                time_lock,
+                &key_pair,
             )
             .await
         );
@@ -964,11 +968,12 @@ pub fn send_taker_refunds_payment<T>(
     time_lock: u32,
     maker_pub: &[u8],
     secret_hash: &[u8],
+    htlc_privkey: &[u8],
 ) -> TransactionFut
 where
     T: AsRef<UtxoCoinFields> + UtxoCommonOps + Send + Sync + 'static,
 {
-    let key_pair = try_fus!(coin.as_ref().priv_key_policy.key_pair_or_err());
+    let key_pair = try_fus!(key_pair_from_secret(htlc_privkey));
     let my_address = try_fus!(coin.as_ref().derivation_method.iguana_or_err()).clone();
 
     let mut prev_tx: UtxoTx = try_fus!(deserialize(taker_payment_tx).map_err(|e| ERRL!("{:?}", e)));
@@ -995,6 +1000,7 @@ where
                 script_data,
                 SEQUENCE_FINAL - 1,
                 time_lock,
+                &key_pair,
             )
             .await
         );
@@ -1011,11 +1017,12 @@ pub fn send_maker_refunds_payment<T>(
     time_lock: u32,
     taker_pub: &[u8],
     secret_hash: &[u8],
+    htlc_privkey: &[u8],
 ) -> TransactionFut
 where
     T: AsRef<UtxoCoinFields> + UtxoCommonOps + Send + Sync + 'static,
 {
-    let key_pair = try_fus!(coin.as_ref().priv_key_policy.key_pair_or_err());
+    let key_pair = try_fus!(key_pair_from_secret(htlc_privkey));
     let my_address = try_fus!(coin.as_ref().derivation_method.iguana_or_err()).clone();
 
     let mut prev_tx: UtxoTx = try_fus!(deserialize(maker_payment_tx).map_err(|e| ERRL!("{:?}", e)));
@@ -1042,6 +1049,7 @@ where
                 script_data,
                 SEQUENCE_FINAL - 1,
                 time_lock,
+                &key_pair,
             )
             .await
         );

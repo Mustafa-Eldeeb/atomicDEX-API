@@ -191,7 +191,7 @@ impl MakerSwap {
         match event {
             MakerSwapEvent::Started(data) => {
                 if let Some(privkey) = data.htlc_privkey {
-                    let keypair = key_pair_from_secret(privkey.0).expect("valid privkey");
+                    let keypair = key_pair_from_secret(&privkey.0).expect("valid privkey");
                     self.w().htlc_keypair = keypair;
                 }
                 self.w().data = data;
@@ -776,6 +776,7 @@ impl MakerSwap {
             self.taker_payment_lock.load(Ordering::Relaxed) as u32,
             &*self.r().other_persistent_pub,
             &self.r().data.secret.0,
+            self.r().htlc_keypair.private().secret.as_slice(),
             &self.r().data.taker_coin_swap_contract_address,
         );
 
@@ -851,6 +852,7 @@ impl MakerSwap {
             self.r().data.maker_payment_lock as u32,
             &*self.r().other_persistent_pub,
             &*dhash160(&self.r().data.secret.0),
+            self.r().htlc_keypair.private().secret.as_slice(),
             &self.r().data.maker_coin_swap_contract_address,
         );
 
@@ -969,6 +971,7 @@ impl MakerSwap {
             let taker_coin_swap_contract_address = selfi.r().data.taker_coin_swap_contract_address.clone();
 
             let secret = selfi.r().data.secret.0;
+            let htlc_priv = selfi.r().htlc_keypair.private().secret;
 
             // check if the taker payment is not spent yet
             match selfi
@@ -1008,6 +1011,7 @@ impl MakerSwap {
                     timelock,
                     other_pub.as_slice(),
                     &secret,
+                    htlc_priv.as_slice(),
                     &taker_coin_swap_contract_address,
                 )
                 .compat()
@@ -1040,6 +1044,7 @@ impl MakerSwap {
         let other_persistent_pub = self.r().other_persistent_pub;
         let maker_coin_start_block = self.r().data.maker_coin_start_block;
         let maker_coin_swap_contract_address = self.r().data.maker_coin_swap_contract_address.clone();
+        let htlc_priv = self.r().htlc_keypair.private().secret;
 
         let maybe_maker_payment = self.r().maker_payment.clone();
         let maker_payment = match maybe_maker_payment {
@@ -1108,6 +1113,7 @@ impl MakerSwap {
                             maker_payment_lock,
                             other_persistent_pub.as_slice(),
                             &secret_hash.0,
+                            htlc_priv.as_slice(),
                             &maker_coin_swap_contract_address,
                         )
                         .compat()
@@ -1878,7 +1884,7 @@ mod maker_swap_tests {
         });
 
         static mut MAKER_REFUND_CALLED: bool = false;
-        TestCoin::send_maker_refunds_payment.mock_safe(|_, _, _, _, _, _| {
+        TestCoin::send_maker_refunds_payment.mock_safe(|_, _, _, _, _, _, _| {
             unsafe { MAKER_REFUND_CALLED = true };
             MockResult::Return(Box::new(futures01::future::ok(eth_tx_for_test().into())))
         });
@@ -1912,7 +1918,7 @@ mod maker_swap_tests {
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
         static mut MAKER_REFUND_CALLED: bool = false;
 
-        TestCoin::send_maker_refunds_payment.mock_safe(|_, _, _, _, _, _| {
+        TestCoin::send_maker_refunds_payment.mock_safe(|_, _, _, _, _, _, _| {
             unsafe { MAKER_REFUND_CALLED = true };
             MockResult::Return(Box::new(futures01::future::ok(eth_tx_for_test().into())))
         });
@@ -2154,7 +2160,7 @@ mod maker_swap_tests {
         });
 
         static mut SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED: bool = false;
-        TestCoin::send_maker_spends_taker_payment.mock_safe(|_, _, _, _, _, _| {
+        TestCoin::send_maker_spends_taker_payment.mock_safe(|_, _, _, _, _, _, _| {
             unsafe { SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED = true }
             MockResult::Return(Box::new(futures01::future::ok(eth_tx_for_test().into())))
         });
@@ -2200,7 +2206,7 @@ mod maker_swap_tests {
         });
 
         static mut SEND_MAKER_REFUNDS_PAYMENT_CALLED: bool = false;
-        TestCoin::send_maker_refunds_payment.mock_safe(|_, _, _, _, _, _| {
+        TestCoin::send_maker_refunds_payment.mock_safe(|_, _, _, _, _, _, _| {
             unsafe { SEND_MAKER_REFUNDS_PAYMENT_CALLED = true }
             MockResult::Return(Box::new(futures01::future::ok(eth_tx_for_test().into())))
         });

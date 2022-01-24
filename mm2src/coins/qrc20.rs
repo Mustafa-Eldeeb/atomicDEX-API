@@ -34,7 +34,7 @@ use futures::lock::MutexGuard as AsyncMutexGuard;
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
 use keys::bytes::Bytes as ScriptBytes;
-use keys::{Address as UtxoAddress, Address, Public};
+use keys::{Address as UtxoAddress, Address, KeyPair, Public};
 #[cfg(test)] use mocktopus::macros::*;
 use rpc::v1::types::{Bytes as BytesJson, Transaction as RpcTransaction, H160 as H160Json, H256 as H256Json};
 use script::{Builder as ScriptBuilder, Opcode, Script, TransactionInputSigner};
@@ -601,6 +601,7 @@ impl UtxoCommonOps for Qrc20Coin {
         utxo_common::get_mut_verbose_transaction_from_map_or_rpc(self, tx_hash, utxo_tx_map).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn p2sh_spending_tx(
         &self,
         prev_transaction: UtxoTx,
@@ -609,6 +610,7 @@ impl UtxoCommonOps for Qrc20Coin {
         script_data: Script,
         sequence: u32,
         lock_time: u32,
+        keypair: &KeyPair,
     ) -> Result<UtxoTx, String> {
         utxo_common::p2sh_spending_tx(
             self,
@@ -618,6 +620,7 @@ impl UtxoCommonOps for Qrc20Coin {
             script_data,
             sequence,
             lock_time,
+            keypair,
         )
         .await
     }
@@ -774,6 +777,7 @@ impl SwapOps for Qrc20Coin {
         _time_lock: u32,
         _maker_pub: &[u8],
         secret: &[u8],
+        _htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let payment_tx: UtxoTx = try_fus!(deserialize(maker_payment_tx).map_err(|e| ERRL!("{:?}", e)));
@@ -795,6 +799,7 @@ impl SwapOps for Qrc20Coin {
         _time_lock: u32,
         _maker_pub: &[u8],
         _secret_hash: &[u8],
+        _htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let payment_tx: UtxoTx = try_fus!(deserialize(taker_payment_tx).map_err(|e| ERRL!("{:?}", e)));
@@ -815,6 +820,7 @@ impl SwapOps for Qrc20Coin {
         _time_lock: u32,
         _taker_pub: &[u8],
         _secret_hash: &[u8],
+        _htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let payment_tx: UtxoTx = try_fus!(deserialize(maker_payment_tx).map_err(|e| ERRL!("{:?}", e)));

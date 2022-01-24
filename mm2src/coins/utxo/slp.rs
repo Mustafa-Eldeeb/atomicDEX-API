@@ -561,13 +561,13 @@ impl SlpToken {
         other_pub: &Public,
         time_lock: u32,
         secret: &[u8],
-        htlc_keypair: &KeyPair,
+        keypair: &KeyPair,
     ) -> Result<UtxoTx, MmError<SpendHtlcError>> {
         let tx: UtxoTx = deserialize(htlc_tx)?;
         let slp_tx: SlpTxDetails = deserialize(tx.outputs[0].script_pubkey.as_slice())?;
 
         let other_pub = Public::from_slice(other_pub)?;
-        let redeem_script = payment_script(time_lock, &*dhash160(secret), &other_pub, htlc_keypair.public());
+        let redeem = payment_script(time_lock, &*dhash160(secret), &other_pub, keypair.public());
 
         let slp_amount = match slp_tx.transaction {
             SlpTransaction::Send { token_id, amounts } => {
@@ -596,14 +596,7 @@ impl SlpToken {
             .push_opcode(Opcode::OP_0)
             .into_script();
         let tx = self
-            .spend_p2sh(
-                slp_utxo,
-                tx_locktime,
-                SEQUENCE_FINAL,
-                script_data,
-                redeem_script,
-                &htlc_keypair,
-            )
+            .spend_p2sh(slp_utxo, tx_locktime, SEQUENCE_FINAL, script_data, redeem, keypair)
             .await?;
         Ok(tx)
     }
@@ -1269,15 +1262,20 @@ impl SwapOps for SlpToken {
         time_lock: u32,
         maker_pub: &[u8],
         secret_hash: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx = taker_payment_tx.to_owned();
         let maker_pub = try_fus!(Public::from_slice(maker_pub));
         let secret_hash = secret_hash.to_owned();
+        let keypair = try_fus!(key_pair_from_secret(htlc_privkey));
         let coin = self.clone();
 
         let fut = async move {
-            let tx = try_s!(coin.refund_htlc(&tx, &maker_pub, time_lock, &secret_hash).await);
+            let tx = try_s!(
+                coin.refund_htlc(&tx, &maker_pub, time_lock, &secret_hash, &keypair)
+                    .await
+            );
             Ok(tx.into())
         };
         Box::new(fut.boxed().compat())
@@ -1289,15 +1287,20 @@ impl SwapOps for SlpToken {
         time_lock: u32,
         taker_pub: &[u8],
         secret_hash: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx = maker_payment_tx.to_owned();
         let taker_pub = try_fus!(Public::from_slice(taker_pub));
         let secret_hash = secret_hash.to_owned();
+        let keypair = try_fus!(key_pair_from_secret(htlc_privkey));
         let coin = self.clone();
 
         let fut = async move {
-            let tx = try_s!(coin.refund_htlc(&tx, &taker_pub, time_lock, &secret_hash).await);
+            let tx = try_s!(
+                coin.refund_htlc(&tx, &taker_pub, time_lock, &secret_hash, &keypair)
+                    .await
+            );
             Ok(tx.into())
         };
         Box::new(fut.boxed().compat())
