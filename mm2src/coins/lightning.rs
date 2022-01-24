@@ -125,6 +125,7 @@ impl SwapOps for LightningCoin {
     fn send_maker_payment(
         &self,
         _time_lock: u32,
+        _maker_pub: &[u8],
         _taker_pub: &[u8],
         _secret_hash: &[u8],
         _amount: BigDecimal,
@@ -136,6 +137,7 @@ impl SwapOps for LightningCoin {
     fn send_taker_payment(
         &self,
         _time_lock: u32,
+        _taker_pub: &[u8],
         _maker_pub: &[u8],
         _secret_hash: &[u8],
         _amount: BigDecimal,
@@ -150,6 +152,7 @@ impl SwapOps for LightningCoin {
         _time_lock: u32,
         _taker_pub: &[u8],
         _secret: &[u8],
+        _htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         unimplemented!()
@@ -205,6 +208,7 @@ impl SwapOps for LightningCoin {
         _payment_tx: &[u8],
         _time_lock: u32,
         _maker_pub: &[u8],
+        _taker_pub: &[u8],
         _secret_hash: &[u8],
         _amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
@@ -217,6 +221,7 @@ impl SwapOps for LightningCoin {
         _payment_tx: &[u8],
         _time_lock: u32,
         _taker_pub: &[u8],
+        _maker_pub: &[u8],
         _secret_hash: &[u8],
         _amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
@@ -227,6 +232,7 @@ impl SwapOps for LightningCoin {
     fn check_if_my_payment_sent(
         &self,
         _time_lock: u32,
+        _my_pub: &[u8],
         _other_pub: &[u8],
         _secret_hash: &[u8],
         _search_from_block: u64,

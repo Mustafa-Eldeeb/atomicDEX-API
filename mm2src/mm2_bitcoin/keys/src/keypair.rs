@@ -7,7 +7,7 @@ use secp256k1::{PublicKey, SecretKey};
 use std::fmt;
 use {Error, Private, Public, Secret};
 
-#[derive(Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct KeyPair {
     private: Private,
     public: Public,

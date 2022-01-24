@@ -730,16 +730,18 @@ impl SwapOps for ZCoin {
     fn send_maker_payment(
         &self,
         time_lock: u32,
+        maker_pub: &[u8],
         taker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let selfi = self.clone();
+        let maker_pub = try_fus!(Public::from_slice(maker_pub));
         let taker_pub = try_fus!(Public::from_slice(taker_pub));
         let secret_hash = secret_hash.to_vec();
         let fut = async move {
-            let utxo_tx = try_s!(z_send_htlc(&selfi, time_lock, &taker_pub, &secret_hash, amount).await);
+            let utxo_tx = try_s!(z_send_htlc(&selfi, time_lock, &maker_pub, &taker_pub, &secret_hash, amount).await);
             Ok(utxo_tx.into())
         };
         Box::new(fut.boxed().compat())
@@ -748,16 +750,18 @@ impl SwapOps for ZCoin {
     fn send_taker_payment(
         &self,
         time_lock: u32,
+        taker_pub: &[u8],
         maker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let selfi = self.clone();
+        let taker_pub = try_fus!(Public::from_slice(taker_pub));
         let maker_pub = try_fus!(Public::from_slice(maker_pub));
         let secret_hash = secret_hash.to_vec();
         let fut = async move {
-            let utxo_tx = try_s!(z_send_htlc(&selfi, time_lock, &maker_pub, &secret_hash, amount).await);
+            let utxo_tx = try_s!(z_send_htlc(&selfi, time_lock, &taker_pub, &maker_pub, &secret_hash, amount).await);
             Ok(utxo_tx.into())
         };
         Box::new(fut.boxed().compat())
@@ -769,6 +773,7 @@ impl SwapOps for ZCoin {
         time_lock: u32,
         taker_pub: &[u8],
         secret: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx = try_fus!(ZTransaction::read(taker_payment_tx));
@@ -963,11 +968,12 @@ impl SwapOps for ZCoin {
         payment_tx: &[u8],
         time_lock: u32,
         maker_pub: &[u8],
+        taker_pub: &[u8],
         priv_bn_hash: &[u8],
         amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        utxo_common::validate_maker_payment(self, payment_tx, time_lock, maker_pub, priv_bn_hash, amount)
+        utxo_common::validate_maker_payment(self, payment_tx, time_lock, maker_pub, taker_pub, priv_bn_hash, amount)
     }
 
     fn validate_taker_payment(
@@ -975,22 +981,24 @@ impl SwapOps for ZCoin {
         payment_tx: &[u8],
         time_lock: u32,
         taker_pub: &[u8],
+        maker_pub: &[u8],
         priv_bn_hash: &[u8],
         amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        utxo_common::validate_taker_payment(self, payment_tx, time_lock, taker_pub, priv_bn_hash, amount)
+        utxo_common::validate_taker_payment(self, payment_tx, time_lock, taker_pub, maker_pub, priv_bn_hash, amount)
     }
 
     fn check_if_my_payment_sent(
         &self,
         time_lock: u32,
+        my_pub: &[u8],
         other_pub: &[u8],
         secret_hash: &[u8],
         _search_from_block: u64,
         _swap_contract_address: &Option<BytesJson>,
     ) -> Box<dyn Future<Item = Option<TransactionEnum>, Error = String> + Send> {
-        utxo_common::check_if_my_payment_sent(self.clone(), time_lock, other_pub, secret_hash)
+        utxo_common::check_if_my_payment_sent(self.clone(), time_lock, my_pub, other_pub, secret_hash)
     }
 
     async fn search_for_swap_tx_spend_my(

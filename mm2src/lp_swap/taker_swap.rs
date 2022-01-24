@@ -18,9 +18,11 @@ use common::log::{debug, error, warn};
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_number::MmNumber;
+use common::privkey::key_pair_from_secret;
 use common::{bits256, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use futures::{compat::Future01CompatExt, select, FutureExt};
 use http::Response;
+use keys::KeyPair;
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::H264;
 use rpc::v1::types::{Bytes as BytesJson, H160 as H160Json, H256 as H256Json, H264 as H264Json};
@@ -444,6 +446,7 @@ pub struct TakerSwapMut {
     taker_payment_refund: Option<TransactionIdentifier>,
     secret_hash: H160Json,
     secret: H256Json,
+    htlc_keypair: KeyPair,
 }
 
 pub struct TakerSwap {
@@ -593,7 +596,13 @@ impl TakerSwap {
 
     fn apply_event(&self, event: TakerSwapEvent) {
         match event {
-            TakerSwapEvent::Started(data) => self.w().data = data,
+            TakerSwapEvent::Started(data) => {
+                if let Some(privkey) = data.htlc_privkey {
+                    let keypair = key_pair_from_secret(privkey.0).expect("valid privkey");
+                    self.w().htlc_keypair = keypair;
+                }
+                self.w().data = data;
+            },
             TakerSwapEvent::StartFailed(err) => self.errors.lock().push(err),
             TakerSwapEvent::Negotiated(data) => {
                 self.maker_payment_lock
@@ -670,6 +679,7 @@ impl TakerSwap {
         payment_locktime: u64,
         p2p_privkey: Option<H256Json>,
     ) -> Self {
+        let htlc_keypair = ctx.secp256k1_key_pair().clone();
         TakerSwap {
             ctx,
             maker_coin,
@@ -698,6 +708,7 @@ impl TakerSwap {
                 taker_payment_refund: None,
                 secret_hash: H160Json::default(),
                 secret: H256Json::default(),
+                htlc_keypair,
             }),
         }
     }
@@ -881,7 +892,7 @@ impl TakerSwap {
             started_at: self.r().data.started_at,
             secret_hash: maker_data.secret_hash().to_vec(),
             payment_locktime: self.r().data.taker_payment_lock,
-            persistent_pubkey: self.my_persistent_pub.to_vec(),
+            persistent_pubkey: self.r().htlc_keypair.public().to_vec(),
             maker_coin_swap_contract: maker_coin_swap_contract_addr.clone().map_or(vec![], |bytes| bytes.0),
             taker_coin_swap_contract: taker_coin_swap_contract_addr.clone().map_or(vec![], |bytes| bytes.0),
         }));
@@ -1038,6 +1049,7 @@ impl TakerSwap {
             &self.r().maker_payment.clone().unwrap().tx_hex,
             self.maker_payment_lock.load(Ordering::Relaxed) as u32,
             &*self.r().other_persistent_pub,
+            &**self.r().htlc_keypair.public(),
             &self.r().secret_hash.0,
             self.maker_amount.to_decimal(),
             &self.r().data.maker_coin_swap_contract_address,
@@ -1066,7 +1078,8 @@ impl TakerSwap {
 
         let f = self.taker_coin.check_if_my_payment_sent(
             self.r().data.taker_payment_lock as u32,
-            &*self.r().other_persistent_pub,
+            &**self.r().htlc_keypair.public(),
+            self.r().other_persistent_pub.as_slice(),
             &self.r().secret_hash.0,
             self.r().data.taker_coin_start_block,
             &self.r().data.taker_coin_swap_contract_address,
@@ -1077,6 +1090,7 @@ impl TakerSwap {
                 None => {
                     let payment_fut = self.taker_coin.send_taker_payment(
                         self.r().data.taker_payment_lock as u32,
+                        &**self.r().htlc_keypair.public(),
                         &*self.r().other_persistent_pub,
                         &self.r().secret_hash.0,
                         self.taker_amount.to_decimal(),
@@ -1396,6 +1410,7 @@ impl TakerSwap {
             };
         }
 
+        let my_pub = *self.r().htlc_keypair.public();
         let maybe_taker_payment = self.r().taker_payment.clone();
         let taker_payment = match maybe_taker_payment {
             Some(tx) => tx.tx_hex.0.clone(),
@@ -1404,6 +1419,7 @@ impl TakerSwap {
                     self.taker_coin
                         .check_if_my_payment_sent(
                             taker_payment_lock as u32,
+                            &*my_pub,
                             other_persistent_pub.as_slice(),
                             &secret_hash,
                             taker_coin_start_block,
@@ -1959,7 +1975,7 @@ mod taker_swap_tests {
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
         static mut MY_PAYMENT_SENT_CALLED: bool = false;
-        TestCoin::check_if_my_payment_sent.mock_safe(|_, _, _, _, _, _| {
+        TestCoin::check_if_my_payment_sent.mock_safe(|_, _, _, _, _, _, _| {
             unsafe { MY_PAYMENT_SENT_CALLED = true };
             MockResult::Return(Box::new(futures01::future::ok(Some(eth_tx_for_test().into()))))
         });
@@ -2004,7 +2020,7 @@ mod taker_swap_tests {
         TestCoin::extract_secret.mock_safe(|_, _, _| MockResult::Return(Ok(vec![])));
 
         static mut MY_PAYMENT_SENT_CALLED: bool = false;
-        TestCoin::check_if_my_payment_sent.mock_safe(|_, _, _, _, _, _| {
+        TestCoin::check_if_my_payment_sent.mock_safe(|_, _, _, _, _, _, _| {
             unsafe { MY_PAYMENT_SENT_CALLED = true };
             MockResult::Return(Box::new(futures01::future::ok(Some(eth_tx_for_test().into()))))
         });

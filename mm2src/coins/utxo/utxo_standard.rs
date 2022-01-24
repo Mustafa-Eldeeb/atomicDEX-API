@@ -228,23 +228,25 @@ impl SwapOps for UtxoStandardCoin {
     fn send_maker_payment(
         &self,
         time_lock: u32,
+        maker_pub: &[u8],
         taker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
-        utxo_common::send_maker_payment(self.clone(), time_lock, taker_pub, secret_hash, amount)
+        utxo_common::send_maker_payment(self.clone(), time_lock, maker_pub, taker_pub, secret_hash, amount)
     }
 
     fn send_taker_payment(
         &self,
         time_lock: u32,
+        taker_pub: &[u8],
         maker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
-        utxo_common::send_taker_payment(self.clone(), time_lock, maker_pub, secret_hash, amount)
+        utxo_common::send_taker_payment(self.clone(), time_lock, taker_pub, maker_pub, secret_hash, amount)
     }
 
     fn send_maker_spends_taker_payment(
@@ -253,9 +255,17 @@ impl SwapOps for UtxoStandardCoin {
         time_lock: u32,
         taker_pub: &[u8],
         secret: &[u8],
+        htlc_privkey: &[u8],
         _swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
-        utxo_common::send_maker_spends_taker_payment(self.clone(), taker_payment_tx, time_lock, taker_pub, secret)
+        utxo_common::send_maker_spends_taker_payment(
+            self.clone(),
+            taker_payment_tx,
+            time_lock,
+            taker_pub,
+            secret,
+            htlc_privkey,
+        )
     }
 
     fn send_taker_spends_maker_payment(
@@ -320,11 +330,12 @@ impl SwapOps for UtxoStandardCoin {
         payment_tx: &[u8],
         time_lock: u32,
         maker_pub: &[u8],
+        taker_pub: &[u8],
         priv_bn_hash: &[u8],
         amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        utxo_common::validate_maker_payment(self, payment_tx, time_lock, maker_pub, priv_bn_hash, amount)
+        utxo_common::validate_maker_payment(self, payment_tx, time_lock, maker_pub, taker_pub, priv_bn_hash, amount)
     }
 
     fn validate_taker_payment(
@@ -332,22 +343,24 @@ impl SwapOps for UtxoStandardCoin {
         payment_tx: &[u8],
         time_lock: u32,
         taker_pub: &[u8],
+        maker_pub: &[u8],
         priv_bn_hash: &[u8],
         amount: BigDecimal,
         _swap_contract_address: &Option<BytesJson>,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        utxo_common::validate_taker_payment(self, payment_tx, time_lock, taker_pub, priv_bn_hash, amount)
+        utxo_common::validate_taker_payment(self, payment_tx, time_lock, taker_pub, maker_pub, priv_bn_hash, amount)
     }
 
     fn check_if_my_payment_sent(
         &self,
         time_lock: u32,
+        my_pub: &[u8],
         other_pub: &[u8],
         secret_hash: &[u8],
         _search_from_block: u64,
         _swap_contract_address: &Option<BytesJson>,
     ) -> Box<dyn Future<Item = Option<TransactionEnum>, Error = String> + Send> {
-        utxo_common::check_if_my_payment_sent(self.clone(), time_lock, other_pub, secret_hash)
+        utxo_common::check_if_my_payment_sent(self.clone(), time_lock, my_pub, other_pub, secret_hash)
     }
 
     async fn search_for_swap_tx_spend_my(

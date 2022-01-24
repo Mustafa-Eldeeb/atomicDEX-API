@@ -675,6 +675,7 @@ impl SwapOps for EthCoin {
     fn send_maker_payment(
         &self,
         time_lock: u32,
+        _maker_pub: &[u8],
         taker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
@@ -699,6 +700,7 @@ impl SwapOps for EthCoin {
     fn send_taker_payment(
         &self,
         time_lock: u32,
+        _taker_pub: &[u8],
         maker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
@@ -726,6 +728,7 @@ impl SwapOps for EthCoin {
         _time_lock: u32,
         _taker_pub: &[u8],
         secret: &[u8],
+        _htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         let tx: UnverifiedTransaction = try_fus!(rlp::decode(taker_payment_tx));
@@ -903,6 +906,7 @@ impl SwapOps for EthCoin {
         payment_tx: &[u8],
         time_lock: u32,
         maker_pub: &[u8],
+        _taker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
         swap_contract_address: &Option<BytesJson>,
@@ -923,6 +927,7 @@ impl SwapOps for EthCoin {
         payment_tx: &[u8],
         time_lock: u32,
         taker_pub: &[u8],
+        _maker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
         swap_contract_address: &Option<BytesJson>,
@@ -941,6 +946,7 @@ impl SwapOps for EthCoin {
     fn check_if_my_payment_sent(
         &self,
         time_lock: u32,
+        _my_pub: &[u8],
         _other_pub: &[u8],
         secret_hash: &[u8],
         from_block: u64,

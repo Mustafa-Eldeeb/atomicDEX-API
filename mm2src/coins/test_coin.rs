@@ -81,6 +81,7 @@ impl SwapOps for TestCoin {
     fn send_maker_payment(
         &self,
         time_lock: u32,
+        maker_pub: &[u8],
         taker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
@@ -92,6 +93,7 @@ impl SwapOps for TestCoin {
     fn send_taker_payment(
         &self,
         time_lock: u32,
+        taker_pub: &[u8],
         maker_pub: &[u8],
         secret_hash: &[u8],
         amount: BigDecimal,
@@ -106,6 +108,7 @@ impl SwapOps for TestCoin {
         time_lock: u32,
         taker_pub: &[u8],
         secret: &[u8],
+        htlc_privkey: &[u8],
         swap_contract_address: &Option<BytesJson>,
     ) -> TransactionFut {
         unimplemented!()
@@ -161,6 +164,7 @@ impl SwapOps for TestCoin {
         payment_tx: &[u8],
         time_lock: u32,
         maker_pub: &[u8],
+        taker_pub: &[u8],
         priv_bn_hash: &[u8],
         amount: BigDecimal,
         swap_contract_address: &Option<BytesJson>,
@@ -173,6 +177,7 @@ impl SwapOps for TestCoin {
         payment_tx: &[u8],
         time_lock: u32,
         taker_pub: &[u8],
+        maker_pub: &[u8],
         priv_bn_hash: &[u8],
         amount: BigDecimal,
         swap_contract_address: &Option<BytesJson>,
@@ -183,6 +188,7 @@ impl SwapOps for TestCoin {
     fn check_if_my_payment_sent(
         &self,
         time_lock: u32,
+        my_pub: &[u8],
         other_pub: &[u8],
         secret_hash: &[u8],
         search_from_block: u64,
