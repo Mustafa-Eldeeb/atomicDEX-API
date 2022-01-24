@@ -9,7 +9,7 @@ use crate::utxo::utxo_common::UtxoTxBuilder;
 use crate::utxo::{sat_from_big_decimal, FeePolicy, UtxoCommonOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
             NegotiateSwapContractAddrErr, SwapOps, TradeFee, TradePreimageFut, TradePreimageValue, TransactionEnum,
-            TransactionFut, UtxoStandardCoin, ValidateAddressResult, WithdrawFut, WithdrawRequest};
+            TransactionFut, UtxoStandardCoin, ValidateAddressResult, WithdrawError, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcoin::blockdata::script::Script;
@@ -24,6 +24,7 @@ use common::ip_addr::myipaddr;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_number::MmNumber;
+use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
 use lightning::chain::keysinterface::KeysInterface;
@@ -54,11 +55,11 @@ use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::Bytes as BytesJson;
 #[cfg(not(target_arch = "wasm32"))] use script::Builder;
 use script::TransactionInputSigner;
-#[cfg(not(target_arch = "wasm32"))] use secp256k1::PublicKey;
+use secp256k1::PublicKey;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-#[cfg(not(target_arch = "wasm32"))] use std::str::FromStr;
+use std::str::FromStr;
 use std::sync::Arc;
 
 pub mod ln_errors;
@@ -416,9 +417,12 @@ impl MarketCoinOps for LightningCoin {
     }
 
     fn send_raw_tx(&self, _tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
-        Box::new(futures01::future::err(ERRL!(
-            "send_raw_tx is not supported for lightning, please use send_payment method instead."
-        )))
+        Box::new(futures01::future::err(
+            MmError::new(
+                "send_raw_tx is not supported for lightning, please use send_payment method instead.".to_string(),
+            )
+            .to_string(),
+        ))
     }
 
     // Todo: Implement this when implementing swaps for lightning as it's is used mainly for swaps
@@ -465,28 +469,54 @@ impl MarketCoinOps for LightningCoin {
 }
 
 impl MmCoin for LightningCoin {
-    fn is_asset_chain(&self) -> bool { unimplemented!() }
+    fn is_asset_chain(&self) -> bool { false }
 
-    fn withdraw(&self, _req: WithdrawRequest) -> WithdrawFut { unimplemented!() }
+    fn withdraw(&self, _req: WithdrawRequest) -> WithdrawFut {
+        let fut = async move {
+            MmError::err(WithdrawError::InternalError(
+                "withdraw method is not supported for lightning, please use generate_invoice method instead.".into(),
+            ))
+        };
+        Box::new(fut.boxed().compat())
+    }
 
     fn decimals(&self) -> u8 { self.conf.decimals }
 
-    fn convert_to_address(&self, _from: &str, _to_address_format: Json) -> Result<String, String> { unimplemented!() }
+    fn convert_to_address(&self, _from: &str, _to_address_format: Json) -> Result<String, String> {
+        Err(MmError::new("Address conversion is not available for LightningCoin".to_string()).to_string())
+    }
 
-    fn validate_address(&self, _address: &str) -> ValidateAddressResult { unimplemented!() }
+    fn validate_address(&self, address: &str) -> ValidateAddressResult {
+        match PublicKey::from_str(address) {
+            Ok(_) => ValidateAddressResult {
+                is_valid: true,
+                reason: None,
+            },
+            Err(e) => ValidateAddressResult {
+                is_valid: false,
+                reason: Some(format!("Error {} on parsing node public key", e)),
+            },
+        }
+    }
 
+    // Todo: Implement this when implementing payments history for lightning
     fn process_history_loop(&self, _ctx: MmArc) -> Box<dyn Future<Item = (), Error = ()> + Send> { unimplemented!() }
 
+    // Todo: Implement this when implementing payments history for lightning
     fn history_sync_status(&self) -> HistorySyncState { unimplemented!() }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used only for swaps
     fn get_trade_fee(&self) -> Box<dyn Future<Item = TradeFee, Error = String> + Send> { unimplemented!() }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used only for swaps
     fn get_sender_trade_fee(&self, _value: TradePreimageValue, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
         unimplemented!()
     }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used only for swaps
     fn get_receiver_trade_fee(&self, _stage: FeeApproxStage) -> TradePreimageFut<TradeFee> { unimplemented!() }
 
+    // Todo: Implement this when implementing swaps for lightning as it's is used only for swaps
     fn get_fee_to_send_taker_fee(
         &self,
         _dex_fee_amount: BigDecimal,
@@ -495,20 +525,24 @@ impl MmCoin for LightningCoin {
         unimplemented!()
     }
 
-    fn required_confirmations(&self) -> u64 { self.platform_coin().required_confirmations() }
+    // Lightning payments are either pending, successful or failed. Once a payment succeeds there is no need to for confirmations
+    // unlike onchain transactions.
+    fn required_confirmations(&self) -> u64 { 0 }
 
-    fn requires_notarization(&self) -> bool { self.platform_coin().requires_notarization() }
+    fn requires_notarization(&self) -> bool { false }
 
-    fn set_required_confirmations(&self, _confirmations: u64) { unimplemented!() }
+    fn set_required_confirmations(&self, _confirmations: u64) {}
 
-    fn set_requires_notarization(&self, _requires_nota: bool) { unimplemented!() }
+    fn set_requires_notarization(&self, _requires_nota: bool) {}
 
-    fn swap_contract_address(&self) -> Option<BytesJson> { unimplemented!() }
+    fn swap_contract_address(&self) -> Option<BytesJson> { None }
 
-    fn mature_confirmations(&self) -> Option<u32> { self.platform_coin().mature_confirmations() }
+    fn mature_confirmations(&self) -> Option<u32> { None }
 
+    // Todo: Implement this when implementing order matching for lightning as it's is used only for order matching
     fn coin_protocol_info(&self) -> Vec<u8> { unimplemented!() }
 
+    // Todo: Implement this when implementing order matching for lightning as it's is used only for order matching
     fn is_coin_protocol_supported(&self, _info: &Option<Vec<u8>>) -> bool { unimplemented!() }
 }
 
