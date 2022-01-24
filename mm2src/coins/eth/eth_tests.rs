@@ -232,6 +232,7 @@ fn send_and_refund_erc20_payment() {
     let payment = coin
         .send_maker_payment(
             (now_ms() / 1000) as u32 - 200,
+            &[],
             &DEX_FEE_ADDR_RAW_PUBKEY,
             &[1; 20],
             "0.001".parse().unwrap(),
@@ -250,6 +251,7 @@ fn send_and_refund_erc20_payment() {
             (now_ms() / 1000) as u32 - 200,
             &DEX_FEE_ADDR_RAW_PUBKEY,
             &[1; 20],
+            &[],
             &coin.swap_contract_address(),
         )
         .wait()
@@ -295,6 +297,7 @@ fn send_and_refund_eth_payment() {
     let payment = coin
         .send_maker_payment(
             (now_ms() / 1000) as u32 - 200,
+            &[],
             &DEX_FEE_ADDR_RAW_PUBKEY,
             &[1; 20],
             "0.001".parse().unwrap(),
@@ -313,6 +316,7 @@ fn send_and_refund_eth_payment() {
             (now_ms() / 1000) as u32 - 200,
             &DEX_FEE_ADDR_RAW_PUBKEY,
             &[1; 20],
+            &[],
             &coin.swap_contract_address(),
         )
         .wait()

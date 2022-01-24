@@ -1771,7 +1771,6 @@ mod slp_tests {
     use super::*;
     use crate::utxo::bch::tbch_coin_for_test;
     use common::block_on;
-    use mocktopus::mocking::{MockResult, Mockable};
 
     // https://slp.dev/specs/slp-token-type-1/#examples
     #[test]
@@ -1947,13 +1946,12 @@ mod slp_tests {
 
         let my_pub = hex::decode("03c6a78589e18b482aea046975e6d0acbdea7bf7dbf04d9d5bd67fda917815e3ed").unwrap();
         let my_pub = Public::from_slice(&my_pub).unwrap();
-        BchCoin::my_public_key.mock_safe(move |_| MockResult::Return(Ok(Box::leak(Box::new(my_pub)))));
 
         let lock_time = 1624547837;
         let secret_hash = hex::decode("5d9e149ad9ccb20e9f931a69b605df2ffde60242").unwrap();
         let amount = "0.1".parse().unwrap();
 
-        block_on(fusd.validate_htlc(&tx, &other_pub, lock_time, &secret_hash, amount)).unwrap();
+        block_on(fusd.validate_htlc(&tx, &other_pub, &my_pub, lock_time, &secret_hash, amount)).unwrap();
     }
 
     #[test]
