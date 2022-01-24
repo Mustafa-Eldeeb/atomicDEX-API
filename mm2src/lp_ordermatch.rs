@@ -3141,7 +3141,7 @@ async fn process_maker_reserved(ctx: MmArc, from_pubkey: H256Json, reserved_msg:
             {
                 let connect = TakerConnect {
                     sender_pubkey: H256Json::from(our_public_id.bytes),
-                    dest_pub_key: reserved_msg.sender_pubkey.clone(),
+                    dest_pub_key: reserved_msg.sender_pubkey,
                     taker_order_uuid: reserved_msg.taker_order_uuid,
                     maker_order_uuid: reserved_msg.maker_order_uuid,
                 };
@@ -3237,7 +3237,7 @@ async fn process_taker_request(ctx: MmArc, from_pubkey: H256Json, taker_request:
                 && rel_coin.is_coin_protocol_supported(taker_request.rel_protocol_info_for_maker())
             {
                 let reserved = MakerReserved {
-                    dest_pub_key: taker_request.sender_pubkey.clone(),
+                    dest_pub_key: taker_request.sender_pubkey,
                     sender_pubkey: our_public_id,
                     base: order.base_orderbook_ticker().to_owned(),
                     base_amount: base_amount.clone(),
@@ -3312,7 +3312,7 @@ async fn process_taker_connect(ctx: MmArc, sender_pubkey: H256Json, connect_msg:
     if order_match.connected.is_none() && order_match.connect.is_none() {
         let connected = MakerConnected {
             sender_pubkey: our_public_id.bytes.into(),
-            dest_pub_key: connect_msg.sender_pubkey.clone(),
+            dest_pub_key: connect_msg.sender_pubkey,
             taker_order_uuid: connect_msg.taker_order_uuid,
             maker_order_uuid: connect_msg.maker_order_uuid,
             method: "connected".into(),

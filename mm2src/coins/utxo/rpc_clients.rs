@@ -1027,8 +1027,8 @@ impl ElectrumBlockHeaderV12 {
     pub fn hash(&self) -> H256Json {
         let block_header = BlockHeader {
             version: self.version as u32,
-            previous_header_hash: self.prev_block_hash.clone().into(),
-            merkle_root_hash: self.merkle_root.clone().into(),
+            previous_header_hash: self.prev_block_hash.into(),
+            merkle_root_hash: self.merkle_root.into(),
             hash_final_sapling_root: None,
             time: self.timestamp as u32,
             bits: BlockHeaderBits::U32(self.bits as u32),
@@ -1572,7 +1572,7 @@ impl ElectrumClient {
                 let mut map: HashMap<(H256Json, u32), bool> = HashMap::new();
                 let unspents = unspents
                     .into_iter()
-                    .filter(|unspent| match map.entry((unspent.tx_hash.clone(), unspent.tx_pos)) {
+                    .filter(|unspent| match map.entry((unspent.tx_hash, unspent.tx_pos)) {
                         Entry::Occupied(_) => false,
                         Entry::Vacant(e) => {
                             e.insert(true);

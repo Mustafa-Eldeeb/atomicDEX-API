@@ -1030,7 +1030,6 @@ impl MakerSwap {
             .r()
             .data
             .secret_hash
-            .clone()
             .unwrap_or_else(|| dhash160(&self.r().data.secret.0).into());
 
         // have to do this because std::sync::RwLockReadGuard returned by r() is not Send,

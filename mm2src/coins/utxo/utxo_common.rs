@@ -1748,7 +1748,7 @@ where
         let mut input_transactions = HistoryUtxoTxMap::default();
         for (txid, height) in tx_ids {
             let mut updated = false;
-            match history_map.entry(txid.clone()) {
+            match history_map.entry(txid) {
                 Entry::Vacant(e) => {
                     mm_counter!(ctx.metrics, "tx.history.request.count", 1, "coin" => coin.as_ref().conf.ticker.clone(), "method" => "tx_detail_by_hash");
 
@@ -1979,7 +1979,7 @@ where
 
         let prev_tx_hash: H256Json = input.previous_output.hash.reversed().into();
         let prev_tx = try_s!(
-            coin.get_mut_verbose_transaction_from_map_or_rpc(prev_tx_hash.clone(), input_transactions)
+            coin.get_mut_verbose_transaction_from_map_or_rpc(prev_tx_hash, input_transactions)
                 .await
         );
         let prev_tx = &mut prev_tx.tx;
@@ -2096,7 +2096,7 @@ pub async fn get_mut_verbose_transaction_from_map_or_rpc<'a, 'b, T>(
 where
     T: AsRef<UtxoCoinFields>,
 {
-    let tx = match utxo_tx_map.entry(tx_hash.clone()) {
+    let tx = match utxo_tx_map.entry(tx_hash) {
         Entry::Vacant(e) => {
             let verbose = coin
                 .as_ref()
@@ -2184,7 +2184,7 @@ where
 
         let prev_tx_hash: H256Json = input.previous_output.hash.reversed().into();
         let prev_tx = coin
-            .get_mut_verbose_transaction_from_map_or_rpc(prev_tx_hash.clone(), input_transactions)
+            .get_mut_verbose_transaction_from_map_or_rpc(prev_tx_hash, input_transactions)
             .await?;
 
         let prev_tx_value = prev_tx.tx.outputs[input.previous_output.index as usize].value;
@@ -2469,11 +2469,7 @@ where
     let mut result = Vec::with_capacity(unspents.len());
     for unspent in unspents {
         let tx_hash: H256Json = unspent.outpoint.hash.reversed().into();
-        let tx_info = match coin
-            .get_verbose_transaction_from_cache_or_rpc(tx_hash.clone())
-            .compat()
-            .await
-        {
+        let tx_info = match coin.get_verbose_transaction_from_cache_or_rpc(tx_hash).compat().await {
             Ok(x) => x,
             Err(err) => {
                 log!("Error " [err] " getting the transaction " [tx_hash] ", skip the unspent output");

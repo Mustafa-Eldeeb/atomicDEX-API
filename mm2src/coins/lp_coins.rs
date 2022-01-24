@@ -1814,7 +1814,7 @@ pub async fn lp_coininit(ctx: &MmArc, ticker: &str, req: &Json) -> Result<MmCoin
             };
 
             let confs = required_confirmations.unwrap_or(platform_coin.required_confirmations());
-            let token = SlpToken::new(*decimals, ticker.into(), token_id.clone().into(), platform_coin, confs);
+            let token = SlpToken::new(*decimals, ticker.into(), (*token_id).into(), platform_coin, confs);
             token.into()
         },
         #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]

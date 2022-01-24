@@ -346,7 +346,7 @@ async fn recreate_taker_swap(ctx: MmArc, maker_swap: MakerSavedSwap) -> Recreate
     let taker_negotiated_event = TakerSwapEvent::Negotiated(MakerNegotiationData {
         maker_payment_locktime: started_event.maker_payment_lock,
         maker_pubkey: started_event.my_persistent_pub,
-        secret_hash: secret_hash.clone(),
+        secret_hash,
         maker_coin_swap_contract_addr: negotiated_event.maker_coin_swap_contract_addr,
         taker_coin_swap_contract_addr: negotiated_event.taker_coin_swap_contract_addr,
     });
