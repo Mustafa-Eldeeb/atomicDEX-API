@@ -1222,7 +1222,7 @@ pub fn tbch_coin_for_test() -> BchCoin {
         "method": "electrum",
         "coin": "BCH",
         "servers": [{"url":"blackie.c3-soft.com:60001"},{"url":"testnet.imaginary.cash:50001"},{"url":"tbch.loping.net:60001"},{"url":"electroncash.de:50003"}],
-        "bchd_urls": ["https://bchd-testnet.greyh.at:18335"],
+        "bchd_urls": ["https://bchd-testnet.electroncash.de:18335"],
         "allow_slp_unsafe_conf": false,
     });
 

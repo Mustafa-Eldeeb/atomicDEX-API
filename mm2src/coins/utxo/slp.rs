@@ -2034,13 +2034,14 @@ mod slp_tests {
         let lock_time = 1624547837;
         let secret_hash = hex::decode("5d9e149ad9ccb20e9f931a69b605df2ffde60242").unwrap();
         let amount: BigDecimal = "0.1".parse().unwrap();
+        let my_pub = bch.my_public_key().unwrap();
 
         // standard BCH validation should pass as the output itself is correct
         utxo_common::validate_payment(
             bch.clone(),
             deserialize(tx.as_slice()).unwrap(),
             SLP_SWAP_VOUT,
-            bch.my_public_key().unwrap(),
+            my_pub,
             &other_pub,
             &secret_hash,
             fusd.platform_dust_dec(),
@@ -2049,7 +2050,8 @@ mod slp_tests {
         .wait()
         .unwrap();
 
-        let validity_err = block_on(fusd.validate_htlc(&tx, &other_pub, lock_time, &secret_hash, amount)).unwrap_err();
+        let validity_err =
+            block_on(fusd.validate_htlc(&tx, &other_pub, my_pub, lock_time, &secret_hash, amount)).unwrap_err();
         match validity_err.into_inner() {
             ValidateHtlcError::InvalidSlpUtxo(e) => println!("{:?}", e),
             err @ _ => panic!("Unexpected err {:?}", err),
