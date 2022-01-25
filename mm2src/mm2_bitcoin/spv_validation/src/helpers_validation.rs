@@ -1,4 +1,4 @@
-use bitcoin_spv::validatespv::prove;
+use bitcoin_spv::btcspv::verify_hash256_merkle;
 use primitives::hash::H256;
 use types::SPVError;
 
@@ -23,7 +23,7 @@ pub fn merkle_prove(txid: H256, merkle_root: H256, intermediate_nodes: Vec<H256>
         vec.append(&mut merkle_node.as_slice().to_vec());
     }
     let nodes = bitcoin_spv::types::MerkleArray::new(vec.as_slice()).unwrap();
-    if !prove(txid.take().into(), merkle_root.take().into(), &nodes, index) {
+    if !verify_hash256_merkle(txid.take().into(), merkle_root.take().into(), &nodes, index) {
         return Err(SPVError::BadMerkleProof);
     }
     Ok(())
@@ -60,6 +60,32 @@ mod tests {
         let merkle_nodes: Vec<H256> = vec![H256::from_reversed_str(
             "5a4ebf66822b0b2d56bd9dc64ece0bc38ee7844a23ff1d7320a88c5fdb2ad3e2",
         )];
+        let result = merkle_prove(tx_id, merkle_root, merkle_nodes, merkle_pos);
+        assert_eq!(result.is_err(), false);
+    }
+
+    #[test]
+    fn test_merkle_prove_inclusion_complex() {
+        // https://www.blockchain.com/btc/tx/b36bced99cc459506ad2b3af6990920b12f6dc84f9c7ed0dd2c3703f94a4b692
+        // merkle intermediate nodes complex merkle proof inclusion
+        let tx_id: H256 = H256::from_reversed_str("b36bced99cc459506ad2b3af6990920b12f6dc84f9c7ed0dd2c3703f94a4b692");
+        let merkle_pos = 680;
+        let merkle_root: H256 =
+            H256::from_reversed_str("def7a26d91789069dad448cb4b68658b7ba419f9fbd28dce7fe32ed0010e55df").into();
+        let merkle_nodes: Vec<H256> = vec![
+            H256::from_reversed_str("39141331f2b7133e72913460384927b421ffdef3e24b88521e7ac54d30019409"),
+            H256::from_reversed_str("39aeb77571ee0b0cf9feb7e121938b862f3994ff1254b34559378f6f2ed8b1fb"),
+            H256::from_reversed_str("5815f83f4eb2423c708127ea1f47feeabcf005d4aed18701d9692925f152d0b4"),
+            H256::from_reversed_str("efbb90aae6875af1b05a17e53fabe79ca1655329d6e107269a190739bf9d9038"),
+            H256::from_reversed_str("20eb7431ae5a185e89bd2ad89956fc660392ee9d231df58600ac675734013e82"),
+            H256::from_reversed_str("1f1dd980e6196ec4de9037941076a6030debe466dfc177e54447171b64ea99e5"),
+            H256::from_reversed_str("bbc4264359bec656298e31443034fc3ff9877752b765b9665b4da1eb8a32d1ff"),
+            H256::from_reversed_str("71788bf5224f228f390243a2664d41d96bae97ae1e4cfbc39095448e4cd1addd"),
+            H256::from_reversed_str("1b24a907c86e59eb698afeb4303c00fe3ecf8425270134ed3d0e62c6991621f2"),
+            H256::from_reversed_str("7776b46bb148c573d5eabe1436a428f3dae484557fea6efef1da901009ca5f8f"),
+            H256::from_reversed_str("623a90d6122a233b265aab497b13bb64b5d354d2e2112c3f554e51bfa4e6bbd3"),
+            H256::from_reversed_str("3104295d99163e16405b80321238a97d02e2448bb634017e2e027281cc4af9e8"),
+        ];
         let result = merkle_prove(tx_id, merkle_root, merkle_nodes, merkle_pos);
         assert_eq!(result.is_err(), false);
     }
