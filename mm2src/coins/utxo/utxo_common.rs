@@ -5,8 +5,6 @@ use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentI
 use crate::utxo::utxo_withdraw::{InitUtxoWithdraw, StandardUtxoWithdraw, UtxoWithdraw};
 use crate::{CanRefundHtlc, CoinBalance, TradePreimageValue, TxFeeDetails, ValidateAddressResult, WithdrawResult};
 use bigdecimal::{BigDecimal, Zero};
-use bitcoin_spv::std_types::{BitcoinHeader, SPVProof};
-use bitcoin_spv::types::SPVError;
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
 use chain::constants::SEQUENCE_FINAL;
 use chain::{BlockHeader, OutPoint, TransactionOutput};
@@ -37,6 +35,8 @@ use utxo_signer::with_key_pair::p2sh_spend;
 use utxo_signer::UtxoSignerOps;
 
 pub use chain::Transaction as UtxoTx;
+use spv_validation::spv_proof::SPVProof;
+use spv_validation::types::SPVError;
 
 pub const DEFAULT_FEE_VOUT: usize = 0;
 pub const DEFAULT_SWAP_TX_SPEND_SIZE: u64 = 305;
@@ -2664,14 +2664,13 @@ pub fn address_from_pubkey(
     }
 }
 
-pub async fn validate_spv_proof<T>(coin: T, tx: UtxoTx, script_pubkey: Bytes) -> Result<(), String>
+pub async fn validate_spv_proof<T>(coin: T, tx: UtxoTx, script_pubkey: Bytes) -> Result<(), MmError<SPVError>>
 where
     T: AsRef<UtxoCoinFields> + Send + Sync + 'static,
 {
-    // todo: refactor to real error type
     let script_pubkey_str = hex::encode(&script_pubkey);
     let client = match &coin.as_ref().rpc_client {
-        UtxoRpcClientEnum::Native(_) => return ERR!("Native not supported for spv proof."),
+        UtxoRpcClientEnum::Native(_) => return MmError::err(SPVError::NonSpvClient),
         UtxoRpcClientEnum::Electrum(electrum_client) => electrum_client,
     };
     let history = client
@@ -2680,7 +2679,7 @@ where
         .await
         .unwrap_or_default();
     if history.is_empty() {
-        return ERR!("Unable to get scripthash history - invalid transaction");
+        return MmError::err(SPVError::TxHistoryNotAvailable);
     }
     let mut height: u64 = 0;
     for item in history {
@@ -2691,42 +2690,26 @@ where
         }
     }
     if height == 0 {
-        return ERR!("Unable to get a proper transaction height - invalid transaction");
+        return MmError::err(SPVError::TxHeightNotAvailable);
     }
 
-    let block_header = client.blockchain_block_header(height).compat().await;
-
-    match block_header {
-        Ok(header_bytes) => {
-            // todo: deserialize into block_header and convert it to BitcoinHeader for the spv proof library
-        },
-        Err(err) => return ERR!("Unable to get a block header - invalid transaction"),
-    };
-
-    // todo: implement get merkle tree tsc
-
-    // todo: fill the SPVProof data structure correctly
+    let block_header = client
+        .blockchain_block_header(height)
+        .compat()
+        .await
+        .map_to_mm(|e| SPVError::UnknownError(e.to_string()))?;
+    let header: BlockHeader =
+        deserialize(block_header.0.as_slice()).map_to_mm(|e| SPVError::UnknownError(format!("{:?}", e)))?;
     let proof = SPVProof {
-        version: vec![],
-        vin: vec![],
-        vout: vec![],
-        locktime: vec![],
         tx_id: Default::default(),
         index: 0,
-        confirming_header: BitcoinHeader {
-            hash: Default::default(),
-            raw: Default::default(),
-            height: 0,
-            prevhash: Default::default(),
-            merkle_root: Default::default(),
-        },
+        confirming_header: header,
         intermediate_nodes: vec![],
     };
     match proof.validate() {
-        Ok(_) => {},
-        Err(err) => return ERR!("{:?}", err),
-    };
-    Ok(())
+        Ok(_) => Ok(()),
+        Err(err) => MmError::err(err),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2794,7 +2777,10 @@ where
                     expected_output
                 );
             }
-            return validate_spv_proof(coin, tx, expected_output.script_pubkey).await;
+            return match validate_spv_proof(coin, tx, expected_output.script_pubkey).await {
+                Ok(_) => Ok(()),
+                Err(err) => ERR!("{:?}", err),
+            };
         }
     };
     Box::new(fut.boxed().compat())

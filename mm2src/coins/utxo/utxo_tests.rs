@@ -7,9 +7,6 @@ use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardC
 #[cfg(not(target_arch = "wasm32"))] use crate::WithdrawFee;
 use crate::{CoinBalance, StakingInfosDetails, SwapOps, TradePreimageValue, TxFeeDetails};
 use bigdecimal::{BigDecimal, Signed};
-use bitcoin_spv::std_types::BitcoinHeader;
-use bitcoin_spv::types::{Hash256Digest, RawHeader, SPVError};
-use chain::BlockHeader;
 use common::mm_ctx::MmCtxBuilder;
 use common::privkey::key_pair_from_seed;
 use common::{block_on, now_ms, OrdRange, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -903,55 +900,6 @@ fn test_utxo_lock() {
     for result in results {
         result.unwrap();
     }
-}
-
-/*#[test]
-fn test_spv_fraud_proof() {
-    let secret = [0; 20];
-    let client = electrum_client_for_test(RICK_ELECTRUM_ADDRS);
-    let coin = utxo_coin_for_test(
-        client.into(),
-        Some("spice describe gravity federal blast come thank unfair canal monkey style afraid"),
-        false,
-    );
-    let CoinBalance { spendable, unspendable } = coin.my_balance().wait().unwrap();
-    println!("{} {}", spendable, unspendable);
-    let timeout = (now_ms() / 1000) + 240; // timeout if test takes more than 240 seconds to run
-    let my_public_key = coin.my_public_key().unwrap();
-    let time_lock = (now_ms() / 1000) as u32 - 3600;
-
-    let tx = coin
-        .send_maker_payment(time_lock, my_public_key, &[0; 20], 1u64.into(), &None)
-        .wait()
-        .unwrap();
-    println!("yay");
-}*/
-
-#[test]
-fn test_spv_proof_block_header() {
-    let client = electrum_client_for_test(RICK_ELECTRUM_ADDRS);
-    let tx_id: H256 = "7e9797a05abafbc1542449766ef9a41838ebbf6d24cd3223d361aa07c51981df".into();
-    let height = 958318;
-    let merkle_root: H256 = "41f138275d13690e3c5d735e2f88eb6f1aaade1207eb09fa27a65b40711f3ae0".into();
-    let merkle_branch = block_on(client.blockchain_transaction_get_merkle(tx_id.into(), height).compat()).unwrap();
-    let mut vec: Vec<u8> = vec![];
-    for merkle_node in merkle_branch.merkle {
-        println!("{:?}", merkle_node.reversed());
-        vec.append(&mut merkle_node.reversed().0.as_slice().to_vec());
-    }
-    let nodes = bitcoin_spv::types::MerkleArray::new(vec.as_slice()).unwrap();
-    println!("{}", nodes.len());
-    println!("{}", merkle_branch.pos);
-    println!("{:?}", nodes);
-    println!(
-        "{}",
-        bitcoin_spv::validatespv::prove(
-            tx_id.reversed().take().into(),
-            merkle_root.reversed().take().into(),
-            &nodes,
-            merkle_branch.pos as u64,
-        )
-    );
 }
 
 #[test]
