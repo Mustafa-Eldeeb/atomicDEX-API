@@ -3,7 +3,7 @@ use helpers_validation::merkle_prove;
 use primitives::hash::H256;
 use types::SPVError;
 
-#[derive(PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Clone)]
 pub struct SPVProof {
     /// The tx id
     pub tx_id: H256,
