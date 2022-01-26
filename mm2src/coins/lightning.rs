@@ -42,6 +42,8 @@ use lightning_background_processor::BackgroundProcessor;
 use lightning_invoice::utils::create_invoice_from_channelmanager;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::Invoice;
+#[cfg(not(target_arch = "wasm32"))]
+use ln_connections::{connect_to_node, connect_to_node_loop};
 use ln_errors::{CloseChannelError, CloseChannelResult, ConnectToNodeError, ConnectToNodeResult, EnableLightningError,
                 EnableLightningResult, GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult,
                 ListChannelsError, ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError,
@@ -52,7 +54,7 @@ use ln_events::LightningEventHandler;
 use ln_storage::{last_request_id_path, nodes_data_path, parse_node_info, read_last_request_id_from_file,
                  read_nodes_addresses_from_file, save_last_request_id_to_file, write_nodes_addresses_to_file};
 #[cfg(not(target_arch = "wasm32"))]
-use ln_utils::{connect_to_node, connect_to_node_loop, open_ln_channel, ChannelManager, InvoicePayer, PeerManager};
+use ln_utils::{open_ln_channel, ChannelManager, InvoicePayer, PeerManager};
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::Bytes as BytesJson;
 #[cfg(not(target_arch = "wasm32"))] use script::Builder;
@@ -65,6 +67,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))] mod ln_connections;
 pub mod ln_errors;
 #[cfg(not(target_arch = "wasm32"))] mod ln_events;
 mod ln_rpc;

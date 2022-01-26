@@ -1,10 +1,10 @@
 use super::*;
 use crate::utxo::utxo_standard::UtxoStandardCoin;
 use common::mm_ctx::MmArc;
-use derive_more::Display;
 
 cfg_native! {
     use crate::DerivationMethod;
+    use crate::lightning::ln_connections::ln_p2p_loop;
     use crate::utxo::rpc_clients::{electrum_script_hash, BestBlock as RpcBestBlock, ElectrumBlockHeader, ElectrumClient,
                                    ElectrumNonce, UtxoRpcError};
     use bitcoin::blockdata::block::BlockHeader;
@@ -43,7 +43,7 @@ cfg_native! {
     use std::collections::HashMap;
     use std::convert::TryInto;
     use std::fs::File;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::net::{IpAddr, Ipv4Addr};
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use tokio::net::TcpListener;
@@ -52,7 +52,6 @@ cfg_native! {
 cfg_native! {
     const CHECK_FOR_NEW_BEST_BLOCK_INTERVAL: u64 = 60;
     const BROADCAST_NODE_ANNOUNCEMENT_INTERVAL: u64 = 60;
-    const TRY_RECONNECTING_TO_NODE_INTERVAL: u64 = 60;
     const NETWORK_GRAPH_PERSIST_INTERVAL: u64 = 600;
     const SCORER_PERSIST_INTERVAL: u64 = 600;
 }
@@ -466,28 +465,6 @@ pub async fn start_lightning(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn ln_p2p_loop(peer_manager: Arc<PeerManager>, listener: TcpListener) {
-    loop {
-        let peer_mgr = peer_manager.clone();
-        let tcp_stream = match listener.accept().await {
-            Ok((stream, addr)) => {
-                log::debug!("New incoming lightning connection from node address: {}", addr);
-                stream
-            },
-            Err(e) => {
-                log::error!("Error on accepting lightning connection: {}", e);
-                continue;
-            },
-        };
-        if let Ok(stream) = tcp_stream.into_std() {
-            spawn(async move {
-                lightning_net_tokio::setup_inbound(peer_mgr.clone(), stream).await;
-            })
-        };
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 struct ConfirmedTransactionInfo {
     txid: Txid,
     header: BlockHeader,
@@ -877,79 +854,6 @@ async fn ln_node_announcement_loop(
         channel_manager.broadcast_node_announcement(node_color, node_name, addresses_to_announce);
 
         Timer::sleep(BROADCAST_NODE_ANNOUNCEMENT_INTERVAL as f64).await;
-    }
-}
-
-#[derive(Display)]
-pub enum ConnectToNodeRes {
-    #[display(fmt = "Already connected to node: {}@{}", _0, _1)]
-    AlreadyConnected(String, String),
-    #[display(fmt = "Connected successfully to node : {}@{}", _0, _1)]
-    ConnectedSuccessfully(String, String),
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub async fn connect_to_node(
-    pubkey: PublicKey,
-    node_addr: SocketAddr,
-    peer_manager: Arc<PeerManager>,
-) -> ConnectToNodeResult<ConnectToNodeRes> {
-    if peer_manager.get_peer_node_ids().contains(&pubkey) {
-        return Ok(ConnectToNodeRes::AlreadyConnected(
-            pubkey.to_string(),
-            node_addr.to_string(),
-        ));
-    }
-
-    match lightning_net_tokio::connect_outbound(Arc::clone(&peer_manager), pubkey, node_addr).await {
-        Some(connection_closed_future) => {
-            let mut connection_closed_future = Box::pin(connection_closed_future);
-            loop {
-                // Make sure the connection is still established.
-                match futures::poll!(&mut connection_closed_future) {
-                    std::task::Poll::Ready(_) => {
-                        return MmError::err(ConnectToNodeError::ConnectionError(format!(
-                            "Node {} disconnected before finishing the handshake",
-                            pubkey
-                        )));
-                    },
-                    std::task::Poll::Pending => {},
-                }
-
-                match peer_manager.get_peer_node_ids().contains(&pubkey) {
-                    true => break,
-                    // Wait for the handshake to complete if false.
-                    false => Timer::sleep_ms(10).await,
-                }
-            }
-        },
-        None => {
-            return MmError::err(ConnectToNodeError::ConnectionError(format!(
-                "Failed to connect to node: {}",
-                pubkey
-            )))
-        },
-    }
-
-    Ok(ConnectToNodeRes::ConnectedSuccessfully(
-        pubkey.to_string(),
-        node_addr.to_string(),
-    ))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub async fn connect_to_node_loop(pubkey: PublicKey, node_addr: SocketAddr, peer_manager: Arc<PeerManager>) {
-    loop {
-        match connect_to_node(pubkey, node_addr, peer_manager.clone()).await {
-            Ok(res) => {
-                if let ConnectToNodeRes::ConnectedSuccessfully(_, _) = res {
-                    log::info!("{}", res.to_string());
-                }
-            },
-            Err(e) => log::error!("{}", e.to_string()),
-        }
-
-        Timer::sleep(TRY_RECONNECTING_TO_NODE_INTERVAL as f64).await;
     }
 }
 
