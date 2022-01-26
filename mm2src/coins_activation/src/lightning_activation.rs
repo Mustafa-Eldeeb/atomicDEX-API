@@ -169,14 +169,14 @@ impl L2ActivationOps for LightningCoin {
         coin_conf: Json,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>> {
         let lightning_coin = start_lightning(ctx, platform_coin.clone(), coin_conf, validated_params).await?;
+        let address = lightning_coin
+            .my_address()
+            .map_to_mm(LightningInitError::MyAddressError)?;
         let balance = lightning_coin
             .my_balance()
             .compat()
             .await
             .mm_err(LightningInitError::MyBalanceError)?;
-        let address = lightning_coin
-            .my_address()
-            .map_to_mm(LightningInitError::MyAddressError)?;
         let init_result = LightningInitResult {
             platform_coin: platform_coin.ticker().into(),
             address,

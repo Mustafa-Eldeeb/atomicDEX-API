@@ -425,16 +425,22 @@ pub async fn start_lightning(
     );
 
     // If node is restarting read other nodes data from disk and reconnect to channel nodes/peers if possible.
+    let mut nodes_addresses_map = HashMap::new();
     if restarting_node {
-        let mut nodes_data = read_nodes_data_from_file(&nodes_data_path(ctx, &ticker))?;
-        for (pubkey, node_addr) in nodes_data.drain() {
-            for chan_info in channel_manager.list_channels() {
-                if pubkey == chan_info.counterparty.node_id {
-                    spawn(connect_to_node_loop(pubkey, node_addr, peer_manager.clone()));
-                }
+        let mut nodes_addresses = read_nodes_addresses_from_file(&nodes_data_path(ctx, &ticker))?;
+        for (pubkey, node_addr) in nodes_addresses.drain() {
+            if channel_manager
+                .list_channels()
+                .iter()
+                .map(|chan| chan.counterparty.node_id)
+                .any(|node_id| node_id == pubkey)
+            {
+                spawn(connect_to_node_loop(pubkey, node_addr, peer_manager.clone()));
+                nodes_addresses_map.insert(pubkey, node_addr);
             }
         }
     }
+    let nodes_addresses = Arc::new(PaMutex::new(nodes_addresses_map));
 
     // Broadcast Node Announcement
     spawn(ln_node_announcement_loop(
@@ -455,6 +461,7 @@ pub async fn start_lightning(
         invoice_payer,
         inbound_payments,
         outbound_payments,
+        nodes_addresses,
     })
 }
 
@@ -887,13 +894,11 @@ pub async fn connect_to_node(
     node_addr: SocketAddr,
     peer_manager: Arc<PeerManager>,
 ) -> ConnectToNodeResult<ConnectToNodeRes> {
-    for node_pubkey in peer_manager.get_peer_node_ids() {
-        if node_pubkey == pubkey {
-            return Ok(ConnectToNodeRes::AlreadyConnected(
-                node_pubkey.to_string(),
-                node_addr.to_string(),
-            ));
-        }
+    if peer_manager.get_peer_node_ids().contains(&pubkey) {
+        return Ok(ConnectToNodeRes::AlreadyConnected(
+            pubkey.to_string(),
+            node_addr.to_string(),
+        ));
     }
 
     match lightning_net_tokio::connect_outbound(Arc::clone(&peer_manager), pubkey, node_addr).await {
@@ -910,10 +915,11 @@ pub async fn connect_to_node(
                     },
                     std::task::Poll::Pending => {},
                 }
-                // Wait for the handshake to complete.
-                match peer_manager.get_peer_node_ids().iter().find(|id| **id == pubkey) {
-                    Some(_) => break,
-                    None => Timer::sleep_ms(10).await,
+
+                match peer_manager.get_peer_node_ids().contains(&pubkey) {
+                    true => break,
+                    // Wait for the handshake to complete if false.
+                    false => Timer::sleep_ms(10).await,
                 }
             }
         },
@@ -932,19 +938,13 @@ pub async fn connect_to_node(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn connect_to_node_loop(pubkey: PublicKey, node_addr: SocketAddr, peer_manager: Arc<PeerManager>) {
-    for node_pubkey in peer_manager.get_peer_node_ids() {
-        if node_pubkey == pubkey {
-            log::info!("Already connected to node: {}", node_pubkey);
-            return;
-        }
-    }
-
+pub async fn connect_to_node_loop(pubkey: PublicKey, node_addr: SocketAddr, peer_manager: Arc<PeerManager>) {
     loop {
         match connect_to_node(pubkey, node_addr, peer_manager.clone()).await {
             Ok(res) => {
-                log::info!("{}", res.to_string());
-                break;
+                if let ConnectToNodeRes::ConnectedSuccessfully(_, _) = res {
+                    log::info!("{}", res.to_string());
+                }
             },
             Err(e) => log::error!("{}", e.to_string()),
         }

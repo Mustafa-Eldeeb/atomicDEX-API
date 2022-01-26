@@ -6,7 +6,7 @@ use lightning::util::ser::{Readable, Writeable};
 use secp256k1::PublicKey;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -57,29 +57,39 @@ pub fn parse_node_info(node_pubkey_and_ip_addr: String) -> ConnectToNodeResult<(
     Ok((pubkey, node_addr))
 }
 
-pub fn read_nodes_data_from_file(path: &Path) -> ConnectToNodeResult<HashMap<PublicKey, SocketAddr>> {
+pub fn read_nodes_addresses_from_file(path: &Path) -> ConnectToNodeResult<HashMap<PublicKey, SocketAddr>> {
     if !path.exists() {
         return Ok(HashMap::new());
     }
-    let mut nodes_data = HashMap::new();
     let file = File::open(path).map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))?;
     let reader = BufReader::new(file);
-    for line in reader.lines() {
-        let line = line.map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))?;
-        let (pubkey, socket_addr) = parse_node_info(line)?;
-        nodes_data.insert(pubkey, socket_addr);
-    }
-    Ok(nodes_data)
+    let nodes_addresses: HashMap<String, SocketAddr> =
+        serde_json::from_reader(reader).map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))?;
+    nodes_addresses
+        .iter()
+        .map(|(pubkey_str, addr)| {
+            let pubkey =
+                PublicKey::from_str(pubkey_str).map_to_mm(|e| ConnectToNodeError::ParseError(e.to_string()))?;
+            Ok((pubkey, *addr))
+        })
+        .collect()
 }
 
-pub fn save_node_data_to_file(path: &Path, node_info: &str) -> ConnectToNodeResult<()> {
-    let mut file = OpenOptions::new()
+pub fn write_nodes_addresses_to_file(
+    path: &Path,
+    nodes_addresses: HashMap<PublicKey, SocketAddr>,
+) -> ConnectToNodeResult<()> {
+    let nodes_addresses: HashMap<String, SocketAddr> = nodes_addresses
+        .iter()
+        .map(|(pubkey, addr)| (pubkey.to_string(), *addr))
+        .collect();
+    let file = OpenOptions::new()
         .create(true)
-        .append(true)
+        .write(true)
+        .truncate(true)
         .open(path)
         .map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))?;
-    file.write_all(format!("{}\n", node_info).as_bytes())
-        .map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))
+    serde_json::to_writer(file, &nodes_addresses).map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))
 }
 
 pub fn save_network_graph_to_file(path: &Path, network_graph: &NetworkGraph) -> EnableLightningResult<()> {

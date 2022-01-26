@@ -19,8 +19,10 @@ use bitcoin::hash_types::Txid;
 use bitcoin_hashes::sha256::Hash as Sha256;
 #[cfg(not(target_arch = "wasm32"))] use chain::TransactionOutput;
 #[cfg(not(target_arch = "wasm32"))] use common::async_blocking;
+#[cfg(not(target_arch = "wasm32"))] use common::executor::spawn;
 #[cfg(not(target_arch = "wasm32"))]
 use common::ip_addr::myipaddr;
+#[cfg(not(target_arch = "wasm32"))] use common::log;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_number::MmNumber;
@@ -48,9 +50,9 @@ use ln_errors::{CloseChannelError, CloseChannelResult, ConnectToNodeError, Conne
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
 use ln_storage::{last_request_id_path, nodes_data_path, parse_node_info, read_last_request_id_from_file,
-                 read_nodes_data_from_file, save_last_request_id_to_file, save_node_data_to_file};
+                 read_nodes_addresses_from_file, save_last_request_id_to_file, write_nodes_addresses_to_file};
 #[cfg(not(target_arch = "wasm32"))]
-use ln_utils::{connect_to_node, open_ln_channel, ChannelManager, InvoicePayer, PeerManager};
+use ln_utils::{connect_to_node, connect_to_node_loop, open_ln_channel, ChannelManager, InvoicePayer, PeerManager};
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::Bytes as BytesJson;
 #[cfg(not(target_arch = "wasm32"))] use script::Builder;
@@ -59,6 +61,7 @@ use secp256k1::PublicKey;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -162,6 +165,8 @@ pub struct LightningCoin {
     pub inbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
     /// The mutex storing the outbound payments info.
     pub outbound_payments: Arc<PaMutex<HashMap<PaymentHash, PaymentInfo>>>,
+    /// The mutex storing the addresses of the nodes that are used for reconnecting.
+    pub nodes_addresses: Arc<PaMutex<HashMap<PublicKey, SocketAddr>>>,
 }
 
 impl fmt::Debug for LightningCoin {
@@ -661,14 +666,8 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
 
     let (unsigned, _) = tx_builder.build().await?;
 
-    // Saving node data to reconnect to it on restart
-    let ticker = ln_coin.ticker();
-    let nodes_data = read_nodes_data_from_file(&nodes_data_path(&ctx, ticker))?;
-    if !nodes_data.contains_key(&node_pubkey) {
-        save_node_data_to_file(&nodes_data_path(&ctx, ticker), &req.node_id)?;
-    }
-
     // Helps in tracking which FundingGenerationReady events corresponds to which open_channel call
+    let ticker = ln_coin.ticker();
     let request_id = match read_last_request_id_from_file(&last_request_id_path(&ctx, ticker)) {
         Ok(id) => id + 1,
         Err(e) => match e.get_inner() {
@@ -694,8 +693,22 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
     })
     .await?;
 
-    let mut unsigned_funding_txs = ln_coin.platform_fields.unsigned_funding_txs.lock();
-    unsigned_funding_txs.insert(request_id, unsigned);
+    // Saving node data to reconnect to it on restart
+    {
+        let mut nodes_addresses = ln_coin.nodes_addresses.lock();
+        nodes_addresses.insert(node_pubkey, node_addr);
+        write_nodes_addresses_to_file(&nodes_data_path(&ctx, ticker), nodes_addresses.clone())?;
+        spawn(connect_to_node_loop(
+            node_pubkey,
+            node_addr,
+            ln_coin.peer_manager.clone(),
+        ));
+    }
+
+    {
+        let mut unsigned_funding_txs = ln_coin.platform_fields.unsigned_funding_txs.lock();
+        unsigned_funding_txs.insert(request_id, unsigned);
+    }
 
     Ok(OpenChannelResponse {
         temporary_channel_id: hex::encode(temp_channel_id),
@@ -815,6 +828,18 @@ pub async fn generate_invoice(
         MmCoinEnum::LightningCoin(c) => c,
         _ => return MmError::err(GenerateInvoiceError::UnsupportedCoin(coin.ticker().to_string())),
     };
+    let nodes_addresses = ln_coin.nodes_addresses.lock().clone();
+    for (node_pubkey, node_addr) in nodes_addresses {
+        if connect_to_node(node_pubkey, node_addr, ln_coin.peer_manager.clone())
+            .await
+            .is_err()
+        {
+            log::error!(
+                "Channel with node: {} can't be used for invoice routing hints due to connection error.",
+                node_pubkey
+            );
+        }
+    }
     let network = ln_coin.platform_coin().as_ref().network.clone().into();
     let invoice = create_invoice_from_channelmanager(
         &ln_coin.channel_manager,
@@ -907,6 +932,18 @@ pub async fn send_payment(ctx: MmArc, req: SendPaymentReq) -> SendPaymentResult<
         MmCoinEnum::LightningCoin(c) => c,
         _ => return MmError::err(SendPaymentError::UnsupportedCoin(coin.ticker().to_string())),
     };
+    let nodes_addresses = ln_coin.nodes_addresses.lock().clone();
+    for (node_pubkey, node_addr) in nodes_addresses {
+        if connect_to_node(node_pubkey, node_addr, ln_coin.peer_manager.clone())
+            .await
+            .is_err()
+        {
+            log::error!(
+                "Channel with node: {} can't be used to route this payment due to connection error.",
+                node_pubkey
+            );
+        }
+    }
     let (payment_id, payment_hash, payment_info) = match req.payment {
         Payment::Invoice { invoice } => ln_coin.pay_invoice(invoice)?,
         Payment::Keysend {
