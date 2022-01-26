@@ -439,7 +439,8 @@ pub struct TakerSwapData {
 
 pub struct TakerSwapMut {
     data: TakerSwapData,
-    other_persistent_pub: H264,
+    other_maker_coin_htlc_pub: H264,
+    other_taker_coin_htlc_pub: H264,
     taker_fee: Option<TransactionIdentifier>,
     maker_payment: Option<TransactionIdentifier>,
     taker_payment: Option<TransactionIdentifier>,
@@ -485,6 +486,14 @@ pub struct MakerNegotiationData {
     pub secret_hash: H160Json,
     pub maker_coin_swap_contract_addr: Option<BytesJson>,
     pub taker_coin_swap_contract_addr: Option<BytesJson>,
+    pub maker_coin_htlc_pubkey: Option<H264Json>,
+    pub taker_coin_htlc_pubkey: Option<H264Json>,
+}
+
+impl MakerNegotiationData {
+    fn other_maker_coin_htlc_pub(&self) -> H264 { self.maker_coin_htlc_pubkey.unwrap_or(self.maker_pubkey).into() }
+
+    fn other_taker_coin_htlc_pub(&self) -> H264 { self.taker_coin_htlc_pubkey.unwrap_or(self.maker_pubkey).into() }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -616,7 +625,8 @@ impl TakerSwap {
             TakerSwapEvent::Negotiated(data) => {
                 self.maker_payment_lock
                     .store(data.maker_payment_locktime, Ordering::Relaxed);
-                self.w().other_persistent_pub = data.maker_pubkey.into();
+                self.w().other_maker_coin_htlc_pub = data.other_maker_coin_htlc_pub();
+                self.w().other_taker_coin_htlc_pub = data.other_taker_coin_htlc_pub();
                 self.w().secret_hash = data.secret_hash;
 
                 if data.maker_coin_swap_contract_addr.is_some() {
@@ -706,7 +716,8 @@ impl TakerSwap {
             p2p_privkey,
             mutable: RwLock::new(TakerSwapMut {
                 data: TakerSwapData::default(),
-                other_persistent_pub: H264::default(),
+                other_maker_coin_htlc_pub: H264::default(),
+                other_taker_coin_htlc_pub: H264::default(),
                 taker_fee: None,
                 maker_payment: None,
                 taker_payment: None,
@@ -909,11 +920,17 @@ impl TakerSwap {
             },
         };
 
+        let mut persistent_pubkey = Vec::with_capacity(33);
+        persistent_pubkey.extend_from_slice(self.r().maker_coin_htlc_keypair.public());
+        if self.r().maker_coin_htlc_keypair != self.r().taker_coin_htlc_keypair {
+            persistent_pubkey.extend_from_slice(self.r().taker_coin_htlc_keypair.public());
+        }
+
         let taker_data = SwapMsg::NegotiationReply(NegotiationDataMsg::V2(NegotiationDataV2 {
             started_at: self.r().data.started_at,
             secret_hash: maker_data.secret_hash().to_vec(),
             payment_locktime: self.r().data.taker_payment_lock,
-            persistent_pubkey: self.r().taker_coin_htlc_keypair.public().to_vec(),
+            persistent_pubkey,
             maker_coin_swap_contract: maker_coin_swap_contract_addr.clone().map_or(vec![], |bytes| bytes.0),
             taker_coin_swap_contract: taker_coin_swap_contract_addr.clone().map_or(vec![], |bytes| bytes.0),
         }));
@@ -947,13 +964,29 @@ impl TakerSwap {
             )]));
         }
 
+        let maker_pubkey = maker_data.persistent_pubkey();
+        let (maker_pubkey, maker_coin_htlc_pubkey, taker_coin_htlc_pubkey) = match maker_pubkey.len() {
+            33 => (maker_pubkey.into(), None, None),
+            66 => (
+                H264Json::default(),
+                Some(maker_pubkey[..33].into()),
+                Some(maker_pubkey[33..].into()),
+            ),
+            _ => {
+                return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
+                    ERRL!("Unexpected persistent_pubkey field len {}", maker_pubkey.len()).into(),
+                )]))
+            },
+        };
         Ok((Some(TakerSwapCommand::SendTakerFee), vec![TakerSwapEvent::Negotiated(
             MakerNegotiationData {
                 maker_payment_locktime: maker_data.payment_locktime(),
-                maker_pubkey: maker_data.persistent_pubkey().into(),
+                maker_pubkey,
                 secret_hash: maker_data.secret_hash().into(),
                 maker_coin_swap_contract_addr,
                 taker_coin_swap_contract_addr,
+                maker_coin_htlc_pubkey,
+                taker_coin_htlc_pubkey,
             },
         )]))
     }
@@ -1069,7 +1102,7 @@ impl TakerSwap {
         let validated_f = self.maker_coin.validate_maker_payment(
             &self.r().maker_payment.clone().unwrap().tx_hex,
             self.maker_payment_lock.load(Ordering::Relaxed) as u32,
-            &*self.r().other_persistent_pub,
+            &*self.r().other_maker_coin_htlc_pub,
             &**self.r().maker_coin_htlc_keypair.public(),
             &self.r().secret_hash.0,
             self.maker_amount.to_decimal(),
@@ -1099,8 +1132,8 @@ impl TakerSwap {
 
         let f = self.taker_coin.check_if_my_payment_sent(
             self.r().data.taker_payment_lock as u32,
-            &**self.r().taker_coin_htlc_keypair.public(),
-            self.r().other_persistent_pub.as_slice(),
+            self.r().taker_coin_htlc_keypair.public(),
+            self.r().other_taker_coin_htlc_pub.as_slice(),
             &self.r().secret_hash.0,
             self.r().data.taker_coin_start_block,
             &self.r().data.taker_coin_swap_contract_address,
@@ -1112,7 +1145,7 @@ impl TakerSwap {
                     let payment_fut = self.taker_coin.send_taker_payment(
                         self.r().data.taker_payment_lock as u32,
                         &**self.r().taker_coin_htlc_keypair.public(),
-                        &*self.r().other_persistent_pub,
+                        &*self.r().other_taker_coin_htlc_pub,
                         &self.r().secret_hash.0,
                         self.taker_amount.to_decimal(),
                         &self.r().data.taker_coin_swap_contract_address,
@@ -1224,7 +1257,7 @@ impl TakerSwap {
         let spend_fut = self.maker_coin.send_taker_spends_maker_payment(
             &self.r().maker_payment.clone().unwrap().tx_hex,
             self.maker_payment_lock.load(Ordering::Relaxed) as u32,
-            &*self.r().other_persistent_pub,
+            &*self.r().other_maker_coin_htlc_pub,
             &self.r().secret.0,
             self.r().maker_coin_htlc_keypair.private().secret.as_slice(),
             &self.r().data.maker_coin_swap_contract_address,
@@ -1266,7 +1299,7 @@ impl TakerSwap {
         let refund_fut = self.taker_coin.send_taker_refunds_payment(
             &self.r().taker_payment.clone().unwrap().tx_hex.0,
             self.r().data.taker_payment_lock as u32,
-            &*self.r().other_persistent_pub,
+            &*self.r().other_taker_coin_htlc_pub,
             &self.r().secret_hash.0,
             self.r().taker_coin_htlc_keypair.private().secret.as_slice(),
             &self.r().data.taker_coin_swap_contract_address,
@@ -1389,7 +1422,8 @@ impl TakerSwap {
 
         // have to do this because std::sync::RwLockReadGuard returned by r() is not Send,
         // so it can't be used across await
-        let other_persistent_pub = self.r().other_persistent_pub;
+        let other_maker_coin_htlc_pub = self.r().other_maker_coin_htlc_pub;
+        let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
         let secret_hash = self.r().secret_hash.0;
         let maker_coin_start_block = self.r().data.maker_coin_start_block;
         let maker_coin_swap_contract_address = self.r().data.maker_coin_swap_contract_address.clone();
@@ -1407,7 +1441,7 @@ impl TakerSwap {
                     .maker_coin
                     .search_for_swap_tx_spend_other(
                         self.maker_payment_lock.load(Ordering::Relaxed) as u32,
-                        other_persistent_pub.as_slice(),
+                        other_maker_coin_htlc_pub.as_slice(),
                         &secret_hash,
                         &maker_payment,
                         maker_coin_start_block,
@@ -1444,7 +1478,7 @@ impl TakerSwap {
                         .check_if_my_payment_sent(
                             taker_payment_lock as u32,
                             taker_coin_htlc_keypair.public(),
-                            other_persistent_pub.as_slice(),
+                            other_taker_coin_htlc_pub.as_slice(),
                             &secret_hash,
                             taker_coin_start_block,
                             &taker_coin_swap_contract_address,
@@ -1463,7 +1497,7 @@ impl TakerSwap {
             check_maker_payment_is_not_spent!();
             // has to do this because std::sync::RwLockReadGuard returned by r() is not Send,
             // so it can't be used across await
-            let other_persistent_pub = self.r().other_persistent_pub;
+            let other_maker_coin_htlc_pub = self.r().other_maker_coin_htlc_pub;
             let secret = self.r().secret.0;
             let maker_coin_swap_contract_address = self.r().data.maker_coin_swap_contract_address.clone();
 
@@ -1472,7 +1506,7 @@ impl TakerSwap {
                     .send_taker_spends_maker_payment(
                         &maker_payment,
                         self.maker_payment_lock.load(Ordering::Relaxed) as u32,
-                        other_persistent_pub.as_slice(),
+                        other_maker_coin_htlc_pub.as_slice(),
                         &secret,
                         maker_coin_htlc_keypair.private().secret.as_slice(),
                         &maker_coin_swap_contract_address,
@@ -1492,7 +1526,7 @@ impl TakerSwap {
             self.taker_coin
                 .search_for_swap_tx_spend_my(
                     taker_payment_lock as u32,
-                    other_persistent_pub.as_slice(),
+                    other_taker_coin_htlc_pub.as_slice(),
                     &secret_hash,
                     &taker_payment,
                     taker_coin_start_block,
@@ -1511,7 +1545,7 @@ impl TakerSwap {
                             .send_taker_spends_maker_payment(
                                 &maker_payment,
                                 self.maker_payment_lock.load(Ordering::Relaxed) as u32,
-                                other_persistent_pub.as_slice(),
+                                other_maker_coin_htlc_pub.as_slice(),
                                 &secret,
                                 maker_coin_htlc_keypair.private().secret.as_slice(),
                                 &maker_coin_swap_contract_address,
@@ -1544,7 +1578,7 @@ impl TakerSwap {
                         .send_taker_refunds_payment(
                             &taker_payment,
                             taker_payment_lock as u32,
-                            other_persistent_pub.as_slice(),
+                            other_taker_coin_htlc_pub.as_slice(),
                             &secret_hash,
                             taker_coin_htlc_keypair.private().secret.as_slice(),
                             &taker_coin_swap_contract_address,
