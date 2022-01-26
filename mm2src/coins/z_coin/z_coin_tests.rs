@@ -36,13 +36,20 @@ fn zombie_coin_send_and_refund_maker_payment() {
     let taker_pub = coin.utxo_arc.priv_key_policy.key_pair_or_err().unwrap().public();
     let secret_hash = [0; 20];
     let tx = coin
-        .send_maker_payment(lock_time, &*taker_pub, &secret_hash, "0.01".parse().unwrap(), &None)
+        .send_maker_payment(
+            lock_time,
+            taker_pub,
+            taker_pub,
+            &secret_hash,
+            "0.01".parse().unwrap(),
+            &None,
+        )
         .wait()
         .unwrap();
     println!("swap tx {}", hex::encode(&tx.tx_hash().0));
 
     let refund_tx = coin
-        .send_maker_refunds_payment(&tx.tx_hex(), lock_time, &*taker_pub, &secret_hash, &None)
+        .send_maker_refunds_payment(&tx.tx_hex(), lock_time, &*taker_pub, &secret_hash, &priv_key, &None)
         .wait()
         .unwrap();
     println!("refund tx {}", hex::encode(&refund_tx.tx_hash().0));
@@ -79,14 +86,21 @@ fn zombie_coin_send_and_spend_maker_payment() {
     let secret = [0; 32];
     let secret_hash = dhash160(&secret);
     let tx = coin
-        .send_maker_payment(lock_time, &*taker_pub, &*secret_hash, "0.01".parse().unwrap(), &None)
+        .send_maker_payment(
+            lock_time,
+            taker_pub,
+            taker_pub,
+            &*secret_hash,
+            "0.01".parse().unwrap(),
+            &None,
+        )
         .wait()
         .unwrap();
     println!("swap tx {}", hex::encode(&tx.tx_hash().0));
 
     let maker_pub = taker_pub;
     let spend_tx = coin
-        .send_taker_spends_maker_payment(&tx.tx_hex(), lock_time, &*maker_pub, &secret, &None)
+        .send_taker_spends_maker_payment(&tx.tx_hex(), lock_time, &*maker_pub, &secret, &priv_key, &None)
         .wait()
         .unwrap();
     println!("spend tx {}", hex::encode(&spend_tx.tx_hash().0));
