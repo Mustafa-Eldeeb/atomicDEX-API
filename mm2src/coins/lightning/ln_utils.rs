@@ -27,7 +27,6 @@ cfg_native! {
     use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleArcPeerManager};
     use lightning::routing::network_graph::{NetworkGraph, NetGraphMsgHandler};
     use lightning::routing::scoring::Scorer;
-    use lightning::util::config::UserConfig;
     use lightning::util::ser::ReadableArgs;
     use lightning_background_processor::BackgroundProcessor;
     use lightning_invoice::payment;
@@ -37,7 +36,6 @@ cfg_native! {
     use parking_lot::Mutex as PaMutex;
     use rand::RngCore;
     use rpc::v1::types::H256;
-    use secp256k1::PublicKey;
     use serde_json::Value as Json;
     use std::cmp::Ordering;
     use std::collections::HashMap;
@@ -216,13 +214,6 @@ pub async fn start_lightning(
         }
     }
 
-    let mut user_config = UserConfig::default();
-    // When set to false an incoming channel doesn't have to match our announced channel preference which allows public channels
-    // TODO: Add user config to LightningCoinConf maybe get it from coin config / also add to lightning context
-    user_config
-        .peer_channel_config_limits
-        .force_announced_channel_preference = false;
-
     let mut restarting_node = true;
     // TODO: Right now it's safe to unwrap here, when implementing Native client for lightning whenever filter is used
     // the code it's used in will be a part of the electrum client implementation only
@@ -241,6 +232,7 @@ pub async fn start_lightning(
         sha256d::Hash::from_slice(&best_block.hash.0).map_to_mm(|e| EnableLightningError::HashError(e.to_string()))?,
     );
     let (channel_manager_blockhash, channel_manager) = {
+        let user_config = conf.clone().into();
         if let Ok(mut f) = File::open(format!("{}/manager", ln_data_dir.clone())) {
             let mut channel_monitor_mut_references = Vec::new();
             for (_, channel_monitor) in channelmonitors.iter_mut() {
@@ -855,25 +847,4 @@ async fn ln_node_announcement_loop(
 
         Timer::sleep(BROADCAST_NODE_ANNOUNCEMENT_INTERVAL as f64).await;
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn open_ln_channel(
-    node_pubkey: PublicKey,
-    amount_in_sat: u64,
-    push_msat: u64,
-    events_id: u64,
-    announce_channel: bool,
-    channel_manager: Arc<ChannelManager>,
-) -> OpenChannelResult<[u8; 32]> {
-    // TODO: get user_config from context when it's added to it
-    let mut user_config = UserConfig::default();
-    user_config
-        .peer_channel_config_limits
-        .force_announced_channel_preference = false;
-    user_config.channel_options.announced_channel = announce_channel;
-
-    channel_manager
-        .create_channel(node_pubkey, amount_in_sat, push_msat, events_id, Some(user_config))
-        .map_to_mm(|e| OpenChannelError::FailureToOpenChannel(node_pubkey.to_string(), format!("{:?}", e)))
 }

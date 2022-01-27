@@ -36,6 +36,7 @@ use lightning::ln::channelmanager::ChannelDetails;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning::ln::channelmanager::PaymentId;
 use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
+use lightning::util::config::{ChannelConfig, ChannelHandshakeConfig, ChannelHandshakeLimits, UserConfig};
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_background_processor::BackgroundProcessor;
 #[cfg(not(target_arch = "wasm32"))]
@@ -54,7 +55,7 @@ use ln_events::LightningEventHandler;
 use ln_storage::{last_request_id_path, nodes_data_path, parse_node_info, read_last_request_id_from_file,
                  read_nodes_addresses_from_file, save_last_request_id_to_file, write_nodes_addresses_to_file};
 #[cfg(not(target_arch = "wasm32"))]
-use ln_utils::{open_ln_channel, ChannelManager, InvoicePayer, PeerManager};
+use ln_utils::{ChannelManager, InvoicePayer, PeerManager};
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::Bytes as BytesJson;
 #[cfg(not(target_arch = "wasm32"))] use script::Builder;
@@ -114,6 +115,23 @@ impl PlatformFields {
 pub struct LightningCoinConf {
     ticker: String,
     decimals: u8,
+    accept_inbound_channels: bool,
+    accept_forwards_to_priv_channels: bool,
+    default_channel_options: ChannelConfig,
+    our_channels_config: ChannelHandshakeConfig,
+    counterparty_channel_config_limits: ChannelHandshakeLimits,
+}
+
+impl From<LightningCoinConf> for UserConfig {
+    fn from(conf: LightningCoinConf) -> Self {
+        UserConfig {
+            own_channel_config: conf.our_channels_config,
+            peer_channel_config_limits: conf.counterparty_channel_config_limits,
+            channel_options: conf.default_channel_options,
+            accept_forwards_to_priv_channels: conf.accept_forwards_to_priv_channels,
+            accept_inbound_channels: conf.accept_inbound_channels,
+        }
+    }
 }
 
 impl LightningCoinConf {
@@ -123,7 +141,113 @@ impl LightningCoinConf {
             .map_to_mm(|e| EnableLightningError::InvalidConfiguration(e.to_string()))?;
         let decimals = serde_json::from_value(conf["decimals"].clone())
             .map_to_mm(|e| EnableLightningError::InvalidConfiguration(e.to_string()))?;
-        Ok(LightningCoinConf { ticker, decimals })
+
+        let default_user_config = UserConfig::default();
+        let accept_inbound_channels = serde_json::from_value(conf["accept_inbound_channels"].clone())
+            .unwrap_or(default_user_config.accept_inbound_channels);
+        let accept_forwards_to_priv_channels = serde_json::from_value(conf["accept_forwards_to_priv_channels"].clone())
+            .unwrap_or(default_user_config.accept_forwards_to_priv_channels);
+
+        let default_channel_options = ChannelConfig {
+            forwarding_fee_proportional_millionths: serde_json::from_value(
+                conf["default_channel_options"]["forwarding_fee_proportional_millionths"].clone(),
+            )
+            .unwrap_or(
+                default_user_config
+                    .channel_options
+                    .forwarding_fee_proportional_millionths,
+            ),
+            forwarding_fee_base_msat: serde_json::from_value(
+                conf["default_channel_options"]["forwarding_fee_base_msat"].clone(),
+            )
+            .unwrap_or(default_user_config.channel_options.forwarding_fee_base_msat),
+            cltv_expiry_delta: serde_json::from_value(conf["default_channel_options"]["cltv_expiry_delta"].clone())
+                .unwrap_or(default_user_config.channel_options.cltv_expiry_delta),
+            announced_channel: serde_json::from_value(conf["default_channel_options"]["announced_channel"].clone())
+                .unwrap_or(default_user_config.channel_options.announced_channel),
+            commit_upfront_shutdown_pubkey: serde_json::from_value(
+                conf["default_channel_options"]["commit_upfront_shutdown_pubkey"].clone(),
+            )
+            .unwrap_or(default_user_config.channel_options.commit_upfront_shutdown_pubkey),
+            max_dust_htlc_exposure_msat: serde_json::from_value(
+                conf["default_channel_options"]["max_dust_htlc_exposure_msat"].clone(),
+            )
+            .unwrap_or(default_user_config.channel_options.max_dust_htlc_exposure_msat),
+            force_close_avoidance_max_fee_satoshis: serde_json::from_value(
+                conf["default_channel_options"]["force_close_avoidance_max_fee_satoshis"].clone(),
+            )
+            .unwrap_or(
+                default_user_config
+                    .channel_options
+                    .force_close_avoidance_max_fee_satoshis,
+            ),
+        };
+
+        let our_channels_config = ChannelHandshakeConfig {
+            minimum_depth: serde_json::from_value(conf["our_channels_config"]["minimum_depth"].clone())
+                .unwrap_or(default_user_config.own_channel_config.minimum_depth),
+            our_to_self_delay: serde_json::from_value(conf["our_channels_config"]["our_to_self_delay"].clone())
+                .unwrap_or(default_user_config.own_channel_config.our_to_self_delay),
+            our_htlc_minimum_msat: serde_json::from_value(conf["our_channels_config"]["our_htlc_minimum_msat"].clone())
+                .unwrap_or(default_user_config.own_channel_config.our_htlc_minimum_msat),
+        };
+
+        let counterparty_channel_config_limits = ChannelHandshakeLimits {
+            min_funding_satoshis: serde_json::from_value(
+                conf["counterparty_channel_config_limits"]["min_funding_satoshis"].clone(),
+            )
+            .unwrap_or(default_user_config.peer_channel_config_limits.min_funding_satoshis),
+            max_htlc_minimum_msat: serde_json::from_value(
+                conf["counterparty_channel_config_limits"]["max_htlc_minimum_msat"].clone(),
+            )
+            .unwrap_or(default_user_config.peer_channel_config_limits.max_htlc_minimum_msat),
+            min_max_htlc_value_in_flight_msat: serde_json::from_value(
+                conf["counterparty_channel_config_limits"]["min_max_htlc_value_in_flight_msat"].clone(),
+            )
+            .unwrap_or(
+                default_user_config
+                    .peer_channel_config_limits
+                    .min_max_htlc_value_in_flight_msat,
+            ),
+            max_channel_reserve_satoshis: serde_json::from_value(
+                conf["counterparty_channel_config_limits"]["max_channel_reserve_satoshis"].clone(),
+            )
+            .unwrap_or(
+                default_user_config
+                    .peer_channel_config_limits
+                    .max_channel_reserve_satoshis,
+            ),
+            min_max_accepted_htlcs: serde_json::from_value(
+                conf["counterparty_channel_config_limits"]["min_max_accepted_htlcs"].clone(),
+            )
+            .unwrap_or(default_user_config.peer_channel_config_limits.min_max_accepted_htlcs),
+            max_minimum_depth: serde_json::from_value(
+                conf["counterparty_channel_config_limits"]["max_minimum_depth"].clone(),
+            )
+            .unwrap_or(default_user_config.peer_channel_config_limits.max_minimum_depth),
+            force_announced_channel_preference: serde_json::from_value(
+                conf["counterparty_channel_config_limits"]["force_announced_channel_preference"].clone(),
+            )
+            .unwrap_or(
+                default_user_config
+                    .peer_channel_config_limits
+                    .force_announced_channel_preference,
+            ),
+            their_to_self_delay: serde_json::from_value(
+                conf["counterparty_channel_config_limits"]["their_to_self_delay"].clone(),
+            )
+            .unwrap_or(default_user_config.peer_channel_config_limits.their_to_self_delay),
+        };
+
+        Ok(LightningCoinConf {
+            ticker,
+            decimals,
+            accept_inbound_channels,
+            accept_forwards_to_priv_channels,
+            default_channel_options,
+            our_channels_config,
+            counterparty_channel_config_limits,
+        })
     }
 }
 
@@ -590,8 +714,6 @@ pub enum ChannelOpenAmount {
     Max,
 }
 
-fn get_true() -> bool { true }
-
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct OpenChannelRequest {
@@ -603,8 +725,13 @@ pub struct OpenChannelRequest {
     /// the push_msat amount.
     #[serde(default)]
     pub push_msat: u64,
-    #[serde(default = "get_true")]
-    pub announce_channel: bool,
+    pub proportional_fee_in_millionths_sats: Option<u32>,
+    pub base_fee_msat: Option<u32>,
+    pub cltv_expiry_delta: Option<u16>,
+    pub announced_channel: Option<bool>,
+    pub commit_upfront_shutdown_pubkey: Option<bool>,
+    pub max_dust_htlc_exposure_msat: Option<u64>,
+    pub force_close_avoidance_max_fee_satoshis: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -682,17 +809,42 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
 
     let amount_in_sat = unsigned.outputs[0].value;
     let push_msat = req.push_msat;
-    let announce_channel = req.announce_channel;
     let channel_manager = ln_coin.channel_manager.clone();
+
+    let mut user_config: UserConfig = ln_coin.conf.clone().into();
+
+    if let Some(fee) = req.proportional_fee_in_millionths_sats {
+        user_config.channel_options.forwarding_fee_proportional_millionths = fee;
+    }
+
+    if let Some(fee) = req.base_fee_msat {
+        user_config.channel_options.forwarding_fee_base_msat = fee;
+    }
+
+    if let Some(expiry) = req.cltv_expiry_delta {
+        user_config.channel_options.cltv_expiry_delta = expiry;
+    }
+
+    if let Some(announce) = req.announced_channel {
+        user_config.channel_options.announced_channel = announce;
+    }
+
+    if let Some(commit) = req.commit_upfront_shutdown_pubkey {
+        user_config.channel_options.commit_upfront_shutdown_pubkey = commit;
+    }
+
+    if let Some(dust) = req.max_dust_htlc_exposure_msat {
+        user_config.channel_options.max_dust_htlc_exposure_msat = dust;
+    }
+
+    if let Some(fee) = req.force_close_avoidance_max_fee_satoshis {
+        user_config.channel_options.force_close_avoidance_max_fee_satoshis = fee;
+    }
+
     let temp_channel_id = async_blocking(move || {
-        open_ln_channel(
-            node_pubkey,
-            amount_in_sat,
-            push_msat,
-            request_id,
-            announce_channel,
-            channel_manager,
-        )
+        channel_manager
+            .create_channel(node_pubkey, amount_in_sat, push_msat, request_id, Some(user_config))
+            .map_to_mm(|e| OpenChannelError::FailureToOpenChannel(node_pubkey.to_string(), format!("{:?}", e)))
     })
     .await?;
 
