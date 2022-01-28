@@ -3,7 +3,7 @@ use crate::prelude::*;
 use async_trait::async_trait;
 use coins::lightning::ln_errors::EnableLightningError;
 use coins::lightning::ln_utils::{start_lightning, LightningParams};
-use coins::lightning::{LightningCoin, LightningProtocolConf};
+use coins::lightning::{LightningCoin, LightningCoinConf, LightningProtocolConf};
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::utxo::UtxoCommonOps;
 use coins::{BalanceError, CoinBalance, CoinProtocol, MarketCoinOps, MmCoinEnum};
@@ -13,7 +13,7 @@ use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use ser_error_derive::SerializeErrorType;
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Value as Json;
+use serde_json::{self as json, Value as Json};
 
 const DEFAULT_LISTENING_PORT: u16 = 9735;
 
@@ -79,6 +79,7 @@ pub struct LightningInitResult {
 
 #[derive(Debug)]
 pub enum LightningInitError {
+    InvalidConfiguration(String),
     EnableLightningError(EnableLightningError),
     LightningValidationErr(LightningValidationErr),
     MyBalanceError(BalanceError),
@@ -88,6 +89,7 @@ pub enum LightningInitError {
 impl From<LightningInitError> for EnableL2Error {
     fn from(err: LightningInitError) -> Self {
         match err {
+            LightningInitError::InvalidConfiguration(err) => EnableL2Error::L2ConfigParseError(err),
             LightningInitError::EnableLightningError(enable_err) => match enable_err {
                 EnableLightningError::RpcError(rpc_err) => EnableL2Error::Transport(rpc_err),
                 enable_error => EnableL2Error::Internal(enable_error.to_string()),
@@ -116,8 +118,14 @@ impl L2ActivationOps for LightningCoin {
     type ActivationParams = LightningActivationParams;
     type ProtocolInfo = LightningProtocolConf;
     type ValidatedParams = LightningParams;
+    type CoinConf = LightningCoinConf;
     type ActivationResult = LightningInitResult;
     type ActivationError = LightningInitError;
+
+    fn coin_conf_from_json(json: Json) -> Result<Self::CoinConf, MmError<Self::ActivationError>> {
+        json::from_value::<LightningCoinConf>(json)
+            .map_to_mm(|e| LightningInitError::InvalidConfiguration(e.to_string()))
+    }
 
     fn validate_platform_configuration(
         platform_coin: &Self::PlatformCoin,
@@ -166,7 +174,7 @@ impl L2ActivationOps for LightningCoin {
         platform_coin: Self::PlatformCoin,
         validated_params: Self::ValidatedParams,
         _protocol_conf: Self::ProtocolInfo,
-        coin_conf: Json,
+        coin_conf: Self::CoinConf,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>> {
         let lightning_coin = start_lightning(ctx, platform_coin.clone(), coin_conf, validated_params).await?;
         let address = lightning_coin

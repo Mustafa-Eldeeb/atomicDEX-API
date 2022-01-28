@@ -21,8 +21,11 @@ pub trait L2ActivationOps: Into<MmCoinEnum> {
     type ActivationParams;
     type ProtocolInfo: L2ProtocolParams + TryFromCoinProtocol;
     type ValidatedParams;
+    type CoinConf;
     type ActivationResult;
     type ActivationError: NotMmError;
+
+    fn coin_conf_from_json(json: Json) -> Result<Self::CoinConf, MmError<Self::ActivationError>>;
 
     fn validate_platform_configuration(
         platform_coin: &Self::PlatformCoin,
@@ -37,7 +40,7 @@ pub trait L2ActivationOps: Into<MmCoinEnum> {
         platform_coin: Self::PlatformCoin,
         validated_params: Self::ValidatedParams,
         protocol_conf: Self::ProtocolInfo,
-        coin_conf: Json,
+        coin_conf: Self::CoinConf,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>>;
 }
 
@@ -65,6 +68,8 @@ pub enum EnableL2Error {
         platform_coin_ticker: String,
         l2_ticker: String,
     },
+    #[display(fmt = "Layer 2 configuration parsing failed: {}", _0)]
+    L2ConfigParseError(String),
     Transport(String),
     Internal(String),
 }
@@ -103,7 +108,8 @@ where
         return MmError::err(EnableL2Error::L2IsAlreadyActivated(req.ticker));
     }
 
-    let (coin_conf, l2_protocol): (_, L2::ProtocolInfo) = coin_conf_with_protocol(&ctx, &req.ticker)?;
+    let (coin_conf_json, l2_protocol): (Json, L2::ProtocolInfo) = coin_conf_with_protocol(&ctx, &req.ticker)?;
+    let coin_conf = L2::coin_conf_from_json(coin_conf_json)?;
 
     let platform_coin = lp_coinfind_or_err(&ctx, l2_protocol.platform_coin_ticker())
         .await
@@ -139,6 +145,7 @@ impl HttpStatusCode for EnableL2Error {
             | EnableL2Error::UnexpectedL2Protocol { .. } => StatusCode::BAD_REQUEST,
             EnableL2Error::L2ProtocolParseError { .. }
             | EnableL2Error::UnsupportedPlatformCoin { .. }
+            | EnableL2Error::L2ConfigParseError(_)
             | EnableL2Error::Transport(_)
             | EnableL2Error::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }

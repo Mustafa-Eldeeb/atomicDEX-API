@@ -36,7 +36,6 @@ cfg_native! {
     use parking_lot::Mutex as PaMutex;
     use rand::RngCore;
     use rpc::v1::types::H256;
-    use serde_json::Value as Json;
     use std::cmp::Ordering;
     use std::collections::HashMap;
     use std::convert::TryInto;
@@ -118,7 +117,7 @@ pub struct LightningParams {
 pub async fn start_lightning(
     _ctx: &MmArc,
     _platform_coin: UtxoStandardCoin,
-    _coin_conf: Json,
+    _conf: LightningCoinConf,
     _params: LightningParams,
 ) -> EnableLightningResult<LightningCoin> {
     MmError::err(EnableLightningError::UnsupportedMode(
@@ -131,10 +130,9 @@ pub async fn start_lightning(
 pub async fn start_lightning(
     ctx: &MmArc,
     platform_coin: UtxoStandardCoin,
-    coin_conf: Json,
+    conf: LightningCoinConf,
     params: LightningParams,
 ) -> EnableLightningResult<LightningCoin> {
-    let conf = LightningCoinConf::from_value(coin_conf)?;
     // Todo: add support for Hardware wallets for funding transactions and spending spendable outputs (channel closing transactions)
     if let DerivationMethod::HDWallet(_) = platform_coin.as_ref().derivation_method {
         return MmError::err(EnableLightningError::UnsupportedMode(
