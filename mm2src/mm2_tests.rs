@@ -1,7 +1,7 @@
 use super::{lp_main, LpMainParams};
 use bigdecimal::BigDecimal;
 use common::executor::Timer;
-use common::for_tests::{check_my_swap_status, check_recent_swaps, check_stats_swap_status, enable_lightning,
+use common::for_tests::{check_my_swap_status, check_recent_swaps, check_stats_swap_status,
                         enable_native as enable_native_impl, enable_qrc20, find_metrics_in_json, from_env_file,
                         mm_spat, wait_till_history_has_records, LocalStart, MarketMakerIt, RaiiDump,
                         MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
@@ -55,6 +55,10 @@ macro_rules! local_start {
 
 #[path = "mm2_tests/electrums.rs"] pub mod electrums;
 use electrums::*;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "mm2_tests/lightning_tests.rs"]
+mod lightning_tests;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "mm2_tests/lp_bot_tests.rs"]
@@ -8150,91 +8154,6 @@ fn test_mm2_db_migration() {
         None,
     )
     .unwrap();
-}
-
-#[test]
-#[cfg(not(target_arch = "wasm32"))]
-fn test_enable_lightning() {
-    let seed = "valley embody about obey never adapt gesture trust screen tube glide bread";
-
-    let coins = json! ([
-        {
-            "coin": "tBTC-TEST-segwit",
-            "name": "tbitcoin",
-            "fname": "tBitcoin",
-            "rpcport": 18332,
-            "pubtype": 111,
-            "p2shtype": 196,
-            "wiftype": 239,
-            "segwit": true,
-            "bech32_hrp": "tb",
-            "network": "testnet",
-            "address_format":{"format":"segwit"},
-            "orderbook_ticker": "tBTC-TEST",
-            "txfee": 0,
-            "estimate_fee_mode": "ECONOMICAL",
-            "mm2": 1,
-            "required_confirmations": 0,
-            "protocol": {
-              "type": "UTXO"
-            }
-          },
-          {
-            "coin": "tBTC-TEST-lightning",
-            "mm2": 1,
-            "decimals": 11,
-            "protocol": {
-              "type": "LIGHTNING",
-              "protocol_data":{
-                "platform": "tBTC-TEST-segwit",
-              }
-            }
-          }
-    ]);
-
-    let mm = MarketMakerIt::start(
-        json! ({
-            "gui": "nogui",
-            "netid": 9998,
-            "myipaddr": env::var ("BOB_TRADE_IP") .ok(),
-            "rpcip": env::var ("BOB_TRADE_IP") .ok(),
-            "passphrase": seed.to_string(),
-            "coins": coins,
-            "i_am_seed": true,
-            "rpc_password": "pass",
-        }),
-        "pass".into(),
-        local_start!("bob"),
-    )
-    .unwrap();
-    let (_dump_log, _dump_dashboard) = mm.mm_dump();
-    log!({ "log path: {}", mm.log_path.display() });
-
-    let electrum = block_on(mm.rpc(json!({
-        "userpass": mm.userpass,
-        "method": "electrum",
-        "coin": "tBTC-TEST-segwit",
-        "servers": [{"url":"electrum1.cipig.net:10068"},{"url":"electrum2.cipig.net:10068"},{"url":"electrum3.cipig.net:10068"}],
-        "mm2": 1,
-    }))).unwrap();
-    assert_eq!(
-        electrum.0,
-        StatusCode::OK,
-        "RPC «electrum» failed with {} {}",
-        electrum.0,
-        electrum.1
-    );
-
-    let enable_lightning = block_on(enable_lightning(&mm, "tBTC-TEST-lightning"));
-    assert_eq!(enable_lightning["result"]["platform_coin"], "tBTC-TEST-segwit");
-    assert_eq!(
-        enable_lightning["result"]["address"],
-        "02ce55b18d617bf4ac27b0f045301a0bb4e71669ae45cb5f2529f2f217520ffca1"
-    );
-    assert_eq!(enable_lightning["result"]["balance"]["spendable"], "0");
-    assert_eq!(enable_lightning["result"]["balance"]["unspendable"], "0");
-
-    block_on(mm.stop()).unwrap();
 }
 
 #[test]

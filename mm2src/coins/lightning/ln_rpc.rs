@@ -1,9 +1,12 @@
 use super::*;
-use crate::utxo::rpc_clients::{BlockHashOrHeight, EstimateFeeMethod};
+use crate::utxo::rpc_clients::BlockHashOrHeight;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::utxo::rpc_clients::EstimateFeeMethod;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::rpc_clients::{ElectrumClient, UtxoRpcClientEnum};
 use crate::utxo::utxo_standard::UtxoStandardCoin;
-use crate::{MarketCoinOps, MmCoin};
+use crate::MarketCoinOps;
+#[cfg(not(target_arch = "wasm32"))] use crate::MmCoin;
 #[cfg(not(target_arch = "wasm32"))]
 use bitcoin::blockdata::block::BlockHeader;
 use bitcoin::blockdata::script::Script;
@@ -16,12 +19,14 @@ use common::log;
 #[cfg(not(target_arch = "wasm32"))] use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use keys::hash::H256;
-use lightning::chain::{chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator},
-                       Filter, WatchedOutput};
+#[cfg(not(target_arch = "wasm32"))]
+use lightning::chain::chaininterface::{ConfirmationTarget, FeeEstimator};
+use lightning::chain::{chaininterface::BroadcasterInterface, Filter, WatchedOutput};
 use rpc::v1::types::H256 as H256Json;
-use std::cmp;
+#[cfg(not(target_arch = "wasm32"))] use std::cmp;
 use std::convert::TryFrom;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl FeeEstimator for UtxoStandardCoin {
     // Gets estimated satoshis of fee required per 1000 Weight-Units.
     fn get_est_sat_per_1000_weight(&self, confirmation_target: ConfirmationTarget) -> u32 {
@@ -44,19 +49,20 @@ impl FeeEstimator for UtxoStandardCoin {
             // fetch high priority feerate
             ConfirmationTarget::HighPriority => 1,
         };
-        let fee_per_kb = self
-            .as_ref()
-            .rpc_client
-            .estimate_fee_sat(
-                self.decimals(),
-                // Todo: when implementing Native client detect_fee_method should be used for Native and
-                // EstimateFeeMethod::Standard for Electrum
-                &EstimateFeeMethod::Standard,
-                &conf.estimate_fee_mode,
-                n_blocks,
-            )
-            .wait()
-            .unwrap_or(default_fee);
+        let fee_per_kb = tokio::task::block_in_place(move || {
+            self.as_ref()
+                .rpc_client
+                .estimate_fee_sat(
+                    self.decimals(),
+                    // Todo: when implementing Native client detect_fee_method should be used for Native and
+                    // EstimateFeeMethod::Standard for Electrum
+                    &EstimateFeeMethod::Standard,
+                    &conf.estimate_fee_mode,
+                    n_blocks,
+                )
+                .wait()
+                .unwrap_or(default_fee)
+        });
         cmp::max((fee_per_kb as f64 / 4.0).ceil() as u32, 253)
     }
 }

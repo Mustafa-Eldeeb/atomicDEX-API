@@ -22,7 +22,7 @@ pub async fn ln_p2p_loop(peer_manager: Arc<PeerManager>, listener: TcpListener) 
         if let Ok(stream) = tcp_stream.into_std() {
             spawn(async move {
                 lightning_net_tokio::setup_inbound(peer_mgr.clone(), stream).await;
-            })
+            });
         };
     }
 }
