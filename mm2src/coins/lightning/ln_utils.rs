@@ -1,4 +1,5 @@
 use super::*;
+use crate::lightning::ln_conf::LightningCoinConf;
 use crate::utxo::utxo_standard::UtxoStandardCoin;
 use common::mm_ctx::MmArc;
 

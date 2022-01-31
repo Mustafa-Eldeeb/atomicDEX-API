@@ -1,9 +1,10 @@
 use crate::l2::{EnableL2Error, L2ActivationOps, L2ProtocolParams};
 use crate::prelude::*;
 use async_trait::async_trait;
+use coins::lightning::ln_conf::{LightningCoinConf, LightningProtocolConf};
 use coins::lightning::ln_errors::EnableLightningError;
 use coins::lightning::ln_utils::{start_lightning, LightningParams};
-use coins::lightning::{LightningCoin, LightningCoinConf, LightningProtocolConf};
+use coins::lightning::LightningCoin;
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::utxo::UtxoCommonOps;
 use coins::{BalanceError, CoinBalance, CoinProtocol, MarketCoinOps, MmCoinEnum};
