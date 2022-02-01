@@ -373,10 +373,7 @@ mod tests {
             first_item_id
         };
 
-        match saved_swap {
-            SavedSwap::Maker(ref mut maker_saved_swap) => maker_saved_swap.hide_secrets(),
-            _ => panic!(),
-        }
+        saved_swap.hide_secrets();
 
         let second_saved_item = SavedSwapTable {
             uuid: *saved_swap.uuid(),
