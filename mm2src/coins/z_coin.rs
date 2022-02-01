@@ -713,7 +713,7 @@ impl MarketCoinOps for ZCoin {
 
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
 
-    fn is_private(&self) -> bool { true }
+    fn is_privacy(&self) -> bool { true }
 }
 
 #[async_trait]

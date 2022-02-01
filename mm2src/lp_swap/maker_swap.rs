@@ -388,14 +388,14 @@ impl MakerSwap {
         let maker_coin_swap_contract_address = self.maker_coin.swap_contract_address();
         let taker_coin_swap_contract_address = self.taker_coin.swap_contract_address();
 
-        let maker_coin_htlc_privkey = if self.maker_coin.is_private() {
+        let maker_coin_htlc_privkey = if self.maker_coin.is_privacy() {
             let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
             Some((*secp_privkey.as_ref()).into())
         } else {
             None
         };
 
-        let taker_coin_htlc_privkey = if self.taker_coin.is_private() {
+        let taker_coin_htlc_privkey = if self.taker_coin.is_privacy() {
             let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
             Some((*secp_privkey.as_ref()).into())
         } else {
@@ -1502,14 +1502,6 @@ impl MakerSavedSwap {
         }
     }
 
-    pub fn hide_secret(&mut self) {
-        if let Some(ref mut event) = self.events.first_mut() {
-            if let MakerSwapEvent::Started(ref mut data) = event.event {
-                data.secret = H256Json::default();
-            }
-        }
-    }
-
     pub fn is_recoverable(&self) -> bool {
         if !self.is_finished() {
             return false;
@@ -1653,6 +1645,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
     subscribe_to_topic(&ctx, swap_topic(&swap.uuid));
     let mut status = ctx.log.status_handle();
     let uuid_str = swap.uuid.to_string();
+    let to_broadcast =  !(swap.maker_coin.is_privacy() || swap.taker_coin.is_privacy());
     macro_rules! swap_tags {
         () => {
             &[&"swap", &("uuid", uuid_str.as_str())]
@@ -1703,8 +1696,10 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                         command = c;
                     },
                     None => {
-                        if let Err(e) = broadcast_my_swap_status(&ctx, uuid).await {
-                            log!("!broadcast_my_swap_status(" (uuid) "): " (e));
+                        if to_broadcast {
+                            if let Err(e) = broadcast_my_swap_status(&ctx, uuid).await {
+                                log!("!broadcast_my_swap_status(" (uuid) "): " (e));
+                            }
                         }
                         break;
                     },

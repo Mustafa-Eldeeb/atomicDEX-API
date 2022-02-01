@@ -338,6 +338,7 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
     subscribe_to_topic(&ctx, swap_topic(&swap.uuid));
     let mut status = ctx.log.status_handle();
     let uuid = swap.uuid.to_string();
+    let to_broadcast =  !(swap.maker_coin.is_privacy() || swap.taker_coin.is_privacy());
     let running_swap = Arc::new(swap);
     let weak_ref = Arc::downgrade(&running_swap);
     let swap_ctx = SwapsContext::from_ctx(&ctx).unwrap();
@@ -377,8 +378,10 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                         command = c;
                     },
                     None => {
-                        if let Err(e) = broadcast_my_swap_status(&ctx, running_swap.uuid).await {
-                            log!("!broadcast_my_swap_status(" (uuid) "): " (e));
+                        if to_broadcast {
+                            if let Err(e) = broadcast_my_swap_status(&ctx, running_swap.uuid).await {
+                                log!("!broadcast_my_swap_status(" (uuid) "): " (e));
+                            }
                         }
                         break;
                     },
@@ -813,14 +816,14 @@ impl TakerSwap {
         let maker_coin_swap_contract_address = self.maker_coin.swap_contract_address();
         let taker_coin_swap_contract_address = self.taker_coin.swap_contract_address();
 
-        let maker_coin_htlc_privkey = if self.maker_coin.is_private() {
+        let maker_coin_htlc_privkey = if self.maker_coin.is_privacy() {
             let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
             Some((*secp_privkey.as_ref()).into())
         } else {
             None
         };
 
-        let taker_coin_htlc_privkey = if self.taker_coin.is_private() {
+        let taker_coin_htlc_privkey = if self.taker_coin.is_privacy() {
             let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
             Some((*secp_privkey.as_ref()).into())
         } else {

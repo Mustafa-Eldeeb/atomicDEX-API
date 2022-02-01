@@ -1332,7 +1332,7 @@ impl<'a> TakerOrderBuilder<'a> {
             TakerAction::Sell => &self.base_coin,
         };
 
-        let p2p_privkey = if my_coin.is_private() {
+        let p2p_privkey = if my_coin.is_privacy() {
             let mut rng = rand6::thread_rng();
             let priv_key = SecretKey::new(&mut rng);
             Some((*priv_key.as_ref()).into())
@@ -1779,7 +1779,7 @@ impl<'a> MakerOrderBuilder<'a> {
 
         let created_at = now_ms();
 
-        let p2p_privkey = if self.base_coin.is_private() {
+        let p2p_privkey = if self.base_coin.is_privacy() {
             let mut rng = rand6::thread_rng();
             let priv_key = SecretKey::new(&mut rng);
             Some((*priv_key.as_ref()).into())

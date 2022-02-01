@@ -796,10 +796,7 @@ async fn broadcast_my_swap_status(ctx: &MmArc, uuid: Uuid) -> Result<(), String>
         Some(status) => status,
         None => return ERR!("swap data is not found"),
     };
-    match status {
-        SavedSwap::Taker(_) => (), // do nothing for taker
-        SavedSwap::Maker(ref mut swap) => swap.hide_secret(),
-    };
+    status.hide_secrets();
 
     #[cfg(not(target_arch = "wasm32"))]
     try_s!(save_stats_swap(ctx, &status).await);
