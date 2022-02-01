@@ -1333,15 +1333,11 @@ async fn trade_base_rel_electrum(
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-fn trade_test_electrum_and_eth_coins() {
-    block_on(trade_base_rel_electrum(&[("ETH", "JST")], 1, 2, 0.1));
-}
+fn trade_test_electrum_and_eth_coins() { block_on(trade_base_rel_electrum(&[("ETH", "JST")], 1, 2, 0.1)); }
 
 #[test]
 #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
-fn trade_test_electrum_rick_zombie() {
-    block_on(trade_base_rel_electrum(&[("RICK", "ZOMBIE")], 1, 2, 0.1));
-}
+fn trade_test_electrum_rick_zombie() { block_on(trade_base_rel_electrum(&[("RICK", "ZOMBIE")], 1, 2, 0.1)); }
 
 #[wasm_bindgen_test]
 #[cfg(target_arch = "wasm32")]
