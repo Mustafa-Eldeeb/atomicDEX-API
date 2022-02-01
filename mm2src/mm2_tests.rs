@@ -1295,7 +1295,7 @@ async fn trade_base_rel_electrum(
     log!("Waiting 3 seconds for nodes to broadcast their swaps data..");
     Timer::sleep(3.).await;
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "zhtlc")))]
     for uuid in uuids.iter() {
         log!("Checking alice status..");
         check_stats_swap_status(&mm_alice, uuid, &MAKER_SUCCESS_EVENTS, &TAKER_SUCCESS_EVENTS).await;
