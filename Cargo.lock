@@ -820,7 +820,7 @@ dependencies = [
  "lightning-background-processor",
  "lightning-invoice",
  "lightning-net-tokio",
- "lightning-persister",
+ "lightning-persister 0.0.104",
  "metrics",
  "mocktopus",
  "num-traits 0.2.12",
@@ -2937,7 +2937,7 @@ checksum = "8fe8419b773e4f212faa21bf7fe493746aeb69284d396a263215c3a4131a0a5f"
 dependencies = [
  "bitcoin",
  "lightning",
- "lightning-persister",
+ "lightning-persister 0.0.104 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2962,6 +2962,16 @@ dependencies = [
  "bitcoin",
  "lightning",
  "tokio",
+]
+
+[[package]]
+name = "lightning-persister"
+version = "0.0.104"
+dependencies = [
+ "bitcoin",
+ "libc",
+ "lightning",
+ "winapi",
 ]
 
 [[package]]

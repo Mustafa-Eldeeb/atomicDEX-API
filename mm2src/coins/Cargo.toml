@@ -86,7 +86,7 @@ web-sys = { version = "0.3.55", features = ["console", "Headers", "Request", "Re
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dirs = { version = "1" }
 lightning-background-processor = "0.0.104"
-lightning-persister = "0.0.104"
+lightning-persister = { path = "lightning_persister" }
 lightning-net-tokio = "0.0.104"
 rusqlite = { version = "0.24.2", features = ["bundled"], optional = true }
 rust-ini = { version = "0.13" }
