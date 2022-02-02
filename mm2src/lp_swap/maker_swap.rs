@@ -20,12 +20,12 @@ use common::mm_error::prelude::*;
 use common::privkey::key_pair_from_secret;
 use common::{bits256, executor::Timer, mm_ctx::MmArc, mm_number::MmNumber, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use futures::{compat::Future01CompatExt, select, FutureExt};
-use keys::KeyPair;
+use keys::{KeyPair, SECP_SIGN};
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::H264;
 use rand::Rng;
 use rpc::v1::types::{Bytes as BytesJson, H160 as H160Json, H256 as H256Json, H264 as H264Json};
-use secp256k1::SecretKey;
+use secp256k1::{PublicKey, SecretKey};
 use std::any::TypeId;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -146,8 +146,13 @@ pub struct MakerSwapData {
     pub taker_coin_swap_contract_address: Option<BytesJson>,
     /// Temporary privkey used in HTLC redeem script when applicable for maker coin
     pub maker_coin_htlc_privkey: Option<H256Json>,
+    /// Temporary pubkey used in HTLC redeem script when applicable for maker coin
+    pub maker_coin_htlc_pubkey: Option<H264Json>,
     /// Temporary privkey used in HTLC redeem script when applicable for taker coin
     pub taker_coin_htlc_privkey: Option<H256Json>,
+    /// Temporary pubkey used in HTLC redeem script when applicable for taker coin
+    pub taker_coin_htlc_pubkey: Option<H264Json>,
+    /// Temporary privkey used to sign P2P messages when applicable
     /// Temporary privkey used to sign P2P messages when applicable
     pub p2p_privkey: Option<H256Json>,
 }
@@ -388,18 +393,20 @@ impl MakerSwap {
         let maker_coin_swap_contract_address = self.maker_coin.swap_contract_address();
         let taker_coin_swap_contract_address = self.taker_coin.swap_contract_address();
 
-        let maker_coin_htlc_privkey = if self.maker_coin.is_privacy() {
+        let (maker_coin_htlc_privkey, maker_coin_htlc_pubkey) = if self.maker_coin.is_privacy() {
             let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
-            Some((*secp_privkey.as_ref()).into())
+            let secp_pubkey = PublicKey::from_secret_key(&SECP_SIGN, &secp_privkey).serialize();
+            (Some((*secp_privkey.as_ref()).into()), Some(secp_pubkey.into()))
         } else {
-            None
+            (None, None)
         };
 
-        let taker_coin_htlc_privkey = if self.taker_coin.is_privacy() {
+        let (taker_coin_htlc_privkey, taker_coin_htlc_pubkey) = if self.taker_coin.is_privacy() {
             let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
-            Some((*secp_privkey.as_ref()).into())
+            let secp_pubkey = PublicKey::from_secret_key(&SECP_SIGN, &secp_privkey).serialize();
+            (Some((*secp_privkey.as_ref()).into()), Some(secp_pubkey.into()))
         } else {
-            None
+            (None, None)
         };
 
         let data = MakerSwapData {
@@ -426,7 +433,9 @@ impl MakerSwap {
             maker_coin_swap_contract_address,
             taker_coin_swap_contract_address,
             maker_coin_htlc_privkey,
+            maker_coin_htlc_pubkey,
             taker_coin_htlc_privkey,
+            taker_coin_htlc_pubkey,
             p2p_privkey: self.p2p_privkey,
         };
 
@@ -1434,7 +1443,9 @@ impl MakerSavedSwap {
                 maker_coin_swap_contract_address: None,
                 taker_coin_swap_contract_address: None,
                 maker_coin_htlc_privkey: None,
+                maker_coin_htlc_pubkey: None,
                 taker_coin_htlc_privkey: None,
+                taker_coin_htlc_pubkey: None,
                 p2p_privkey: None,
             }),
         });

@@ -145,7 +145,9 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
         maker_coin_swap_contract_address: negotiated_event.maker_coin_swap_contract_addr.clone(),
         taker_coin_swap_contract_address: negotiated_event.taker_coin_swap_contract_addr.clone(),
         maker_coin_htlc_privkey: None,
+        maker_coin_htlc_pubkey: negotiated_event.maker_coin_htlc_pubkey,
         taker_coin_htlc_privkey: None,
+        taker_coin_htlc_pubkey: negotiated_event.taker_coin_htlc_pubkey,
         p2p_privkey: None,
     });
     maker_swap.events.push(MakerSavedEvent {
@@ -160,8 +162,8 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
         taker_pubkey: started_event.my_persistent_pub,
         maker_coin_swap_contract_addr: negotiated_event.maker_coin_swap_contract_addr,
         taker_coin_swap_contract_addr: negotiated_event.taker_coin_swap_contract_addr,
-        maker_coin_htlc_pubkey: None,
-        taker_coin_htlc_pubkey: None,
+        maker_coin_htlc_pubkey: started_event.maker_coin_htlc_pubkey,
+        taker_coin_htlc_pubkey: started_event.taker_coin_htlc_pubkey,
     });
     maker_swap.events.push(MakerSavedEvent {
         timestamp: negotiated_event_timestamp,
@@ -335,7 +337,9 @@ async fn recreate_taker_swap(ctx: MmArc, maker_swap: MakerSavedSwap) -> Recreate
         maker_coin_swap_contract_address: negotiated_event.maker_coin_swap_contract_addr.clone(),
         taker_coin_swap_contract_address: negotiated_event.taker_coin_swap_contract_addr.clone(),
         maker_coin_htlc_privkey: None,
+        maker_coin_htlc_pubkey: negotiated_event.maker_coin_htlc_pubkey,
         taker_coin_htlc_privkey: None,
+        taker_coin_htlc_pubkey: negotiated_event.taker_coin_htlc_pubkey,
         p2p_privkey: None,
     });
     taker_swap.events.push(TakerSavedEvent {
@@ -353,8 +357,8 @@ async fn recreate_taker_swap(ctx: MmArc, maker_swap: MakerSavedSwap) -> Recreate
         secret_hash,
         maker_coin_swap_contract_addr: negotiated_event.maker_coin_swap_contract_addr,
         taker_coin_swap_contract_addr: negotiated_event.taker_coin_swap_contract_addr,
-        maker_coin_htlc_pubkey: None,
-        taker_coin_htlc_pubkey: None,
+        maker_coin_htlc_pubkey: started_event.maker_coin_htlc_pubkey,
+        taker_coin_htlc_pubkey: started_event.taker_coin_htlc_pubkey,
     });
     taker_swap.events.push(TakerSavedEvent {
         timestamp: negotiated_timestamp,
