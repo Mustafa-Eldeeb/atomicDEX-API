@@ -57,14 +57,13 @@ use web3::{self, Web3};
 use super::{BalanceError, BalanceFut, CoinBalance, CoinProtocol, CoinTransportMetrics, CoinsContext, FeeApproxStage,
             FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError,
             NumConversResult, RpcClientType, RpcTransportEventHandler, RpcTransportEventHandlerShared, SwapOps,
-            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageValue, Transaction, TransactionDetails,
-            TransactionEnum, TransactionFut, ValidateAddressResult, WithdrawError, WithdrawFee, WithdrawFut,
-            WithdrawRequest, WithdrawResult};
+            TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction,
+            TransactionDetails, TransactionEnum, TransactionFut, ValidateAddressResult, WithdrawError, WithdrawFee,
+            WithdrawFut, WithdrawRequest, WithdrawResult};
 pub use ethcore_transaction::SignedTransaction as SignedEthTx;
 pub use rlp;
 
 mod web3_transport;
-use crate::TradePreimageResult;
 use common::mm_number::MmNumber;
 use web3_transport::{EthFeeHistoryNamespace, Web3Transport};
 

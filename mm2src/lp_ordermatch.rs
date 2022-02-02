@@ -30,6 +30,7 @@ use common::log::{error, LogOnError};
 use common::mm_ctx::{from_ctx, MmArc, MmWeak};
 use common::mm_error::prelude::*;
 use common::mm_number::{Fraction, MmNumber};
+use common::privkey::key_pair_from_secret;
 use common::time_cache::TimeCache;
 use common::{bits256, log, new_uuid, now_ms};
 use crypto::CryptoCtx;
@@ -65,7 +66,6 @@ use crate::mm2::lp_swap::{calc_max_maker_vol, check_balance_for_maker_swap, chec
                           RunMakerSwapInput, RunTakerSwapInput, SwapConfirmationsSettings, TakerSwap};
 
 pub use best_orders::best_orders_rpc;
-use common::privkey::key_pair_from_secret;
 use my_orders_storage::{delete_my_maker_order, delete_my_taker_order, save_maker_order_on_update,
                         save_my_new_maker_order, save_my_new_taker_order, MyActiveOrders, MyOrdersFilteringHistory,
                         MyOrdersHistory, MyOrdersStorage};
@@ -1954,7 +1954,7 @@ impl From<TakerOrder> for MakerOrder {
                 save_in_history: taker_order.save_in_history,
                 base_orderbook_ticker: taker_order.base_orderbook_ticker,
                 rel_orderbook_ticker: taker_order.rel_orderbook_ticker,
-                p2p_privkey: None,
+                p2p_privkey: taker_order.p2p_privkey,
             },
             // The "buy" taker order is recreated with reversed pair as Maker order is always considered as "sell"
             TakerAction::Buy => {
@@ -1976,7 +1976,7 @@ impl From<TakerOrder> for MakerOrder {
                     save_in_history: taker_order.save_in_history,
                     base_orderbook_ticker: taker_order.rel_orderbook_ticker,
                     rel_orderbook_ticker: taker_order.base_orderbook_ticker,
-                    p2p_privkey: None,
+                    p2p_privkey: taker_order.p2p_privkey,
                 }
             },
         }

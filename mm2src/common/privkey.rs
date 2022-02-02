@@ -94,6 +94,10 @@ pub fn key_pair_from_seed(seed: &str) -> PrivKeyResult<KeyPair> {
 }
 
 pub fn key_pair_from_secret(secret: &[u8]) -> PrivKeyResult<KeyPair> {
+    if secret.len() != 32 {
+        return MmError::err(PrivKeyError::InvalidPrivKey(KeysError::InvalidPrivate));
+    }
+
     let private = Private {
         prefix: 0,
         secret: secret.into(),
