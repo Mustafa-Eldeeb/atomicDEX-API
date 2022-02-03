@@ -1,6 +1,7 @@
 use super::{CoinBalance, HistorySyncState, MarketCoinOps, MmCoin, SwapOps, TradeFee, TransactionEnum, TransactionFut};
 use crate::{BalanceFut, FeeApproxStage, FoundSwapTxSpend, NegotiateSwapContractAddrErr, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, ValidateAddressResult, WithdrawFut, WithdrawRequest};
+            TradePreimageResult, TradePreimageValue, ValidateAddressResult, ValidatePaymentInput, WithdrawFut,
+            WithdrawRequest};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use common::mm_ctx::MmArc;
@@ -164,26 +165,14 @@ impl SwapOps for TestCoin {
 
     fn validate_maker_payment(
         &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        maker_pub: &[u8],
-        taker_pub: &[u8],
-        priv_bn_hash: &[u8],
-        amount: BigDecimal,
-        swap_contract_address: &Option<BytesJson>,
+        _input: ValidatePaymentInput,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
         unimplemented!()
     }
 
     fn validate_taker_payment(
         &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        taker_pub: &[u8],
-        maker_pub: &[u8],
-        priv_bn_hash: &[u8],
-        amount: BigDecimal,
-        swap_contract_address: &Option<BytesJson>,
+        _input: ValidatePaymentInput,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
         unimplemented!()
     }

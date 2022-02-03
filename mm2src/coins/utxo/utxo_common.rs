@@ -3,7 +3,8 @@ use crate::init_withdraw::WithdrawTaskHandle;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
 use crate::utxo::utxo_withdraw::{InitUtxoWithdraw, StandardUtxoWithdraw, UtxoWithdraw};
-use crate::{CanRefundHtlc, CoinBalance, TradePreimageValue, TxFeeDetails, ValidateAddressResult, WithdrawResult};
+use crate::{CanRefundHtlc, CoinBalance, TradePreimageValue, TxFeeDetails, ValidateAddressResult, ValidatePaymentInput,
+            WithdrawResult};
 use bigdecimal::{BigDecimal, Zero};
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
 use chain::constants::SEQUENCE_FINAL;
@@ -1225,57 +1226,47 @@ where
 
 pub fn validate_maker_payment<T>(
     coin: &T,
-    payment_tx: &[u8],
-    time_lock: u32,
-    maker_pub: &[u8],
-    taker_pub: &[u8],
-    priv_bn_hash: &[u8],
-    amount: BigDecimal,
+    input: ValidatePaymentInput,
 ) -> Box<dyn Future<Item = (), Error = String> + Send>
 where
     T: AsRef<UtxoCoinFields> + Clone + Send + Sync + 'static,
 {
-    let my_public = try_fus!(Public::from_slice(taker_pub));
-    let mut tx: UtxoTx = try_fus!(deserialize(payment_tx).map_err(|e| ERRL!("{:?}", e)));
+    let my_public = try_fus!(Public::from_slice(&input.taker_pub));
+    let mut tx: UtxoTx = try_fus!(deserialize(input.payment_tx.as_slice()).map_err(|e| ERRL!("{:?}", e)));
     tx.tx_hash_algo = coin.as_ref().tx_hash_algo;
 
     validate_payment(
         coin.clone(),
         tx,
         DEFAULT_SWAP_VOUT,
-        &try_fus!(Public::from_slice(maker_pub)),
+        &try_fus!(Public::from_slice(&input.maker_pub)),
         &my_public,
-        priv_bn_hash,
-        amount,
-        time_lock,
+        &input.secret_hash,
+        input.amount,
+        input.time_lock,
     )
 }
 
 pub fn validate_taker_payment<T>(
     coin: &T,
-    payment_tx: &[u8],
-    time_lock: u32,
-    taker_pub: &[u8],
-    maker_pub: &[u8],
-    priv_bn_hash: &[u8],
-    amount: BigDecimal,
+    input: ValidatePaymentInput,
 ) -> Box<dyn Future<Item = (), Error = String> + Send>
 where
     T: AsRef<UtxoCoinFields> + Clone + Send + Sync + 'static,
 {
-    let my_public = try_fus!(Public::from_slice(maker_pub));
-    let mut tx: UtxoTx = try_fus!(deserialize(payment_tx).map_err(|e| ERRL!("{:?}", e)));
+    let my_public = try_fus!(Public::from_slice(&input.maker_pub));
+    let mut tx: UtxoTx = try_fus!(deserialize(input.payment_tx.as_slice()).map_err(|e| ERRL!("{:?}", e)));
     tx.tx_hash_algo = coin.as_ref().tx_hash_algo;
 
     validate_payment(
         coin.clone(),
         tx,
         DEFAULT_SWAP_VOUT,
-        &try_fus!(Public::from_slice(taker_pub)),
+        &try_fus!(Public::from_slice(&input.taker_pub)),
         &my_public,
-        priv_bn_hash,
-        amount,
-        time_lock,
+        &input.secret_hash,
+        input.amount,
+        input.time_lock,
     )
 }
 

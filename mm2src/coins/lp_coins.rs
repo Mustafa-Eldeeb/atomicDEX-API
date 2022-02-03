@@ -236,6 +236,17 @@ pub enum NegotiateSwapContractAddrErr {
     NoOtherAddrAndNoFallback,
 }
 
+#[derive(Clone, Debug)]
+pub struct ValidatePaymentInput {
+    pub payment_tx: Vec<u8>,
+    pub time_lock: u32,
+    pub taker_pub: Vec<u8>,
+    pub maker_pub: Vec<u8>,
+    pub secret_hash: Vec<u8>,
+    pub amount: BigDecimal,
+    pub swap_contract_address: Option<BytesJson>,
+}
+
 /// Swap operations (mostly based on the Hash/Time locked transactions implemented by coin wallets).
 #[async_trait]
 pub trait SwapOps {
@@ -311,29 +322,9 @@ pub trait SwapOps {
         uuid: &[u8],
     ) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
-    #[allow(clippy::too_many_arguments)]
-    fn validate_maker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        maker_pub: &[u8],
-        taker_pub: &[u8],
-        priv_bn_hash: &[u8],
-        amount: BigDecimal,
-        swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send>;
+    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
-    #[allow(clippy::too_many_arguments)]
-    fn validate_taker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        taker_pub: &[u8],
-        maker_pub: &[u8],
-        priv_bn_hash: &[u8],
-        amount: BigDecimal,
-        swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send>;
+    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
     fn check_if_my_payment_sent(
         &self,

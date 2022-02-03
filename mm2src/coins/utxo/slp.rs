@@ -12,8 +12,8 @@ use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualTxFee, Addit
 use crate::{BalanceFut, CoinBalance, DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend, HistorySyncState,
             MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, NumConversError, PrivKeyNotAllowed, SwapOps,
             TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
-            TransactionDetails, TransactionEnum, TransactionFut, TxFeeDetails, ValidateAddressResult, WithdrawError,
-            WithdrawFee, WithdrawFut, WithdrawRequest};
+            TransactionDetails, TransactionEnum, TransactionFut, TxFeeDetails, ValidateAddressResult,
+            ValidatePaymentInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest};
 
 use async_trait::async_trait;
 use bitcrypto::dhash160;
@@ -1334,20 +1334,14 @@ impl SwapOps for SlpToken {
         Box::new(fut.boxed().compat())
     }
 
-    fn validate_maker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        maker_pub: &[u8],
-        taker_pub: &[u8],
-        secret_hash: &[u8],
-        amount: BigDecimal,
-        _swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let maker_pub = try_fus!(Public::from_slice(maker_pub));
-        let taker_pub = try_fus!(Public::from_slice(taker_pub));
-        let tx = payment_tx.to_owned();
-        let secret_hash = secret_hash.to_owned();
+    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        let maker_pub = try_fus!(Public::from_slice(&input.maker_pub));
+        let taker_pub = try_fus!(Public::from_slice(&input.taker_pub));
+        let tx = input.payment_tx.to_owned();
+        let secret_hash = input.secret_hash.to_owned();
+        let time_lock = input.time_lock;
+        let amount = input.amount;
+
         let coin = self.clone();
         let fut = async move {
             try_s!(
@@ -1359,25 +1353,22 @@ impl SwapOps for SlpToken {
         Box::new(fut.boxed().compat())
     }
 
-    fn validate_taker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        taker_pub: &[u8],
-        maker_pub: &[u8],
-        secret_hash: &[u8],
-        amount: BigDecimal,
-        _swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let taker_pub = try_fus!(Public::from_slice(taker_pub));
-        let maker_pub = try_fus!(Public::from_slice(maker_pub));
-        let tx = payment_tx.to_owned();
-        let secret_hash = secret_hash.to_owned();
+    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        let taker_pub = try_fus!(Public::from_slice(&input.taker_pub));
+        let maker_pub = try_fus!(Public::from_slice(&input.maker_pub));
+
         let coin = self.clone();
         let fut = async move {
             try_s!(
-                coin.validate_htlc(&tx, &taker_pub, &maker_pub, time_lock, &secret_hash, amount)
-                    .await
+                coin.validate_htlc(
+                    &input.payment_tx,
+                    &taker_pub,
+                    &maker_pub,
+                    input.time_lock,
+                    &input.secret_hash,
+                    input.amount
+                )
+                .await
             );
             Ok(())
         };

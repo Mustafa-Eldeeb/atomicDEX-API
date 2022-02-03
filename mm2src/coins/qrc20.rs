@@ -14,7 +14,7 @@ use crate::{BalanceError, BalanceFut, CoinBalance, DerivationMethodNotSupported,
             HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr, PrivKeyNotAllowed, SwapOps,
             TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue,
             TransactionDetails, TransactionEnum, TransactionFut, TransactionType, ValidateAddressResult,
-            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
+            ValidatePaymentInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcrypto::{dhash160, sha256};
@@ -864,30 +864,20 @@ impl SwapOps for Qrc20Coin {
         Box::new(fut.boxed().compat())
     }
 
-    fn validate_maker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        maker_pub: &[u8],
-        _taker_pub: &[u8],
-        secret_hash: &[u8],
-        amount: BigDecimal,
-        swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let payment_tx: UtxoTx = try_fus!(deserialize(payment_tx).map_err(|e| ERRL!("{:?}", e)));
-        let sender = try_fus!(self.contract_address_from_raw_pubkey(maker_pub));
-        let secret_hash = secret_hash.to_vec();
-        let swap_contract_address = try_fus!(swap_contract_address.try_to_address());
+    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        let payment_tx: UtxoTx = try_fus!(deserialize(input.payment_tx.as_slice()).map_err(|e| ERRL!("{:?}", e)));
+        let sender = try_fus!(self.contract_address_from_raw_pubkey(&input.maker_pub));
+        let swap_contract_address = try_fus!(input.swap_contract_address.try_to_address());
 
         let selfi = self.clone();
         let fut = async move {
             selfi
                 .validate_payment(
                     payment_tx,
-                    time_lock,
+                    input.time_lock,
                     sender,
-                    secret_hash,
-                    amount,
+                    input.secret_hash,
+                    input.amount,
                     swap_contract_address,
                 )
                 .await
@@ -895,30 +885,20 @@ impl SwapOps for Qrc20Coin {
         Box::new(fut.boxed().compat())
     }
 
-    fn validate_taker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        taker_pub: &[u8],
-        _maker_pub: &[u8],
-        secret_hash: &[u8],
-        amount: BigDecimal,
-        swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let swap_contract_address = try_fus!(swap_contract_address.try_to_address());
-        let payment_tx: UtxoTx = try_fus!(deserialize(payment_tx).map_err(|e| ERRL!("{:?}", e)));
-        let sender = try_fus!(self.contract_address_from_raw_pubkey(taker_pub));
-        let secret_hash = secret_hash.to_vec();
+    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        let swap_contract_address = try_fus!(input.swap_contract_address.try_to_address());
+        let payment_tx: UtxoTx = try_fus!(deserialize(input.payment_tx.as_slice()).map_err(|e| ERRL!("{:?}", e)));
+        let sender = try_fus!(self.contract_address_from_raw_pubkey(&input.taker_pub));
 
         let selfi = self.clone();
         let fut = async move {
             selfi
                 .validate_payment(
                     payment_tx,
-                    time_lock,
+                    input.time_lock,
                     sender,
-                    secret_hash,
-                    amount,
+                    input.secret_hash,
+                    input.amount,
                     swap_contract_address,
                 )
                 .await

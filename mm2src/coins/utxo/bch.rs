@@ -5,7 +5,8 @@ use crate::utxo::slp::{parse_slp_script, ParseSlpScriptError, SlpGenesisParams, 
                        SlpUnspent};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
 use crate::{BlockHeightAndTime, CanRefundHtlc, CoinBalance, CoinProtocol, NegotiateSwapContractAddrErr, SwapOps,
-            TradePreimageValue, TransactionType, TxFeeDetails, ValidateAddressResult, WithdrawFut};
+            TradePreimageValue, TransactionType, TxFeeDetails, ValidateAddressResult, ValidatePaymentInput,
+            WithdrawFut};
 use common::log::warn;
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
@@ -934,30 +935,12 @@ impl SwapOps for BchCoin {
         )
     }
 
-    fn validate_maker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        maker_pub: &[u8],
-        taker_pub: &[u8],
-        priv_bn_hash: &[u8],
-        amount: BigDecimal,
-        _swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        utxo_common::validate_maker_payment(self, payment_tx, time_lock, maker_pub, taker_pub, priv_bn_hash, amount)
+    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        utxo_common::validate_maker_payment(self, input)
     }
 
-    fn validate_taker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        taker_pub: &[u8],
-        maker_pub: &[u8],
-        priv_bn_hash: &[u8],
-        amount: BigDecimal,
-        _swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        utxo_common::validate_taker_payment(self, payment_tx, time_lock, taker_pub, maker_pub, priv_bn_hash, amount)
+    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        utxo_common::validate_taker_payment(self, input)
     }
 
     fn check_if_my_payment_sent(

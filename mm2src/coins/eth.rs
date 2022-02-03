@@ -64,6 +64,7 @@ pub use ethcore_transaction::SignedTransaction as SignedEthTx;
 pub use rlp;
 
 mod web3_transport;
+use crate::ValidatePaymentInput;
 use common::mm_number::MmNumber;
 use web3_transport::{EthFeeHistoryNamespace, Web3Transport};
 
@@ -903,44 +904,26 @@ impl SwapOps for EthCoin {
         Box::new(fut.boxed().compat())
     }
 
-    fn validate_maker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        maker_pub: &[u8],
-        _taker_pub: &[u8],
-        secret_hash: &[u8],
-        amount: BigDecimal,
-        swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let swap_contract_address = try_fus!(swap_contract_address.try_to_address());
+    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        let swap_contract_address = try_fus!(input.swap_contract_address.try_to_address());
         self.validate_payment(
-            payment_tx,
-            time_lock,
-            maker_pub,
-            secret_hash,
-            amount,
+            &input.payment_tx,
+            input.time_lock,
+            &input.maker_pub,
+            &input.secret_hash,
+            input.amount,
             swap_contract_address,
         )
     }
 
-    fn validate_taker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        taker_pub: &[u8],
-        _maker_pub: &[u8],
-        secret_hash: &[u8],
-        amount: BigDecimal,
-        swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let swap_contract_address = try_fus!(swap_contract_address.try_to_address());
+    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        let swap_contract_address = try_fus!(input.swap_contract_address.try_to_address());
         self.validate_payment(
-            payment_tx,
-            time_lock,
-            taker_pub,
-            secret_hash,
-            amount,
+            &input.payment_tx,
+            input.time_lock,
+            &input.taker_pub,
+            &input.secret_hash,
+            input.amount,
             swap_contract_address,
         )
     }

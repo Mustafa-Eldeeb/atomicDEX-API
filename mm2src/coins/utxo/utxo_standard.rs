@@ -1,7 +1,7 @@
 use super::*;
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::{CanRefundHtlc, CoinBalance, NegotiateSwapContractAddrErr, SwapOps, TradePreimageValue,
-            ValidateAddressResult, WithdrawFut};
+            ValidateAddressResult, ValidatePaymentInput, WithdrawFut};
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use crypto::trezor::TrezorCoin;
@@ -331,30 +331,12 @@ impl SwapOps for UtxoStandardCoin {
         )
     }
 
-    fn validate_maker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        maker_pub: &[u8],
-        taker_pub: &[u8],
-        priv_bn_hash: &[u8],
-        amount: BigDecimal,
-        _swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        utxo_common::validate_maker_payment(self, payment_tx, time_lock, maker_pub, taker_pub, priv_bn_hash, amount)
+    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        utxo_common::validate_maker_payment(self, input)
     }
 
-    fn validate_taker_payment(
-        &self,
-        payment_tx: &[u8],
-        time_lock: u32,
-        taker_pub: &[u8],
-        maker_pub: &[u8],
-        priv_bn_hash: &[u8],
-        amount: BigDecimal,
-        _swap_contract_address: &Option<BytesJson>,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        utxo_common::validate_taker_payment(self, payment_tx, time_lock, taker_pub, maker_pub, priv_bn_hash, amount)
+    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        utxo_common::validate_taker_payment(self, input)
     }
 
     fn check_if_my_payment_sent(

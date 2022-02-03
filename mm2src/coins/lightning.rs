@@ -9,8 +9,8 @@ use crate::utxo::BlockchainNetwork;
 use crate::utxo::{sat_from_big_decimal, FeePolicy, UtxoCommonOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
             NegotiateSwapContractAddrErr, SwapOps, TradeFee, TradePreimageFut, TradePreimageResult,
-            TradePreimageValue, TransactionEnum, TransactionFut, UtxoStandardCoin, ValidateAddressResult, WithdrawFut,
-            WithdrawRequest};
+            TradePreimageValue, TransactionEnum, TransactionFut, UtxoStandardCoin, ValidateAddressResult,
+            ValidatePaymentInput, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcoin::blockdata::script::Script;
@@ -208,26 +208,14 @@ impl SwapOps for LightningCoin {
 
     fn validate_maker_payment(
         &self,
-        _payment_tx: &[u8],
-        _time_lock: u32,
-        _maker_pub: &[u8],
-        _taker_pub: &[u8],
-        _secret_hash: &[u8],
-        _amount: BigDecimal,
-        _swap_contract_address: &Option<BytesJson>,
+        _input: ValidatePaymentInput,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
         unimplemented!()
     }
 
     fn validate_taker_payment(
         &self,
-        _payment_tx: &[u8],
-        _time_lock: u32,
-        _taker_pub: &[u8],
-        _maker_pub: &[u8],
-        _secret_hash: &[u8],
-        _amount: BigDecimal,
-        _swap_contract_address: &Option<BytesJson>,
+        _input: ValidatePaymentInput,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
         unimplemented!()
     }
