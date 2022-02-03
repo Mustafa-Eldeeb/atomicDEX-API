@@ -7,7 +7,8 @@ use coins::utxo::qtum::{qtum_coin_from_with_priv_key, QtumCoin};
 use coins::utxo::rpc_clients::UtxoRpcClientEnum;
 use coins::utxo::utxo_common::big_decimal_from_sat;
 use coins::utxo::{UtxoActivationParams, UtxoCommonOps};
-use coins::{FeeApproxStage, FoundSwapTxSpend, MarketCoinOps, MmCoin, SwapOps, TradePreimageValue, TransactionEnum};
+use coins::{FeeApproxStage, FoundSwapTxSpend, MarketCoinOps, MmCoin, SwapOps, TradePreimageValue, TransactionEnum,
+            ValidatePaymentInput};
 use common::log::debug;
 use common::mm_ctx::{MmArc, MmCtxBuilder};
 use common::{temp_dir, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -168,18 +169,18 @@ fn test_taker_spends_maker_payment() {
     assert_eq!(taker_old_balance, BigDecimal::from(1));
 
     let timelock = (now_ms() / 1000) as u32 - 200;
-    let maker_pub = maker_coin.my_public_key().unwrap();
-    let taker_pub = taker_coin.my_public_key().unwrap();
+    let maker_pub = maker_coin.my_public_key().unwrap().to_vec();
+    let taker_pub = taker_coin.my_public_key().unwrap().to_vec();
     let secret = &[1; 32];
-    let secret_hash = &*dhash160(secret);
+    let secret_hash = dhash160(secret).to_vec();
     let amount = BigDecimal::from(0.2);
 
     let payment = maker_coin
         .send_maker_payment(
             timelock,
             &[],
-            taker_pub,
-            secret_hash,
+            &taker_pub,
+            &secret_hash,
             amount.clone(),
             &maker_coin.swap_contract_address(),
         )
@@ -198,24 +199,22 @@ fn test_taker_spends_maker_payment() {
         .wait()
         .unwrap();
 
-    taker_coin
-        .validate_maker_payment(
-            &payment_tx_hex,
-            timelock,
-            maker_pub,
-            &[],
-            secret_hash,
-            amount.clone(),
-            &taker_coin.swap_contract_address(),
-        )
-        .wait()
-        .unwrap();
+    let input = ValidatePaymentInput {
+        payment_tx: payment_tx_hex.clone(),
+        time_lock: timelock,
+        taker_pub: taker_pub.clone(),
+        maker_pub: maker_pub.clone(),
+        secret_hash,
+        amount: amount.clone(),
+        swap_contract_address: taker_coin.swap_contract_address(),
+    };
+    taker_coin.validate_maker_payment(input).wait().unwrap();
 
     let spend = taker_coin
         .send_taker_spends_maker_payment(
             &payment_tx_hex,
             timelock,
-            maker_pub,
+            &maker_pub,
             secret,
             &[],
             &taker_coin.swap_contract_address(),
@@ -260,18 +259,18 @@ fn test_maker_spends_taker_payment() {
     assert_eq!(taker_old_balance, BigDecimal::from(10));
 
     let timelock = (now_ms() / 1000) as u32 - 200;
-    let maker_pub = maker_coin.my_public_key().unwrap();
-    let taker_pub = taker_coin.my_public_key().unwrap();
+    let maker_pub = maker_coin.my_public_key().unwrap().to_vec();
+    let taker_pub = taker_coin.my_public_key().unwrap().to_vec();
     let secret = &[1; 32];
-    let secret_hash = &*dhash160(secret);
+    let secret_hash = dhash160(secret).to_vec();
     let amount = BigDecimal::from(0.2);
 
     let payment = taker_coin
         .send_taker_payment(
             timelock,
             &[],
-            maker_pub,
-            secret_hash,
+            &maker_pub,
+            &secret_hash,
             amount.clone(),
             &taker_coin.swap_contract_address(),
         )
@@ -290,24 +289,22 @@ fn test_maker_spends_taker_payment() {
         .wait()
         .unwrap();
 
-    maker_coin
-        .validate_taker_payment(
-            &payment_tx_hex,
-            timelock,
-            taker_pub,
-            &[],
-            secret_hash,
-            amount.clone(),
-            &maker_coin.swap_contract_address(),
-        )
-        .wait()
-        .unwrap();
+    let input = ValidatePaymentInput {
+        payment_tx: payment_tx_hex.clone(),
+        time_lock: timelock,
+        taker_pub: taker_pub.clone(),
+        maker_pub: maker_pub.clone(),
+        secret_hash: secret_hash.clone(),
+        amount: amount.clone(),
+        swap_contract_address: maker_coin.swap_contract_address(),
+    };
+    maker_coin.validate_taker_payment(input).wait().unwrap();
 
     let spend = maker_coin
         .send_maker_spends_taker_payment(
             &payment_tx_hex,
             timelock,
-            taker_pub,
+            &taker_pub,
             secret,
             &[],
             &maker_coin.swap_contract_address(),
