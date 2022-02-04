@@ -55,7 +55,7 @@ cfg_native! {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-type ChainMonitor = chainmonitor::ChainMonitor<
+pub type ChainMonitor = chainmonitor::ChainMonitor<
     InMemorySigner,
     Arc<PlatformFields>,
     Arc<UtxoStandardCoin>,
@@ -407,7 +407,7 @@ pub async fn start_lightning(
     let background_processor = BackgroundProcessor::start(
         persist_channel_manager_callback,
         event_handler,
-        chain_monitor,
+        chain_monitor.clone(),
         channel_manager.clone(),
         Some(network_gossip),
         peer_manager.clone(),
@@ -447,6 +447,7 @@ pub async fn start_lightning(
         peer_manager,
         background_processor: Arc::new(background_processor),
         channel_manager,
+        chain_monitor,
         keys_manager,
         invoice_payer,
         inbound_payments,

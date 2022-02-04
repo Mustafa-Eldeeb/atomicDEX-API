@@ -29,6 +29,7 @@ use common::mm_number::MmNumber;
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
+use lightning::chain::channelmonitor::Balance;
 use lightning::chain::keysinterface::KeysInterface;
 use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
@@ -47,17 +48,18 @@ use lightning_invoice::Invoice;
 use ln_conf::{ChannelOptions, LightningCoinConf};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_connections::{connect_to_node, connect_to_node_loop};
-use ln_errors::{CloseChannelError, CloseChannelResult, ConnectToNodeError, ConnectToNodeResult, EnableLightningError,
-                EnableLightningResult, GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult,
-                ListChannelsError, ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError,
-                OpenChannelResult, SendPaymentError, SendPaymentResult};
+use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelError, CloseChannelResult,
+                ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
+                GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, ListChannelsError,
+                ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult,
+                SendPaymentError, SendPaymentResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
 use ln_storage::{last_request_id_path, nodes_data_path, parse_node_info, read_last_request_id_from_file,
                  read_nodes_addresses_from_file, save_last_request_id_to_file, write_nodes_addresses_to_file};
 #[cfg(not(target_arch = "wasm32"))]
-use ln_utils::{ChannelManager, InvoicePayer, PeerManager};
+use ln_utils::{ChainMonitor, ChannelManager, InvoicePayer, PeerManager};
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::Bytes as BytesJson;
 #[cfg(not(target_arch = "wasm32"))] use script::Builder;
@@ -141,6 +143,9 @@ pub struct LightningCoin {
     /// channel, also tracks HTLC preimages and forwards onion packets appropriately.
     #[cfg(not(target_arch = "wasm32"))]
     pub channel_manager: Arc<ChannelManager>,
+    /// The lightning node chain monitor that takes care of monitoring the chain for transactions of interest.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub chain_monitor: Arc<ChainMonitor>,
     /// The lightning node keys manager that takes care of signing invoices.
     pub keys_manager: Arc<KeysManager>,
     /// The lightning node invoice payer.
@@ -1043,4 +1048,129 @@ pub async fn close_channel(ctx: MmArc, req: CloseChannelReq) -> CloseChannelResu
         .map_to_mm(|e| CloseChannelError::CloseChannelError(format!("{:?}", e)))?;
 
     Ok(format!("Initiated closing of channel: {}", req.channel))
+}
+
+/// Details about the balance(s) available for spending once the channel appears on chain.
+#[derive(Serialize)]
+pub enum ClaimableBalance {
+    /// The channel is not yet closed (or the commitment or closing transaction has not yet
+    /// appeared in a block). The given balance is claimable (less on-chain fees) if the channel is
+    /// force-closed now.
+    ClaimableOnChannelClose {
+        /// The amount available to claim, in satoshis, excluding the on-chain fees which will be
+        /// required to do so.
+        claimable_amount_satoshis: u64,
+    },
+    /// The channel has been closed, and the given balance is ours but awaiting confirmations until
+    /// we consider it spendable.
+    ClaimableAwaitingConfirmations {
+        /// The amount available to claim, in satoshis, possibly excluding the on-chain fees which
+        /// were spent in broadcasting the transaction.
+        claimable_amount_satoshis: u64,
+        /// The height at which an [`Event::SpendableOutputs`] event will be generated for this
+        /// amount.
+        confirmation_height: u32,
+    },
+    /// The channel has been closed, and the given balance should be ours but awaiting spending
+    /// transaction confirmation. If the spending transaction does not confirm in time, it is
+    /// possible our counterparty can take the funds by broadcasting an HTLC timeout on-chain.
+    ///
+    /// Once the spending transaction confirms, before it has reached enough confirmations to be
+    /// considered safe from chain reorganizations, the balance will instead be provided via
+    /// [`Balance::ClaimableAwaitingConfirmations`].
+    ContentiousClaimable {
+        /// The amount available to claim, in satoshis, excluding the on-chain fees which will be
+        /// required to do so.
+        claimable_amount_satoshis: u64,
+        /// The height at which the counterparty may be able to claim the balance if we have not
+        /// done so.
+        timeout_height: u32,
+    },
+    /// HTLCs which we sent to our counterparty which are claimable after a timeout (less on-chain
+    /// fees) if the counterparty does not know the preimage for the HTLCs. These are somewhat
+    /// likely to be claimed by our counterparty before we do.
+    MaybeClaimableHTLCAwaitingTimeout {
+        /// The amount available to claim, in satoshis, excluding the on-chain fees which will be
+        /// required to do so.
+        claimable_amount_satoshis: u64,
+        /// The height at which we will be able to claim the balance if our counterparty has not
+        /// done so.
+        claimable_height: u32,
+    },
+}
+
+impl From<Balance> for ClaimableBalance {
+    fn from(balance: Balance) -> Self {
+        match balance {
+            Balance::ClaimableOnChannelClose {
+                claimable_amount_satoshis,
+            } => ClaimableBalance::ClaimableOnChannelClose {
+                claimable_amount_satoshis,
+            },
+            Balance::ClaimableAwaitingConfirmations {
+                claimable_amount_satoshis,
+                confirmation_height,
+            } => ClaimableBalance::ClaimableAwaitingConfirmations {
+                claimable_amount_satoshis,
+                confirmation_height,
+            },
+            Balance::ContentiousClaimable {
+                claimable_amount_satoshis,
+                timeout_height,
+            } => ClaimableBalance::ContentiousClaimable {
+                claimable_amount_satoshis,
+                timeout_height,
+            },
+            Balance::MaybeClaimableHTLCAwaitingTimeout {
+                claimable_amount_satoshis,
+                claimable_height,
+            } => ClaimableBalance::MaybeClaimableHTLCAwaitingTimeout {
+                claimable_amount_satoshis,
+                claimable_height,
+            },
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ClaimableBalancesReq {
+    pub coin: String,
+    #[serde(default)]
+    pub include_open_channels_balances: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_claimable_balances(
+    _ctx: MmArc,
+    _req: ClaimableBalancesReq,
+) -> ClaimableBalancesResult<Vec<ClaimableBalance>> {
+    MmError::err(ClaimableBalancesError::UnsupportedMode(
+        "'get_claimable_balance'".into(),
+        "native".into(),
+    ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn get_claimable_balances(
+    ctx: MmArc,
+    req: ClaimableBalancesReq,
+) -> ClaimableBalancesResult<Vec<ClaimableBalance>> {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(ClaimableBalancesError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let ignored_channels = if req.include_open_channels_balances {
+        Vec::new()
+    } else {
+        ln_coin.channel_manager.list_channels()
+    };
+    let claimable_balances = ln_coin
+        .chain_monitor
+        .get_claimable_balances(&ignored_channels.iter().collect::<Vec<_>>()[..])
+        .into_iter()
+        .map(From::from)
+        .collect();
+
+    Ok(claimable_balances)
 }

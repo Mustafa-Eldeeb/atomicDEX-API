@@ -1355,7 +1355,7 @@ pub enum MmCoinEnum {
     ZCoin(ZCoin),
     Bch(BchCoin),
     SlpToken(SlpToken),
-    LightningCoin(LightningCoin),
+    LightningCoin(Box<LightningCoin>),
     Test(TestCoin),
 }
 
@@ -1388,7 +1388,7 @@ impl From<SlpToken> for MmCoinEnum {
 }
 
 impl From<LightningCoin> for MmCoinEnum {
-    fn from(c: LightningCoin) -> MmCoinEnum { MmCoinEnum::LightningCoin(c) }
+    fn from(c: LightningCoin) -> MmCoinEnum { MmCoinEnum::LightningCoin(Box::new(c)) }
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
@@ -1407,7 +1407,7 @@ impl Deref for MmCoinEnum {
             MmCoinEnum::EthCoin(ref c) => c,
             MmCoinEnum::Bch(ref c) => c,
             MmCoinEnum::SlpToken(ref c) => c,
-            MmCoinEnum::LightningCoin(ref c) => c,
+            MmCoinEnum::LightningCoin(ref c) => &**c,
             #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
             MmCoinEnum::ZCoin(ref c) => c,
             MmCoinEnum::Test(ref c) => c,

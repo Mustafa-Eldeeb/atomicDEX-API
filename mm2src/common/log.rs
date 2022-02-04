@@ -899,7 +899,7 @@ impl LogState {
     }
 
     fn chunk2log(&self, chunk: String, level: LogLevel) {
-        if level == self.level {
+        if self.level.ge(&level) {
             self::chunk2log(chunk, level);
         }
         /*
@@ -975,9 +975,8 @@ impl LogState {
 impl LightningLogger for LogState {
     fn log(&self, record: &LightningRecord) {
         let level = match record.level {
-            // TODO: Maybe implement a gossip level logs for mm2 too
             LightningLevel::Gossip => Level::Trace,
-            LightningLevel::Trace => Level::Trace,
+            LightningLevel::Trace => Level::Debug,
             LightningLevel::Debug => Level::Debug,
             LightningLevel::Info => Level::Info,
             LightningLevel::Warn => Level::Warn,

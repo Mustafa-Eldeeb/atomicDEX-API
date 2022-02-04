@@ -17,6 +17,7 @@ pub type GetNodeIdResult<T> = Result<T, MmError<GetNodeIdError>>;
 pub type SendPaymentResult<T> = Result<T, MmError<SendPaymentError>>;
 pub type ListPaymentsResult<T> = Result<T, MmError<ListPaymentsError>>;
 pub type CloseChannelResult<T> = Result<T, MmError<CloseChannelError>>;
+pub type ClaimableBalancesResult<T> = Result<T, MmError<ClaimableBalancesError>>;
 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -386,6 +387,35 @@ impl From<CoinFindError> for CloseChannelError {
     fn from(e: CoinFindError) -> Self {
         match e {
             CoinFindError::NoSuchCoin { coin } => CloseChannelError::NoSuchCoin(coin),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
+pub enum ClaimableBalancesError {
+    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
+    UnsupportedMode(String, String),
+    #[display(fmt = "Lightning network is not supported for {}", _0)]
+    UnsupportedCoin(String),
+    #[display(fmt = "No such coin {}", _0)]
+    NoSuchCoin(String),
+}
+
+impl HttpStatusCode for ClaimableBalancesError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            ClaimableBalancesError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
+            ClaimableBalancesError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
+            ClaimableBalancesError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
+        }
+    }
+}
+
+impl From<CoinFindError> for ClaimableBalancesError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => ClaimableBalancesError::NoSuchCoin(coin),
         }
     }
 }
