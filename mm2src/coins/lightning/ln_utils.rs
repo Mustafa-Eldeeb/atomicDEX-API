@@ -5,7 +5,7 @@ use common::mm_ctx::MmArc;
 
 cfg_native! {
     use crate::DerivationMethod;
-    use crate::lightning::ln_connections::ln_p2p_loop;
+    use crate::lightning::ln_connections::{ln_p2p_loop, connect_to_nodes_loop};
     use crate::utxo::rpc_clients::{electrum_script_hash, BestBlock as RpcBestBlock, ElectrumBlockHeader, ElectrumClient,
                                    ElectrumNonce, UtxoRpcError};
     use bitcoin::blockdata::block::BlockHeader;
@@ -425,12 +425,15 @@ pub async fn start_lightning(
                 .map(|chan| chan.counterparty.node_id)
                 .any(|node_id| node_id == pubkey)
             {
-                spawn(connect_to_node_loop(pubkey, node_addr, peer_manager.clone()));
                 nodes_addresses_map.insert(pubkey, node_addr);
             }
         }
     }
     let nodes_addresses = Arc::new(PaMutex::new(nodes_addresses_map));
+
+    if restarting_node {
+        spawn(connect_to_nodes_loop(nodes_addresses.clone(), peer_manager.clone()));
+    }
 
     // Broadcast Node Announcement
     spawn(ln_node_announcement_loop(

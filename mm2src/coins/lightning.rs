@@ -19,7 +19,6 @@ use bitcoin::hash_types::Txid;
 use bitcoin_hashes::sha256::Hash as Sha256;
 #[cfg(not(target_arch = "wasm32"))] use chain::TransactionOutput;
 #[cfg(not(target_arch = "wasm32"))] use common::async_blocking;
-#[cfg(not(target_arch = "wasm32"))] use common::executor::spawn;
 #[cfg(not(target_arch = "wasm32"))]
 use common::ip_addr::myipaddr;
 #[cfg(not(target_arch = "wasm32"))] use common::log;
@@ -47,7 +46,7 @@ use lightning_invoice::utils::create_invoice_from_channelmanager;
 use lightning_invoice::Invoice;
 use ln_conf::{ChannelOptions, LightningCoinConf};
 #[cfg(not(target_arch = "wasm32"))]
-use ln_connections::{connect_to_node, connect_to_node_loop};
+use ln_connections::{connect_to_node, ConnectToNodeRes};
 use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelError, CloseChannelResult,
                 ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
                 GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, ListChannelsError,
@@ -66,6 +65,8 @@ use rpc::v1::types::Bytes as BytesJson;
 use script::TransactionInputSigner;
 use secp256k1::PublicKey;
 use serde_json::Value as Json;
+#[cfg(not(target_arch = "wasm32"))]
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::net::SocketAddr;
@@ -567,6 +568,16 @@ pub async fn connect_to_lightning_node(ctx: MmArc, req: ConnectToNodeRequest) ->
     let (node_pubkey, node_addr) = parse_node_info(req.node_id.clone())?;
     let res = connect_to_node(node_pubkey, node_addr, ln_coin.peer_manager.clone()).await?;
 
+    // If a node that we have an open channel with changed it's address, "connect_to_lightning_node"
+    // can be used to reconnect to the new address while saving this new address for reconnections.
+    if let ConnectToNodeRes::ConnectedSuccessfully(_, _) = res {
+        let mut nodes_addresses = ln_coin.nodes_addresses.lock();
+        if let Entry::Occupied(mut entry) = nodes_addresses.entry(node_pubkey) {
+            entry.insert(node_addr);
+            write_nodes_addresses_to_file(&nodes_data_path(&ctx, ln_coin.ticker()), nodes_addresses.clone())?;
+        }
+    }
+
     Ok(res.to_string())
 }
 
@@ -697,11 +708,6 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
         let mut nodes_addresses = ln_coin.nodes_addresses.lock();
         nodes_addresses.insert(node_pubkey, node_addr);
         write_nodes_addresses_to_file(&nodes_data_path(&ctx, ticker), nodes_addresses.clone())?;
-        spawn(connect_to_node_loop(
-            node_pubkey,
-            node_addr,
-            ln_coin.peer_manager.clone(),
-        ));
     }
 
     {

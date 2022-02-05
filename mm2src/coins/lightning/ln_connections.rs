@@ -85,15 +85,22 @@ pub async fn connect_to_node(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn connect_to_node_loop(pubkey: PublicKey, node_addr: SocketAddr, peer_manager: Arc<PeerManager>) {
+pub async fn connect_to_nodes_loop(
+    nodes_addresses: Arc<PaMutex<HashMap<PublicKey, SocketAddr>>>,
+    peer_manager: Arc<PeerManager>,
+) {
     loop {
-        match connect_to_node(pubkey, node_addr, peer_manager.clone()).await {
-            Ok(res) => {
-                if let ConnectToNodeRes::ConnectedSuccessfully(_, _) = res {
-                    log::info!("{}", res.to_string());
-                }
-            },
-            Err(e) => log::error!("{}", e.to_string()),
+        let nodes_addresses = nodes_addresses.lock().clone();
+        for (pubkey, node_addr) in nodes_addresses {
+            let peer_manager = peer_manager.clone();
+            match connect_to_node(pubkey, node_addr, peer_manager.clone()).await {
+                Ok(res) => {
+                    if let ConnectToNodeRes::ConnectedSuccessfully(_, _) = res {
+                        log::info!("{}", res.to_string());
+                    }
+                },
+                Err(e) => log::error!("{}", e.to_string()),
+            }
         }
 
         Timer::sleep(TRY_RECONNECTING_TO_NODE_INTERVAL as f64).await;
