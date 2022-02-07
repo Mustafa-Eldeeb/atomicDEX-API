@@ -8,6 +8,7 @@ use common::mm_ctx::MmArc;
 use common::mm_error::MmError;
 use common::mm_number::MmNumber;
 use futures01::Future;
+use keys::KeyPair;
 use mocktopus::macros::*;
 use rpc::v1::types::Bytes as BytesJson;
 use serde_json::Value as Json;
@@ -221,6 +222,8 @@ impl SwapOps for TestCoin {
     ) -> Result<Option<BytesJson>, MmError<NegotiateSwapContractAddrErr>> {
         unimplemented!()
     }
+
+    fn get_htlc_key_pair(&self) -> KeyPair { unimplemented!() }
 }
 
 #[async_trait]

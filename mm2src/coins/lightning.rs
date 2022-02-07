@@ -24,6 +24,7 @@ use common::mm_number::MmNumber;
 use futures::lock::Mutex as AsyncMutex;
 use futures01::Future;
 #[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
+use keys::KeyPair;
 use lightning::chain::WatchedOutput;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_background_processor::BackgroundProcessor;
@@ -264,6 +265,8 @@ impl SwapOps for LightningCoin {
     ) -> Result<Option<BytesJson>, MmError<NegotiateSwapContractAddrErr>> {
         unimplemented!()
     }
+
+    fn get_htlc_key_pair(&self) -> KeyPair { unimplemented!() }
 }
 
 impl MarketCoinOps for LightningCoin {

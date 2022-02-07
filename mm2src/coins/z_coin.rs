@@ -1071,6 +1071,8 @@ impl SwapOps for ZCoin {
     ) -> Result<Option<BytesJson>, MmError<NegotiateSwapContractAddrErr>> {
         Ok(None)
     }
+
+    fn get_htlc_key_pair(&self) -> KeyPair { KeyPair::random_compressed() }
 }
 
 #[async_trait]

@@ -986,6 +986,8 @@ impl SwapOps for Qrc20Coin {
                 .ok_or_else(|| MmError::new(NegotiateSwapContractAddrErr::NoOtherAddrAndNoFallback)),
         }
     }
+
+    fn get_htlc_key_pair(&self) -> KeyPair { utxo_common::get_htlc_key_pair(self) }
 }
 
 impl MarketCoinOps for Qrc20Coin {

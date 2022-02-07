@@ -1439,6 +1439,8 @@ impl SwapOps for SlpToken {
     ) -> Result<Option<BytesJson>, MmError<NegotiateSwapContractAddrErr>> {
         Ok(None)
     }
+
+    fn get_htlc_key_pair(&self) -> KeyPair { utxo_common::get_htlc_key_pair(&self.platform_coin) }
 }
 
 impl From<GenSlpSpendErr> for TradePreimageError {

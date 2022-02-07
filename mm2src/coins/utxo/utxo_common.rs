@@ -3124,6 +3124,16 @@ where
         .mm_err(From::from)
 }
 
+pub fn get_htlc_key_pair<T>(coin: &T) -> KeyPair
+where
+    T: AsRef<UtxoCoinFields>,
+{
+    match &coin.as_ref().priv_key_policy {
+        PrivKeyPolicy::KeyPair(key_pair) => key_pair.clone(),
+        PrivKeyPolicy::HardwareWallet => KeyPair::random_compressed(),
+    }
+}
+
 #[test]
 fn test_increase_by_percent() {
     assert_eq!(increase_by_percent(4300, 1.), 4343);

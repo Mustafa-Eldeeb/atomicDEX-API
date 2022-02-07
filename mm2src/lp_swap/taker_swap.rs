@@ -10,6 +10,7 @@ use super::{broadcast_my_swap_status, broadcast_swap_message_every, check_other_
             SwapsContext, TransactionIdentifier, WAIT_CONFIRM_INTERVAL};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::{MatchBy, OrderConfirmationsSettings, TakerAction, TakerOrderBuilder};
+use crate::mm2::lp_swap::HtlcPubkeyData;
 use crate::mm2::MM_VERSION;
 use bigdecimal::BigDecimal;
 use coins::{lp_coinfind, CanRefundHtlc, FeeApproxStage, FoundSwapTxSpend, MmCoinEnum, TradeFee, TradePreimageValue,
@@ -23,12 +24,12 @@ use common::privkey::key_pair_from_secret;
 use common::{bits256, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use futures::{compat::Future01CompatExt, select, FutureExt};
 use http::Response;
-use keys::{KeyPair, SECP_SIGN};
+use keys::KeyPair;
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::H264;
 use rpc::v1::types::{Bytes as BytesJson, H160 as H160Json, H256 as H256Json, H264 as H264Json};
-use secp256k1::{PublicKey, SecretKey};
 use serde_json::{self as json, Value as Json};
+use serialization::{deserialize, serialize};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -741,6 +742,18 @@ impl TakerSwap {
         }
     }
 
+    fn get_htlc_keys_data(&self) -> HtlcPubkeyData {
+        let r = self.r();
+        if r.my_maker_coin_htlc_keypair != r.my_taker_coin_htlc_keypair {
+            HtlcPubkeyData::PerCoin {
+                for_maker_coin: r.my_maker_coin_htlc_keypair.public_slice().into(),
+                for_taker_coin: r.my_taker_coin_htlc_keypair.public_slice().into(),
+            }
+        } else {
+            HtlcPubkeyData::SingleKey(self.my_persistent_pub)
+        }
+    }
+
     async fn start(&self) -> Result<(Option<TakerSwapCommand>, Vec<TakerSwapEvent>), String> {
         // do not use self.r().data here as it is not initialized at this step yet
         let stage = FeeApproxStage::StartSwap;
@@ -821,21 +834,8 @@ impl TakerSwap {
         let maker_coin_swap_contract_address = self.maker_coin.swap_contract_address();
         let taker_coin_swap_contract_address = self.taker_coin.swap_contract_address();
 
-        let (maker_coin_htlc_privkey, maker_coin_htlc_pubkey) = if self.maker_coin.is_privacy() {
-            let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
-            let secp_pubkey = PublicKey::from_secret_key(&SECP_SIGN, &secp_privkey).serialize();
-            (Some((*secp_privkey.as_ref()).into()), Some(secp_pubkey.into()))
-        } else {
-            (None, None)
-        };
-
-        let (taker_coin_htlc_privkey, taker_coin_htlc_pubkey) = if self.taker_coin.is_privacy() {
-            let secp_privkey = SecretKey::new(&mut rand6::thread_rng());
-            let secp_pubkey = PublicKey::from_secret_key(&SECP_SIGN, &secp_privkey).serialize();
-            (Some((*secp_privkey.as_ref()).into()), Some(secp_pubkey.into()))
-        } else {
-            (None, None)
-        };
+        let maker_coin_htlc_key_pair = self.maker_coin.get_htlc_key_pair();
+        let taker_coin_htlc_key_pair = self.taker_coin.get_htlc_key_pair();
 
         let data = TakerSwapData {
             taker_coin: self.taker_coin.ticker().to_owned(),
@@ -860,10 +860,10 @@ impl TakerSwap {
             maker_payment_spend_trade_fee: Some(SavedTradeFee::from(maker_payment_spend_trade_fee)),
             maker_coin_swap_contract_address,
             taker_coin_swap_contract_address,
-            maker_coin_htlc_privkey,
-            maker_coin_htlc_pubkey,
-            taker_coin_htlc_privkey,
-            taker_coin_htlc_pubkey,
+            maker_coin_htlc_privkey: Some(maker_coin_htlc_key_pair.private_bytes().into()),
+            maker_coin_htlc_pubkey: Some(maker_coin_htlc_key_pair.public_slice().into()),
+            taker_coin_htlc_privkey: Some(taker_coin_htlc_key_pair.private_bytes().into()),
+            taker_coin_htlc_pubkey: Some(taker_coin_htlc_key_pair.public_slice().into()),
             p2p_privkey: self.p2p_privkey,
         };
 
@@ -932,17 +932,23 @@ impl TakerSwap {
             },
         };
 
-        let mut persistent_pubkey = Vec::with_capacity(33);
-        persistent_pubkey.extend_from_slice(self.r().my_maker_coin_htlc_keypair.public());
-        if self.r().my_maker_coin_htlc_keypair != self.r().my_taker_coin_htlc_keypair {
-            persistent_pubkey.extend_from_slice(self.r().my_taker_coin_htlc_keypair.public());
-        }
+        let maker_pubkey = maker_data.htlc_keys_data();
+        let maker_htlc_pubkey_data: HtlcPubkeyData = match deserialize(maker_pubkey) {
+            Ok(d) => d,
+            Err(e) => {
+                return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
+                    ERRL!("Maker sent invalid HTLC pubkey data {:?}", e).into(),
+                )]))
+            },
+        };
+
+        let htlc_keys_data = self.get_htlc_keys_data();
 
         let taker_data = SwapMsg::NegotiationReply(NegotiationDataMsg::V2(NegotiationDataV2 {
             started_at: self.r().data.started_at,
             secret_hash: maker_data.secret_hash().to_vec(),
             payment_locktime: self.r().data.taker_payment_lock,
-            persistent_pubkey,
+            htlc_keys_data: serialize(&htlc_keys_data).take(),
             maker_coin_swap_contract: maker_coin_swap_contract_addr.clone().map_or(vec![], |bytes| bytes.0),
             taker_coin_swap_contract: taker_coin_swap_contract_addr.clone().map_or(vec![], |bytes| bytes.0),
         }));
@@ -976,29 +982,15 @@ impl TakerSwap {
             )]));
         }
 
-        let maker_pubkey = maker_data.persistent_pubkey();
-        let (maker_pubkey, maker_coin_htlc_pubkey, taker_coin_htlc_pubkey) = match maker_pubkey.len() {
-            33 => (maker_pubkey.into(), None, None),
-            66 => (
-                H264Json::default(),
-                Some(maker_pubkey[..33].into()),
-                Some(maker_pubkey[33..].into()),
-            ),
-            _ => {
-                return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
-                    ERRL!("Unexpected persistent_pubkey field len {}", maker_pubkey.len()).into(),
-                )]))
-            },
-        };
         Ok((Some(TakerSwapCommand::SendTakerFee), vec![TakerSwapEvent::Negotiated(
             MakerNegotiationData {
                 maker_payment_locktime: maker_data.payment_locktime(),
-                maker_pubkey,
+                maker_pubkey: maker_htlc_pubkey_data.single_key().into(),
                 secret_hash: maker_data.secret_hash().into(),
                 maker_coin_swap_contract_addr,
                 taker_coin_swap_contract_addr,
-                maker_coin_htlc_pubkey,
-                taker_coin_htlc_pubkey,
+                maker_coin_htlc_pubkey: maker_htlc_pubkey_data.maker_coin_key().map(Into::into),
+                taker_coin_htlc_pubkey: maker_htlc_pubkey_data.taker_coin_key().map(Into::into),
             },
         )]))
     }

@@ -59,12 +59,15 @@ use crate::mm2::lp_network::broadcast_p2p_msg;
 use async_std::sync as async_std_sync;
 use bigdecimal::BigDecimal;
 use coins::{lp_coinfind, MmCoinEnum, TradeFee, TransactionEnum};
+use common::log::{debug, warn};
+use common::mm_error::MmError;
 use common::{bits256, calc_total_pages,
              executor::{spawn, Timer},
              log::{error, info},
              mm_ctx::{from_ctx, MmArc},
              mm_number::MmNumber,
              now_ms, var, PagingOptions};
+use derive_more::Display;
 use futures::future::{abortable, AbortHandle, TryFutureExt};
 use http::Response;
 use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, TopicPrefix};
@@ -72,7 +75,9 @@ use num_rational::BigRational;
 use primitives::hash::{H160, H264};
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use serde_json::{self as json, Value as Json};
+use serialization::{Deserializable, Error, Reader, Serializable, Stream};
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, Weak};
@@ -93,9 +98,6 @@ use uuid::Uuid;
 mod swap_wasm_db;
 
 pub use check_balance::{check_other_coin_balance_for_swap, CheckBalanceError};
-use common::log::{debug, warn};
-use common::mm_error::MmError;
-use derive_more::Display;
 use maker_swap::MakerSwapEvent;
 pub use maker_swap::{calc_max_maker_vol, check_balance_for_maker_swap, maker_swap_trade_preimage, run_maker_swap,
                      MakerSavedEvent, MakerSavedSwap, MakerSwap, MakerSwapStatusChanged, MakerTradePreimage,
@@ -570,7 +572,7 @@ pub struct NegotiationDataV2 {
     started_at: u64,
     payment_locktime: u64,
     secret_hash: Vec<u8>,
-    persistent_pubkey: Vec<u8>,
+    htlc_keys_data: Vec<u8>,
     maker_coin_swap_contract: Vec<u8>,
     taker_coin_swap_contract: Vec<u8>,
 }
@@ -604,10 +606,10 @@ impl NegotiationDataMsg {
         }
     }
 
-    pub fn persistent_pubkey(&self) -> &[u8] {
+    pub fn htlc_keys_data(&self) -> &[u8] {
         match self {
             NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
-            NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
+            NegotiationDataMsg::V2(v2) => &v2.htlc_keys_data,
         }
     }
 
@@ -1172,6 +1174,69 @@ pub async fn active_swaps_rpc(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>
     Ok(try_s!(Response::builder().body(res)))
 }
 
+pub enum HtlcPubkeyData {
+    SingleKey(H264),
+    PerCoin { for_maker_coin: H264, for_taker_coin: H264 },
+}
+
+impl HtlcPubkeyData {
+    pub fn single_key(&self) -> H264 {
+        match self {
+            HtlcPubkeyData::SingleKey(key) => *key,
+            HtlcPubkeyData::PerCoin { .. } => H264::default(),
+        }
+    }
+
+    pub fn maker_coin_key(&self) -> Option<H264> {
+        match self {
+            HtlcPubkeyData::SingleKey(_) => None,
+            HtlcPubkeyData::PerCoin { for_maker_coin, .. } => Some(*for_maker_coin),
+        }
+    }
+
+    pub fn taker_coin_key(&self) -> Option<H264> {
+        match self {
+            HtlcPubkeyData::SingleKey(_) => None,
+            HtlcPubkeyData::PerCoin { for_taker_coin, .. } => Some(*for_taker_coin),
+        }
+    }
+}
+
+impl Deserializable for HtlcPubkeyData {
+    fn deserialize<T>(reader: &mut Reader<T>) -> Result<Self, Error>
+    where
+        Self: Sized,
+        T: Read,
+    {
+        let first_key = reader.read()?;
+        if reader.is_finished() {
+            Ok(HtlcPubkeyData::SingleKey(first_key))
+        } else {
+            Ok(HtlcPubkeyData::PerCoin {
+                for_maker_coin: first_key,
+                for_taker_coin: reader.read()?,
+            })
+        }
+    }
+}
+
+impl Serializable for HtlcPubkeyData {
+    fn serialize(&self, s: &mut Stream) {
+        match self {
+            HtlcPubkeyData::SingleKey(key) => {
+                s.append(key);
+            },
+            HtlcPubkeyData::PerCoin {
+                for_maker_coin,
+                for_taker_coin,
+            } => {
+                s.append(for_maker_coin);
+                s.append(for_taker_coin);
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod lp_swap_tests {
     use serialization::{deserialize, serialize};
@@ -1417,7 +1482,7 @@ mod lp_swap_tests {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: vec![0; 20],
-            persistent_pubkey: vec![1; 33],
+            htlc_keys_data: vec![1; 33],
             maker_coin_swap_contract: vec![1; 20],
             taker_coin_swap_contract: vec![1; 20],
         });
@@ -1440,7 +1505,7 @@ mod lp_swap_tests {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: vec![0; 20],
-            persistent_pubkey: vec![1; 33],
+            htlc_keys_data: vec![1; 33],
             maker_coin_swap_contract: vec![1; 20],
             taker_coin_swap_contract: vec![1; 20],
         });
