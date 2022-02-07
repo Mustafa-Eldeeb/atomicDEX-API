@@ -2670,7 +2670,7 @@ where
 {
     let script_pubkey_str = hex::encode(&script_pubkey);
     let client = match &coin.as_ref().rpc_client {
-        UtxoRpcClientEnum::Native(_) => return MmError::err(SPVError::NonSpvClient),
+        UtxoRpcClientEnum::Native(_) => return Ok(()),
         UtxoRpcClientEnum::Electrum(electrum_client) => electrum_client,
     };
     let history = client
@@ -2777,10 +2777,9 @@ where
                     expected_output
                 );
             }
-            return match validate_spv_proof(coin, tx, expected_output.script_pubkey).await {
-                Ok(_) => Ok(()),
-                Err(err) => ERR!("{:?}", err),
-            };
+            return validate_spv_proof(coin, tx, expected_output.script_pubkey)
+                .await
+                .map_err(|e| format!("{:?}", e));
         }
     };
     Box::new(fut.boxed().compat())
