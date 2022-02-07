@@ -2700,11 +2700,22 @@ where
         .map_to_mm(|e| SPVError::UnknownError(e.to_string()))?;
     let header: BlockHeader =
         deserialize(block_header.0.as_slice()).map_to_mm(|e| SPVError::UnknownError(format!("{:?}", e)))?;
+
+    let merkle_branch = client
+        .blockchain_transaction_get_merkle(tx.hash().into(), height)
+        .compat()
+        .await
+        .map_to_mm(|e| SPVError::UnknownError(e.to_string()))?;
+    let intermediate_nodes: Vec<H256> = merkle_branch
+        .merkle
+        .into_iter()
+        .map(|hash| hash.reversed().into())
+        .collect();
     let proof = SPVProof {
-        tx_id: Default::default(),
-        index: 0,
+        tx_id: tx.hash(),
+        index: merkle_branch.pos as u64,
         confirming_header: header,
-        intermediate_nodes: vec![],
+        intermediate_nodes,
     };
     match proof.validate() {
         Ok(_) => Ok(()),
