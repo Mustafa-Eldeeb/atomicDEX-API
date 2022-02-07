@@ -2664,15 +2664,20 @@ pub fn address_from_pubkey(
     }
 }
 
-pub async fn validate_spv_proof<T>(coin: T, tx: UtxoTx, script_pubkey: Bytes) -> Result<(), MmError<SPVError>>
+pub async fn validate_spv_proof<T>(coin: T, tx: UtxoTx) -> Result<(), MmError<SPVError>>
 where
     T: AsRef<UtxoCoinFields> + Send + Sync + 'static,
 {
-    let script_pubkey_str = hex::encode(&script_pubkey);
     let client = match &coin.as_ref().rpc_client {
         UtxoRpcClientEnum::Native(_) => return Ok(()),
         UtxoRpcClientEnum::Electrum(electrum_client) => electrum_client,
     };
+    if tx.outputs.is_empty() {
+        return MmError::err(SPVError::TxHeightNotAvailable);
+    }
+    // note: all the outputs belong to the same tx, which is validated as the same height
+    // so accessing the history of the first element should be enough.
+    let script_pubkey_str = hex::encode(electrum_script_hash(&tx.outputs[0].script_pubkey));
     let history = client
         .scripthash_get_history(script_pubkey_str.as_str())
         .compat()
@@ -2683,8 +2688,7 @@ where
     }
     let mut height: u64 = 0;
     for item in history {
-        if item.tx_hash == H256Json(*tx.hash()) && item.height > 0 {
-            println!("height: {}", item.height);
+        if item.tx_hash.reversed() == H256Json(*tx.hash()) && item.height > 0 {
             height = item.height as u64;
             break;
         }
@@ -2702,7 +2706,7 @@ where
         deserialize(block_header.0.as_slice()).map_to_mm(|e| SPVError::UnknownError(format!("{:?}", e)))?;
 
     let merkle_branch = client
-        .blockchain_transaction_get_merkle(tx.hash().into(), height)
+        .blockchain_transaction_get_merkle(tx.hash().reversed().into(), height)
         .compat()
         .await
         .map_to_mm(|e| SPVError::UnknownError(e.to_string()))?;
@@ -2788,9 +2792,7 @@ where
                     expected_output
                 );
             }
-            return validate_spv_proof(coin, tx, expected_output.script_pubkey)
-                .await
-                .map_err(|e| format!("{:?}", e));
+            return validate_spv_proof(coin, tx).await.map_err(|e| format!("{:?}", e));
         }
     };
     Box::new(fut.boxed().compat())
