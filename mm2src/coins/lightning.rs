@@ -49,9 +49,9 @@ use ln_conf::{ChannelOptions, LightningCoinConf};
 use ln_connections::{connect_to_node, ConnectToNodeRes};
 use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelError, CloseChannelResult,
                 ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
-                GenerateInvoiceError, GenerateInvoiceResult, GetNodeIdError, GetNodeIdResult, ListChannelsError,
-                ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult,
-                SendPaymentError, SendPaymentResult};
+                GenerateInvoiceError, GenerateInvoiceResult, GetChannelDetailsError, GetChannelDetailsResult,
+                GetNodeIdError, GetNodeIdResult, ListChannelsError, ListChannelsResult, ListPaymentsError,
+                ListPaymentsResult, OpenChannelError, OpenChannelResult, SendPaymentError, SendPaymentResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
@@ -796,6 +796,51 @@ pub async fn list_channels(ctx: MmArc, req: ListChannelsRequest) -> ListChannels
         .collect();
 
     Ok(ListChannelsResponse { channels })
+}
+
+#[derive(Deserialize)]
+pub struct GetChannelDetailsRequest {
+    pub coin: String,
+    pub channel_id: String,
+}
+
+#[derive(Serialize)]
+pub struct GetChannelDetailsResponse {
+    channel_details: ChannelDetailsForRPC,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_channel_details(
+    _ctx: MmArc,
+    _req: GetChannelDetailsRequest,
+) -> GetChannelDetailsResult<GetChannelDetailsResponse> {
+    MmError::err(GetChannelDetailsError::UnsupportedMode(
+        "'get_channel_details'".into(),
+        "native".into(),
+    ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn get_channel_details(
+    ctx: MmArc,
+    req: GetChannelDetailsRequest,
+) -> GetChannelDetailsResult<GetChannelDetailsResponse> {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(GetChannelDetailsError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let channel_id =
+        hex::decode(req.channel_id.clone()).map_to_mm(|e| GetChannelDetailsError::DecodeError(format!("{}", e)))?;
+    let channel_details = ln_coin
+        .channel_manager
+        .list_channels()
+        .into_iter()
+        .find(|chan| chan.channel_id == channel_id[..])
+        .ok_or(GetChannelDetailsError::NoSuchChannel(req.channel_id))?
+        .into();
+
+    Ok(GetChannelDetailsResponse { channel_details })
 }
 
 #[derive(Deserialize)]

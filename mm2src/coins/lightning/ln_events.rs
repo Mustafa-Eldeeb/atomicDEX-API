@@ -25,7 +25,6 @@ pub struct LightningEventHandler {
 }
 
 impl EventHandler for LightningEventHandler {
-    // TODO: Implement all the cases
     fn handle_event(&self, event: &Event) {
         match event {
             Event::FundingGenerationReady {

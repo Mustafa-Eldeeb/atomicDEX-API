@@ -12,6 +12,7 @@ pub type EnableLightningResult<T> = Result<T, MmError<EnableLightningError>>;
 pub type ConnectToNodeResult<T> = Result<T, MmError<ConnectToNodeError>>;
 pub type OpenChannelResult<T> = Result<T, MmError<OpenChannelError>>;
 pub type ListChannelsResult<T> = Result<T, MmError<ListChannelsError>>;
+pub type GetChannelDetailsResult<T> = Result<T, MmError<GetChannelDetailsError>>;
 pub type GenerateInvoiceResult<T> = Result<T, MmError<GenerateInvoiceError>>;
 pub type GetNodeIdResult<T> = Result<T, MmError<GetNodeIdError>>;
 pub type SendPaymentResult<T> = Result<T, MmError<SendPaymentError>>;
@@ -216,6 +217,41 @@ impl From<CoinFindError> for ListChannelsError {
     fn from(e: CoinFindError) -> Self {
         match e {
             CoinFindError::NoSuchCoin { coin } => ListChannelsError::NoSuchCoin(coin),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
+pub enum GetChannelDetailsError {
+    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
+    UnsupportedMode(String, String),
+    #[display(fmt = "Lightning network is not supported for {}", _0)]
+    UnsupportedCoin(String),
+    #[display(fmt = "No such coin {}", _0)]
+    NoSuchCoin(String),
+    #[display(fmt = "Channel id decoding error: {}", _0)]
+    DecodeError(String),
+    #[display(fmt = "Channel with id: {} is not found", _0)]
+    NoSuchChannel(String),
+}
+
+impl HttpStatusCode for GetChannelDetailsError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            GetChannelDetailsError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
+            GetChannelDetailsError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
+            GetChannelDetailsError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
+            GetChannelDetailsError::DecodeError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            GetChannelDetailsError::NoSuchChannel(_) => StatusCode::NOT_FOUND,
+        }
+    }
+}
+
+impl From<CoinFindError> for GetChannelDetailsError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => GetChannelDetailsError::NoSuchCoin(coin),
         }
     }
 }

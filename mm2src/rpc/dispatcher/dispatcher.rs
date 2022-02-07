@@ -7,8 +7,9 @@ use crate::{mm2::lp_stats::{add_node_to_version_stat, remove_node_from_version_s
             mm2::lp_swap::{recreate_swap_data, trade_preimage_rpc},
             mm2::rpc::get_public_key::get_public_key};
 use coins::init_withdraw::{init_withdraw, withdraw_status, withdraw_user_action};
-use coins::lightning::{close_channel, connect_to_lightning_node, generate_invoice, get_claimable_balances,
-                       get_ln_node_id, list_channels, list_payments, open_channel, send_payment, LightningCoin};
+use coins::lightning::{close_channel, connect_to_lightning_node, generate_invoice, get_channel_details,
+                       get_claimable_balances, get_ln_node_id, list_channels, list_payments, open_channel,
+                       send_payment, LightningCoin};
 use coins::my_tx_history_v2::my_tx_history_v2_rpc;
 use coins::utxo::bch::BchCoin;
 use coins::utxo::slp::SlpToken;
@@ -112,6 +113,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "enable_lightning" => handle_mmrpc(ctx, request, enable_l2::<LightningCoin>).await,
         "enable_slp" => handle_mmrpc(ctx, request, enable_token::<SlpToken>).await,
         "generate_invoice" => handle_mmrpc(ctx, request, generate_invoice).await,
+        "get_channel_details" => handle_mmrpc(ctx, request, get_channel_details).await,
         "get_claimable_balances" => handle_mmrpc(ctx, request, get_claimable_balances).await,
         "get_ln_node_id" => handle_mmrpc(ctx, request, get_ln_node_id).await,
         "get_public_key" => handle_mmrpc(ctx, request, get_public_key).await,
