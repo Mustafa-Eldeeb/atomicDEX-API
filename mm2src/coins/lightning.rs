@@ -33,8 +33,6 @@ use lightning::chain::keysinterface::KeysInterface;
 use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
 use lightning::ln::channelmanager::ChannelDetails;
-#[cfg(not(target_arch = "wasm32"))]
-use lightning::ln::channelmanager::PaymentId;
 use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
 #[cfg(not(target_arch = "wasm32"))]
 use lightning::util::config::UserConfig;
@@ -50,8 +48,9 @@ use ln_connections::{connect_to_node, ConnectToNodeRes};
 use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelError, CloseChannelResult,
                 ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
                 GenerateInvoiceError, GenerateInvoiceResult, GetChannelDetailsError, GetChannelDetailsResult,
-                GetNodeIdError, GetNodeIdResult, ListChannelsError, ListChannelsResult, ListPaymentsError,
-                ListPaymentsResult, OpenChannelError, OpenChannelResult, SendPaymentError, SendPaymentResult};
+                GetNodeIdError, GetNodeIdResult, GetPaymentDetailsError, GetPaymentDetailsResult, ListChannelsError,
+                ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult,
+                SendPaymentError, SendPaymentResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
@@ -68,6 +67,7 @@ use serde_json::Value as Json;
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+#[cfg(not(target_arch = "wasm32"))] use std::convert::TryInto;
 use std::fmt;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -194,16 +194,15 @@ impl LightningCoin {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn pay_invoice(&self, encoded_invoice: String) -> SendPaymentResult<(PaymentId, PaymentHash, PaymentInfo)> {
+    fn pay_invoice(&self, encoded_invoice: String) -> SendPaymentResult<(PaymentHash, PaymentInfo)> {
         let invoice =
             Invoice::from_str(&encoded_invoice).map_to_mm(|e| SendPaymentError::InvalidInvoice(e.to_string()))?;
-        let payment_id = self
-            .invoice_payer
+        self.invoice_payer
             .pay_invoice(&invoice)
             .map_to_mm(|e| SendPaymentError::PaymentError(format!("{:?}", e)))?;
         let payment_hash = PaymentHash((*invoice.payment_hash()).into_inner());
         let payment_secret = Some(*invoice.payment_secret());
-        Ok((payment_id, payment_hash, PaymentInfo {
+        Ok((payment_hash, PaymentInfo {
             preimage: None,
             secret: payment_secret,
             status: HTLCStatus::Pending,
@@ -217,12 +216,11 @@ impl LightningCoin {
         destination: String,
         amount_msat: u64,
         final_cltv_expiry_delta: u32,
-    ) -> SendPaymentResult<(PaymentId, PaymentHash, PaymentInfo)> {
+    ) -> SendPaymentResult<(PaymentHash, PaymentInfo)> {
         let destination_pubkey =
             PublicKey::from_str(&destination).map_to_mm(|e| SendPaymentError::InvalidDestination(e.to_string()))?;
         let payment_preimage = PaymentPreimage(self.keys_manager.get_secure_random_bytes());
-        let payment_id = self
-            .invoice_payer
+        self.invoice_payer
             .pay_pubkey(
                 destination_pubkey,
                 payment_preimage,
@@ -232,7 +230,7 @@ impl LightningCoin {
             .map_to_mm(|e| SendPaymentError::PaymentError(format!("{:?}", e)))?;
         let payment_hash = PaymentHash(Sha256::hash(&payment_preimage.0).into_inner());
 
-        Ok((payment_id, payment_hash, PaymentInfo {
+        Ok((payment_hash, PaymentInfo {
             preimage: Some(payment_preimage),
             secret: None,
             status: HTLCStatus::Pending,
@@ -963,7 +961,6 @@ pub struct SendPaymentReq {
 
 #[derive(Serialize)]
 pub struct SendPaymentResponse {
-    payment_id: String,
     payment_hash: String,
 }
 
@@ -994,7 +991,7 @@ pub async fn send_payment(ctx: MmArc, req: SendPaymentReq) -> SendPaymentResult<
             );
         }
     }
-    let (payment_id, payment_hash, payment_info) = match req.payment {
+    let (payment_hash, payment_info) = match req.payment {
         Payment::Invoice { invoice } => ln_coin.pay_invoice(invoice)?,
         Payment::Keysend {
             destination,
@@ -1005,7 +1002,6 @@ pub async fn send_payment(ctx: MmArc, req: SendPaymentReq) -> SendPaymentResult<
     let mut outbound_payments = ln_coin.outbound_payments.lock();
     outbound_payments.insert(payment_hash, payment_info);
     Ok(SendPaymentResponse {
-        payment_id: hex::encode(payment_id.0),
         payment_hash: hex::encode(payment_hash.0),
     })
 }
@@ -1066,6 +1062,73 @@ pub async fn list_payments(ctx: MmArc, req: ListPaymentsReq) -> ListPaymentsResu
         inbound_payments,
         outbound_payments,
     })
+}
+
+#[derive(Deserialize)]
+pub struct GetPaymentDetailsRequest {
+    pub coin: String,
+    pub payment_hash: String,
+}
+
+#[derive(Serialize)]
+enum PaymentType {
+    #[cfg(not(target_arch = "wasm32"))]
+    #[serde(rename = "Outbound Payment")]
+    OutboundPayment,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[serde(rename = "Inbound Payment")]
+    InboundPayment,
+}
+
+#[derive(Serialize)]
+pub struct GetPaymentDetailsResponse {
+    payment_type: PaymentType,
+    payment_details: PaymentInfoForRPC,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_payment_details(
+    _ctx: MmArc,
+    _req: GetPaymentDetailsRequest,
+) -> GetPaymentDetailsResult<GetPaymentDetailsResponse> {
+    MmError::err(GetPaymentDetailsError::UnsupportedMode(
+        "'get_payment_details'".into(),
+        "native".into(),
+    ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn get_payment_details(
+    ctx: MmArc,
+    req: GetPaymentDetailsRequest,
+) -> GetPaymentDetailsResult<GetPaymentDetailsResponse> {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    let ln_coin = match coin {
+        MmCoinEnum::LightningCoin(c) => c,
+        _ => return MmError::err(GetPaymentDetailsError::UnsupportedCoin(coin.ticker().to_string())),
+    };
+    let payment_hash: [u8; 32] = hex::decode(req.payment_hash.clone())
+        .map_to_mm(|e| GetPaymentDetailsError::DecodeError(format!("{}", e)))?
+        .try_into()
+        .map_to_mm(|_| GetPaymentDetailsError::InvalidSize(req.payment_hash.len()))?;
+
+    let outbound_payments_info = ln_coin.outbound_payments.lock().clone();
+    if let Some(payment_info) = outbound_payments_info.get(&PaymentHash(payment_hash)) {
+        return Ok(GetPaymentDetailsResponse {
+            payment_type: PaymentType::OutboundPayment,
+            payment_details: payment_info.clone().into(),
+        });
+    }
+
+    let inbound_payments_info = ln_coin.inbound_payments.lock().clone();
+    if let Some(payment_info) = inbound_payments_info.get(&PaymentHash(payment_hash)) {
+        return Ok(GetPaymentDetailsResponse {
+            payment_type: PaymentType::InboundPayment,
+            payment_details: payment_info.clone().into(),
+        });
+    }
+
+    MmError::err(GetPaymentDetailsError::NoSuchPayment(req.payment_hash))
 }
 
 #[derive(Deserialize)]

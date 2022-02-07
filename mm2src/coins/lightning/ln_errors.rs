@@ -17,6 +17,7 @@ pub type GenerateInvoiceResult<T> = Result<T, MmError<GenerateInvoiceError>>;
 pub type GetNodeIdResult<T> = Result<T, MmError<GetNodeIdError>>;
 pub type SendPaymentResult<T> = Result<T, MmError<SendPaymentError>>;
 pub type ListPaymentsResult<T> = Result<T, MmError<ListPaymentsError>>;
+pub type GetPaymentDetailsResult<T> = Result<T, MmError<GetPaymentDetailsError>>;
 pub type CloseChannelResult<T> = Result<T, MmError<CloseChannelError>>;
 pub type ClaimableBalancesResult<T> = Result<T, MmError<ClaimableBalancesError>>;
 
@@ -387,6 +388,45 @@ impl From<CoinFindError> for ListPaymentsError {
     fn from(e: CoinFindError) -> Self {
         match e {
             CoinFindError::NoSuchCoin { coin } => ListPaymentsError::NoSuchCoin(coin),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
+pub enum GetPaymentDetailsError {
+    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
+    UnsupportedMode(String, String),
+    #[display(fmt = "Lightning network is not supported for {}", _0)]
+    UnsupportedCoin(String),
+    #[display(fmt = "No such coin {}", _0)]
+    NoSuchCoin(String),
+    #[display(fmt = "Payment hash decoding error: {}", _0)]
+    DecodeError(String),
+    #[display(fmt = "Payment hash should be 64 chars but has invalid size {}:", _0)]
+    InvalidSize(usize),
+    #[display(fmt = "Payment with hash: {} is not found", _0)]
+    NoSuchPayment(String),
+}
+
+impl HttpStatusCode for GetPaymentDetailsError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            GetPaymentDetailsError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
+            GetPaymentDetailsError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
+            GetPaymentDetailsError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
+            GetPaymentDetailsError::DecodeError(_) | GetPaymentDetailsError::InvalidSize(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
+            GetPaymentDetailsError::NoSuchPayment(_) => StatusCode::NOT_FOUND,
+        }
+    }
+}
+
+impl From<CoinFindError> for GetPaymentDetailsError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => GetPaymentDetailsError::NoSuchCoin(coin),
         }
     }
 }
