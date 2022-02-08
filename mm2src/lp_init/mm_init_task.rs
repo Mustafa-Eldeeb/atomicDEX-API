@@ -4,16 +4,18 @@ use async_trait::async_trait;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::SuccessResponse;
-use crypto::hw_rpc_task::{HwConnectStatuses, TrezorRpcTaskConnectProcessor};
-use crypto::trezor::TrezorPinMatrix3x3Response;
+use crypto::hw_rpc_task::{HwConnectStatuses, HwRpcTaskAwaitingStatus, HwRpcTaskUserAction,
+                          TrezorRpcTaskConnectProcessor};
 use crypto::{CryptoCtx, HwWalletType};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus};
+use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus};
 use serde_json as json;
-use std::convert::TryFrom;
 use std::time::Duration;
 
 const MM_TREZOR_CONNECT_TIMEOUT: Duration = Duration::from_secs(300);
 const MM_INIT_TREZOR_PIN_TIMEOUT: Duration = Duration::from_secs(600);
+
+pub type MmInitAwaitingStatus = HwRpcTaskAwaitingStatus;
+pub type MmInitUserAction = HwRpcTaskUserAction;
 
 pub type MmInitTaskManager =
     RpcTaskManager<SuccessResponse, MmInitError, MmInitInProgressStatus, MmInitAwaitingStatus, MmInitUserAction>;
@@ -30,27 +32,6 @@ pub enum MmInitInProgressStatus {
     WaitingForTrezorToConnect,
     InitializingCryptoCtx,
     ReadPublicKeyFromTrezor,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub enum MmInitAwaitingStatus {
-    WaitForTrezorPin,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(tag = "action_type")]
-pub enum MmInitUserAction {
-    TrezorPin(TrezorPinMatrix3x3Response),
-}
-
-impl TryFrom<MmInitUserAction> for TrezorPinMatrix3x3Response {
-    type Error = RpcTaskError;
-
-    fn try_from(value: MmInitUserAction) -> Result<Self, Self::Error> {
-        match value {
-            MmInitUserAction::TrezorPin(pin) => Ok(pin),
-        }
-    }
 }
 
 pub struct MmInitTask {

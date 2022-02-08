@@ -2,10 +2,14 @@ use crate::prelude::CoinConfWithProtocolError;
 use coins::CoinProtocol;
 use common::{HttpStatusCode, StatusCode};
 use derive_more::Display;
+use rpc_task::rpc_common::{RpcTaskStatusError, RpcTaskUserActionError};
 use rpc_task::{RpcTaskError, TaskId};
 use ser_error_derive::SerializeErrorType;
 use serde_derive::Serialize;
 use std::time::Duration;
+
+pub type InitStandaloneCoinStatusError = RpcTaskStatusError;
+pub type InitStandaloneCoinUserActionError = RpcTaskUserActionError;
 
 #[derive(Clone, Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -85,47 +89,6 @@ impl HttpStatusCode for InitStandaloneCoinError {
             InitStandaloneCoinError::Transport(_) | InitStandaloneCoinError::Internal(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             },
-        }
-    }
-}
-
-#[derive(Display, Serialize, SerializeErrorType)]
-#[serde(tag = "error_type", content = "error_data")]
-pub enum InitStandaloneCoinStatusError {
-    NoSuchTask(TaskId),
-    Internal(String),
-}
-
-impl HttpStatusCode for InitStandaloneCoinStatusError {
-    fn status_code(&self) -> StatusCode {
-        match self {
-            InitStandaloneCoinStatusError::NoSuchTask(_) => StatusCode::BAD_REQUEST,
-            InitStandaloneCoinStatusError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-}
-
-#[derive(Display, Serialize, SerializeErrorType)]
-#[serde(tag = "error_type", content = "error_data")]
-pub enum InitStandaloneCoinUserActionError {
-    NoSuchTask(TaskId),
-    Internal(String),
-}
-
-impl From<RpcTaskError> for InitStandaloneCoinUserActionError {
-    fn from(rpc_err: RpcTaskError) -> Self {
-        match rpc_err {
-            RpcTaskError::NoSuchTask(task_id) => InitStandaloneCoinUserActionError::NoSuchTask(task_id),
-            rpc_err => InitStandaloneCoinUserActionError::Internal(rpc_err.to_string()),
-        }
-    }
-}
-
-impl HttpStatusCode for InitStandaloneCoinUserActionError {
-    fn status_code(&self) -> StatusCode {
-        match self {
-            InitStandaloneCoinUserActionError::NoSuchTask(_) => StatusCode::BAD_REQUEST,
-            InitStandaloneCoinUserActionError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

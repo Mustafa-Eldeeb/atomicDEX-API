@@ -9,10 +9,15 @@ use common::mm_error::prelude::*;
 use common::{NotSame, SuccessResponse};
 use crypto::trezor::trezor_rpc_task::RpcTaskHandle;
 use crypto::CryptoCtx;
-use rpc_task::{RpcTask, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, TaskId};
-use serde_derive::{Deserialize, Serialize};
+use rpc_task::rpc_common::{InitRpcTaskResponse, RpcTaskStatusRequest, RpcTaskUserActionRequest};
+use rpc_task::{RpcTask, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus};
+use serde_derive::Deserialize;
 use serde_json::Value as Json;
 use std::sync::Arc;
+
+pub type InitStandaloneCoinResponse = InitRpcTaskResponse;
+pub type InitStandaloneCoinStatusRequest = RpcTaskStatusRequest;
+pub type InitStandaloneCoinUserActionRequest<UserAction> = RpcTaskUserActionRequest<UserAction>;
 
 #[derive(Debug, Deserialize)]
 pub struct InitStandaloneCoinReq<T> {
@@ -73,11 +78,6 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> {
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>>;
 }
 
-#[derive(Serialize)]
-pub struct InitStandaloneCoinResponse {
-    task_id: TaskId,
-}
-
 pub async fn init_standalone_coin<Standalone>(
     ctx: MmArc,
     request: InitStandaloneCoinReq<Standalone::ActivationRequest>,
@@ -118,13 +118,6 @@ where
     Ok(InitStandaloneCoinResponse { task_id })
 }
 
-#[derive(Deserialize)]
-pub struct InitStandaloneCoinStatusRequest {
-    task_id: TaskId,
-    #[serde(default = "true_f")]
-    forget_if_finished: bool,
-}
-
 pub async fn init_standalone_coin_status<Standalone: InitStandaloneCoinActivationOps>(
     ctx: MmArc,
     req: InitStandaloneCoinStatusRequest,
@@ -150,15 +143,9 @@ where
         .map(|rpc_task| rpc_task.map_err(InitStandaloneCoinError::from))
 }
 
-#[derive(Deserialize)]
-pub struct InitStandaloneCoinUserAction<UserAction> {
-    task_id: TaskId,
-    user_action: UserAction,
-}
-
 pub async fn init_standalone_coin_user_action<Standalone: InitStandaloneCoinActivationOps>(
     ctx: MmArc,
-    req: InitStandaloneCoinUserAction<Standalone::UserAction>,
+    req: InitStandaloneCoinUserActionRequest<Standalone::UserAction>,
 ) -> MmResult<SuccessResponse, InitStandaloneCoinUserActionError> {
     let coins_act_ctx =
         CoinsActivationContext::from_ctx(&ctx).map_to_mm(InitStandaloneCoinUserActionError::Internal)?;
@@ -223,5 +210,3 @@ where
 pub trait InitStandaloneCoinInitialStatus {
     fn initial_status() -> Self;
 }
-
-fn true_f() -> bool { true }

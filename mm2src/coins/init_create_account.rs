@@ -8,7 +8,7 @@ use common::mm_error::prelude::*;
 use common::SuccessResponse;
 use crypto::hw_rpc_task::{HwConnectStatuses, HwRpcTaskAwaitingStatus, HwRpcTaskUserAction, HwRpcTaskUserActionRequest};
 use crypto::RpcDerivationPath;
-use rpc_task::rpc_common::{InitRpcTaskResponse, RpcTaskActionError, RpcTaskStatusError, RpcTaskStatusRequest};
+use rpc_task::rpc_common::{InitRpcTaskResponse, RpcTaskUserActionError, RpcTaskStatusError, RpcTaskStatusRequest};
 use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus};
 
 pub type CreateAccountUserAction = HwRpcTaskUserAction;
@@ -158,12 +158,12 @@ pub async fn init_create_new_hd_account_status(
 pub async fn init_create_new_hd_account_user_action(
     ctx: MmArc,
     req: HwRpcTaskUserActionRequest,
-) -> MmResult<SuccessResponse, RpcTaskActionError> {
-    let coins_ctx = CoinsContext::from_ctx(&ctx).map_to_mm(RpcTaskActionError::Internal)?;
+) -> MmResult<SuccessResponse, RpcTaskUserActionError> {
+    let coins_ctx = CoinsContext::from_ctx(&ctx).map_to_mm(RpcTaskUserActionError::Internal)?;
     let mut task_manager = coins_ctx
         .create_account_manager
         .lock()
-        .map_to_mm(|e| RpcTaskActionError::Internal(e.to_string()))?;
+        .map_to_mm(|e| RpcTaskUserActionError::Internal(e.to_string()))?;
     task_manager.on_user_action(req.task_id, req.user_action)?;
     Ok(SuccessResponse::new())
 }

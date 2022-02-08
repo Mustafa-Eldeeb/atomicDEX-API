@@ -24,25 +24,25 @@ impl HttpStatusCode for RpcTaskStatusError {
 /// Please do not add new error variants unless they are used in most cases.
 #[derive(Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
-pub enum RpcTaskActionError {
+pub enum RpcTaskUserActionError {
     NoSuchTask(TaskId),
     Internal(String),
 }
 
-impl From<RpcTaskError> for RpcTaskActionError {
+impl From<RpcTaskError> for RpcTaskUserActionError {
     fn from(rpc_err: RpcTaskError) -> Self {
         match rpc_err {
-            RpcTaskError::NoSuchTask(task_id) => RpcTaskActionError::NoSuchTask(task_id),
-            rpc_err => RpcTaskActionError::Internal(rpc_err.to_string()),
+            RpcTaskError::NoSuchTask(task_id) => RpcTaskUserActionError::NoSuchTask(task_id),
+            rpc_err => RpcTaskUserActionError::Internal(rpc_err.to_string()),
         }
     }
 }
 
-impl HttpStatusCode for RpcTaskActionError {
+impl HttpStatusCode for RpcTaskUserActionError {
     fn status_code(&self) -> StatusCode {
         match self {
-            RpcTaskActionError::NoSuchTask(_) => StatusCode::BAD_REQUEST,
-            RpcTaskActionError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            RpcTaskUserActionError::NoSuchTask(_) => StatusCode::BAD_REQUEST,
+            RpcTaskUserActionError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
