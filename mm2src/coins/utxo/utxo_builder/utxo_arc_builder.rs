@@ -1,4 +1,5 @@
-use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuildHwOps, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
+use crate::hd_pubkey::HDXPubExtractor;
+use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
                                 UtxoCoinWithIguanaPrivKeyBuilder, UtxoFieldsWithHardwareWalletBuilder,
                                 UtxoFieldsWithIguanaPrivKeyBuilder};
 use crate::utxo::utxo_common::merge_utxo_loop;
@@ -11,24 +12,24 @@ use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use serde_json::Value as Json;
 
-pub struct UtxoArcBuilder<'a, F, T, HwOps>
+pub struct UtxoArcBuilder<'a, F, T, XPubExtractor>
 where
     F: Fn(UtxoArc) -> T + Send + Sync + 'static,
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
     ctx: &'a MmArc,
     ticker: &'a str,
     conf: &'a Json,
     activation_params: &'a UtxoActivationParams,
     priv_key_policy: PrivKeyBuildPolicy<'a>,
-    hw_ops: HwOps,
+    xpub_extractor: XPubExtractor,
     constructor: F,
 }
 
-impl<'a, F, T, HwOps> UtxoArcBuilder<'a, F, T, HwOps>
+impl<'a, F, T, XPubExtractor> UtxoArcBuilder<'a, F, T, XPubExtractor>
 where
     F: Fn(UtxoArc) -> T + Send + Sync + 'static,
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
     pub fn new(
         ctx: &'a MmArc,
@@ -36,26 +37,26 @@ where
         conf: &'a Json,
         activation_params: &'a UtxoActivationParams,
         priv_key_policy: PrivKeyBuildPolicy<'a>,
-        hw_ops: HwOps,
+        xpub_extractor: XPubExtractor,
         constructor: F,
-    ) -> UtxoArcBuilder<'a, F, T, HwOps> {
+    ) -> UtxoArcBuilder<'a, F, T, XPubExtractor> {
         UtxoArcBuilder {
             ctx,
             ticker,
             conf,
             activation_params,
             priv_key_policy,
-            hw_ops,
+            xpub_extractor,
             constructor,
         }
     }
 }
 
 #[async_trait]
-impl<'a, F, T, HwOps> UtxoCoinBuilderCommonOps for UtxoArcBuilder<'a, F, T, HwOps>
+impl<'a, F, T, XPubExtractor> UtxoCoinBuilderCommonOps for UtxoArcBuilder<'a, F, T, XPubExtractor>
 where
     F: Fn(UtxoArc) -> T + Send + Sync + 'static,
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
     fn ctx(&self) -> &MmArc { self.ctx }
 
@@ -66,33 +67,34 @@ where
     fn ticker(&self) -> &str { self.ticker }
 }
 
-impl<'a, F, T, HwOps> UtxoFieldsWithIguanaPrivKeyBuilder for UtxoArcBuilder<'a, F, T, HwOps>
+impl<'a, F, T, XPubExtractor> UtxoFieldsWithIguanaPrivKeyBuilder for UtxoArcBuilder<'a, F, T, XPubExtractor>
 where
     F: Fn(UtxoArc) -> T + Send + Sync + 'static,
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
 }
 
-impl<'a, F, T, HwOps> UtxoFieldsWithHardwareWalletBuilder<HwOps> for UtxoArcBuilder<'a, F, T, HwOps>
+impl<'a, F, T, XPubExtractor> UtxoFieldsWithHardwareWalletBuilder<XPubExtractor>
+    for UtxoArcBuilder<'a, F, T, XPubExtractor>
 where
     F: Fn(UtxoArc) -> T + Send + Sync + 'static,
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
 }
 
 #[async_trait]
-impl<'a, F, T, HwOps> UtxoCoinBuilder<HwOps> for UtxoArcBuilder<'a, F, T, HwOps>
+impl<'a, F, T, XPubExtractor> UtxoCoinBuilder<XPubExtractor> for UtxoArcBuilder<'a, F, T, XPubExtractor>
 where
     F: Fn(UtxoArc) -> T + Clone + Send + Sync + 'static,
     T: AsRef<UtxoCoinFields> + UtxoCommonOps + Send + Sync + 'static,
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
     type ResultCoin = T;
     type Error = UtxoCoinBuildError;
 
     fn priv_key_policy(&self) -> PrivKeyBuildPolicy<'_> { self.priv_key_policy.clone() }
 
-    fn hw_ops(&self) -> &HwOps { &self.hw_ops }
+    fn xpub_extractor(&self) -> &XPubExtractor { &self.xpub_extractor }
 
     async fn build(self) -> MmResult<Self::ResultCoin, Self::Error> {
         let utxo = self.build_utxo_fields().await?;
@@ -105,11 +107,11 @@ where
     }
 }
 
-impl<'a, F, T, HwOps> MergeUtxoArcOps<T> for UtxoArcBuilder<'a, F, T, HwOps>
+impl<'a, F, T, XPubExtractor> MergeUtxoArcOps<T> for UtxoArcBuilder<'a, F, T, XPubExtractor>
 where
     F: Fn(UtxoArc) -> T + Send + Sync + 'static,
     T: AsRef<UtxoCoinFields> + UtxoCommonOps + Send + Sync + 'static,
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
 }
 

@@ -1162,6 +1162,7 @@ dependencies = [
  "keys",
  "parking_lot 0.11.1",
  "primitives",
+ "rpc_task",
  "secp256k1",
  "ser_error",
  "ser_error_derive",
@@ -4561,6 +4562,8 @@ dependencies = [
  "common",
  "derive_more",
  "futures 0.3.15",
+ "ser_error",
+ "ser_error_derive",
  "serde",
  "serde_derive",
 ]

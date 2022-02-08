@@ -62,7 +62,6 @@ pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, Key
                Type as ScriptType};
 #[cfg(test)] use mocktopus::macros::*;
 use num_traits::ToPrimitive;
-use parking_lot::Mutex as PaMutex;
 use primitives::hash::{H256, H264};
 use rpc::v1::types::{Bytes as BytesJson, Transaction as RpcTransaction, H256 as H256Json};
 use script::{Builder, Script, SignatureVersion, TransactionInputSigner};
@@ -87,12 +86,12 @@ use utxo_signer::{TxProvider, TxProviderError, UtxoSignTxError, UtxoSignTxResult
 use self::rpc_clients::{electrum_script_hash, ElectrumClient, ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode,
                         NativeClient, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
 use super::{BalanceError, BalanceFut, BalanceResult, CoinsContext, DerivationMethod, DerivationMethodNotSupported,
-            FeeApproxStage, FoundSwapTxSpend, HDAddress, HDWalletCoinOps, HistorySyncState, KmdRewardsDetails,
-            MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy,
-            RpcTransportEventHandler, RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut,
-            TradePreimageResult, Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError,
-            WithdrawRequest};
+            FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails, MarketCoinOps, MmCoin,
+            NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy, RpcTransportEventHandler,
+            RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
+            Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError, WithdrawRequest};
 use crate::coin_balance::HDAddressBalanceChecker;
+use crate::hd_wallet::{AccountsMap, AsyncRwLock, HDAddress, HDWalletCoinOps};
 
 #[cfg(test)] pub mod utxo_tests;
 #[cfg(target_arch = "wasm32")] pub mod utxo_wasm_tests;
@@ -1114,7 +1113,7 @@ pub struct UtxoHDWallet {
     /// `m/purpose'/coin_type'/account'/change/address_index`.
     pub derivation_path: DerivationPath,
     /// User accounts.
-    pub accounts: PaMutex<Vec<UtxoHDAccount>>,
+    pub accounts: AsyncRwLock<AccountsMap<UtxoHDAccount>>,
     pub gap_limit: u32,
 }
 

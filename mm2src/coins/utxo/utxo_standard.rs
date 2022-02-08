@@ -1,12 +1,17 @@
 use super::*;
-use crate::coin_balance::{common_impl, AddressBalanceOps, CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse,
-                          HDAccountBalanceParams, HDAccountBalanceResponse, HDAccountBalanceRpcError,
-                          HDAddressBalance, HDWalletBalance, HDWalletBalanceOps, HDWalletBalanceRpcOps};
+use crate::coin_balance::{self, AddressBalanceOps, CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse,
+                          HDAccountBalance, HDAccountBalanceParams, HDAccountBalanceResponse,
+                          HDAccountBalanceRpcError, HDAddressBalance, HDWalletBalance, HDWalletBalanceOps,
+                          HDWalletBalanceRpcOps};
+use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
+use crate::hd_wallet::{self, AccountsMap, AddressDerivingError, GetNewHDAddressParams, GetNewHDAddressResponse,
+                       HDWalletRpcError, HDWalletRpcOps, InvalidBip44ChainError, MappedWriteGuard,
+                       NewAccountCreatingError, NewAddressDerivingError};
+use crate::init_create_account::{self, CreateNewAccountParams, InitCreateHDAccountRpcOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
-use crate::{AddressDerivingError, Bip44Chain, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod,
-            InvalidBip44ChainError, NegotiateSwapContractAddrErr, SwapOps, TradePreimageValue, ValidateAddressResult,
-            WithdrawFut};
+use crate::{Bip44Chain, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, NegotiateSwapContractAddrErr, SwapOps,
+            TradePreimageValue, ValidateAddressResult, WithdrawFut};
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use crypto::trezor::utxo::TrezorUtxoCoin;
@@ -599,6 +604,23 @@ impl CoinWithDerivationMethod for UtxoStandardCoin {
     }
 }
 
+#[async_trait]
+impl ExtractExtendedPubkey for UtxoStandardCoin {
+    type ExtendedPublicKey = Secp256k1ExtendedPublicKey;
+
+    async fn extract_extended_pubkey<XPubExtractor>(
+        &self,
+        xpub_extractor: &XPubExtractor,
+        derivation_path: DerivationPath,
+    ) -> MmResult<Self::ExtendedPublicKey, HDExtractPubkeyError>
+    where
+        XPubExtractor: HDXPubExtractor + Sync,
+    {
+        utxo_common::extract_extended_pubkey(&self.utxo_arc.conf, xpub_extractor, derivation_path).await
+    }
+}
+
+#[async_trait]
 impl HDWalletCoinOps for UtxoStandardCoin {
     type Address = Address;
     type HDWallet = UtxoHDWallet;
@@ -606,12 +628,27 @@ impl HDWalletCoinOps for UtxoStandardCoin {
 
     fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32 { hd_wallet.gap_limit }
 
-    fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount> {
-        utxo_common::get_hd_account(hd_wallet, account_id)
+    async fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount> {
+        utxo_common::get_hd_account(hd_wallet, account_id).await
     }
 
-    fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> Vec<Self::HDAccount> {
-        utxo_common::get_hd_accounts(hd_wallet)
+    async fn get_account_mut<'a>(
+        &self,
+        hd_wallet: &'a Self::HDWallet,
+        account_id: u32,
+    ) -> Option<MappedWriteGuard<'a, Self::HDAccount>> {
+        utxo_common::get_hd_account_mut(hd_wallet, account_id).await
+    }
+
+    async fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> AccountsMap<Self::HDAccount> {
+        utxo_common::get_hd_accounts(hd_wallet).await
+    }
+
+    async fn get_accounts_mut<'a>(
+        &self,
+        hd_wallet: &'a Self::HDWallet,
+    ) -> MappedWriteGuard<'a, AccountsMap<Self::HDAccount>> {
+        utxo_common::get_hd_accounts_mut(hd_wallet).await
     }
 
     fn number_of_used_account_addresses(
@@ -620,10 +657,6 @@ impl HDWalletCoinOps for UtxoStandardCoin {
         chain: Bip44Chain,
     ) -> MmResult<u32, InvalidBip44ChainError> {
         utxo_common::number_of_used_account_addresses(hd_account, chain)
-    }
-
-    fn apply_account_changes(&self, hd_wallet: &Self::HDWallet, hd_account: Self::HDAccount) {
-        utxo_common::apply_account_changes(hd_wallet, hd_account)
     }
 
     fn account_derivation_path(&self, hd_account: &Self::HDAccount) -> DerivationPath {
@@ -640,6 +673,35 @@ impl HDWalletCoinOps for UtxoStandardCoin {
     ) -> MmResult<HDAddress<Self::Address>, AddressDerivingError> {
         utxo_common::derive_address(self, hd_account, chain, address_id)
     }
+
+    fn generate_new_address(
+        &self,
+        hd_account: &mut Self::HDAccount,
+        chain: Bip44Chain,
+    ) -> MmResult<HDAddress<Self::Address>, NewAddressDerivingError> {
+        utxo_common::generate_address(self, hd_account, chain)
+    }
+
+    async fn create_new_account<'a, XPubExtractor>(
+        &self,
+        hd_wallet: &'a Self::HDWallet,
+        xpub_extractor: &XPubExtractor,
+    ) -> MmResult<MappedWriteGuard<'a, Self::HDAccount>, NewAccountCreatingError>
+    where
+        XPubExtractor: HDXPubExtractor + Sync,
+    {
+        utxo_common::create_new_account(self, hd_wallet, xpub_extractor).await
+    }
+}
+
+#[async_trait]
+impl HDWalletRpcOps for UtxoStandardCoin {
+    async fn get_new_hd_address_rpc(
+        &self,
+        params: GetNewHDAddressParams,
+    ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError> {
+        hd_wallet::common_impl::get_new_hd_address_rpc(self, params).await
+    }
 }
 
 #[async_trait]
@@ -653,7 +715,7 @@ impl HDWalletBalanceOps for UtxoStandardCoin {
     }
 
     async fn enable_hd_wallet_balance(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<HDWalletBalance> {
-        common_impl::enable_hd_wallet_balance(self, hd_wallet).await
+        coin_balance::common_impl::enable_hd_wallet_balance(self, hd_wallet).await
     }
 
     async fn check_hd_account_balance(
@@ -672,13 +734,27 @@ impl HDWalletBalanceRpcOps for UtxoStandardCoin {
         &self,
         params: HDAccountBalanceParams,
     ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError> {
-        common_impl::hd_account_balance_rpc(self, params).await
+        coin_balance::common_impl::hd_account_balance_rpc(self, params).await
     }
 
     async fn check_hd_account_balance_rpc(
         &self,
         params: CheckHDAccountBalanceParams,
     ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError> {
-        common_impl::check_hd_account_balance_rpc(self, params).await
+        coin_balance::common_impl::check_hd_account_balance_rpc(self, params).await
+    }
+}
+
+#[async_trait]
+impl InitCreateHDAccountRpcOps for UtxoStandardCoin {
+    async fn init_create_hd_account_rpc<XPubExtractor>(
+        &self,
+        params: CreateNewAccountParams,
+        xpub_extractor: &XPubExtractor,
+    ) -> MmResult<HDAccountBalance, HDWalletRpcError>
+    where
+        XPubExtractor: HDXPubExtractor + Sync,
+    {
+        init_create_account::common_impl::init_create_new_hd_account_rpc(self, params, xpub_extractor).await
     }
 }

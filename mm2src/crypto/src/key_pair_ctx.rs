@@ -1,4 +1,23 @@
 use keys::{KeyPair, Private, Public as PublicKey};
+use std::ops::Deref;
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub struct KeyPairArc(Arc<KeyPairCtx>);
+
+impl Deref for KeyPairArc {
+    type Target = KeyPairCtx;
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+impl KeyPairArc {
+    pub fn new(ctx: KeyPairCtx) -> KeyPairArc { KeyPairArc(Arc::new(ctx)) }
+
+    pub fn from_key_pair(secp256k1_key_pair: KeyPair) -> KeyPairArc {
+        KeyPairArc(Arc::new(KeyPairCtx { secp256k1_key_pair }))
+    }
+}
 
 pub struct KeyPairCtx {
     /// secp256k1 key pair derived from passphrase.

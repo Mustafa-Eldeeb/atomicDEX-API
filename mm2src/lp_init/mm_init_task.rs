@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::SuccessResponse;
-use crypto::hw_rpc_task::{TrezorConnectStatuses, TrezorRpcTaskConnectProcessor};
+use crypto::hw_rpc_task::{HwConnectStatuses, TrezorRpcTaskConnectProcessor};
 use crypto::trezor::TrezorPinMatrix3x3Response;
 use crypto::{CryptoCtx, HwWalletType};
 use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus};
@@ -81,7 +81,7 @@ impl RpcTask for MmInitTask {
         })?;
         match hw_wallet {
             HwWalletType::Trezor => {
-                let trezor_connect_processor = TrezorRpcTaskConnectProcessor::new(task_handle, TrezorConnectStatuses {
+                let trezor_connect_processor = TrezorRpcTaskConnectProcessor::new(task_handle, HwConnectStatuses {
                     on_connect: MmInitInProgressStatus::WaitingForTrezorToConnect,
                     on_connected: MmInitInProgressStatus::Initializing,
                     on_connection_failed: MmInitInProgressStatus::Initializing,

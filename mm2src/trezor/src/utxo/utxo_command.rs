@@ -3,7 +3,7 @@ use crate::proto::messages_bitcoin as proto_bitcoin;
 use crate::result_handler::ResultHandler;
 use crate::utxo::TrezorUtxoCoin;
 use crate::{ecdsa_curve_to_string, serialize_derivation_path, TrezorResponse, TrezorResult};
-use hw_common::primitives::{DerivationPath, EcdsaCurve};
+use hw_common::primitives::{DerivationPath, EcdsaCurve, XPub};
 
 // Bitcoin(UTXO) operations.
 impl<'a> TrezorSession<'a> {
@@ -30,7 +30,7 @@ impl<'a> TrezorSession<'a> {
         path: DerivationPath,
         coin: TrezorUtxoCoin,
         ecdsa_curve: EcdsaCurve,
-    ) -> TrezorResult<TrezorResponse<'a, 'b, String>> {
+    ) -> TrezorResult<TrezorResponse<'a, 'b, XPub>> {
         let req = proto_bitcoin::GetPublicKey {
             address_n: serialize_derivation_path(&path),
             ecdsa_curve_name: Some(ecdsa_curve_to_string(ecdsa_curve)),

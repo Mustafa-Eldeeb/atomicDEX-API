@@ -10,14 +10,14 @@ pub use crypto_ctx::{CryptoCtx, CryptoInitError, CryptoInitResult};
 pub use hw_client::TrezorConnectProcessor;
 pub use hw_client::{HwClient, HwError, HwProcessingError, HwResult, HwWalletType};
 pub use hw_common::primitives::{Bip32Error, ChildNumber, DerivationPath, EcdsaCurve, ExtendedPublicKey,
-                                Secp256k1ExtendedPublicKey};
-pub use hw_ctx::HardwareWalletCtx;
-pub use key_pair_ctx::KeyPairCtx;
-use std::str::FromStr;
+                                Secp256k1ExtendedPublicKey, XPub};
+pub use hw_ctx::{HardwareWalletArc, HardwareWalletCtx};
+pub use key_pair_ctx::{KeyPairArc, KeyPairCtx};
 pub use trezor;
 
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::str::FromStr;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RpcDerivationPath(pub DerivationPath);

@@ -2,21 +2,64 @@ use crate::hw_client::{HwProcessingError, TrezorConnectProcessor};
 use crate::trezor::TrezorPinMatrix3x3Response;
 use async_trait::async_trait;
 use common::mm_error::prelude::*;
+use rpc_task::rpc_common::RpcTaskUserActionRequest;
 use serde::Serialize;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
 use trezor::trezor_rpc_task::{RpcTaskError, RpcTaskHandle, TrezorRequestStatuses, TrezorRpcTaskProcessor};
 use trezor::{TrezorProcessingError, TrezorRequestProcessor};
 
 const CONNECT_DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub struct TrezorConnectStatuses<InProgressStatus, AwaitingStatus> {
+pub type HwRpcTaskUserActionRequest = RpcTaskUserActionRequest<HwRpcTaskUserAction>;
+
+/// When it comes to interacting with a HW device, this is a common awaiting RPC status.
+/// The status says to the user that he should pass a Trezor PIN to continue the pending RPC task.
+#[derive(Clone, Serialize)]
+pub enum HwRpcTaskAwaitingStatus {
+    WaitForTrezorPin,
+}
+
+/// When it comes to interacting with a HW device,
+/// this is a common user action in answer to awaiting RPC task status.
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "action_type")]
+pub enum HwRpcTaskUserAction {
+    TrezorPin(TrezorPinMatrix3x3Response),
+}
+
+impl TryFrom<HwRpcTaskUserAction> for TrezorPinMatrix3x3Response {
+    type Error = RpcTaskError;
+
+    fn try_from(value: HwRpcTaskUserAction) -> Result<Self, Self::Error> {
+        match value {
+            HwRpcTaskUserAction::TrezorPin(pin) => Ok(pin),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct HwConnectStatuses<InProgressStatus, AwaitingStatus> {
     pub on_connect: InProgressStatus,
     pub on_connected: InProgressStatus,
     pub on_connection_failed: InProgressStatus,
     pub on_button_request: InProgressStatus,
     pub on_pin_request: AwaitingStatus,
     pub on_ready: InProgressStatus,
+}
+
+impl<InProgressStatus, AwaitingStatus> HwConnectStatuses<InProgressStatus, AwaitingStatus>
+where
+    InProgressStatus: Clone,
+    AwaitingStatus: Clone,
+{
+    pub fn to_trezor_request_statuses(&self) -> TrezorRequestStatuses<InProgressStatus, AwaitingStatus> {
+        TrezorRequestStatuses {
+            on_button_request: self.on_button_request.clone(),
+            on_pin_request: self.on_pin_request.clone(),
+            on_ready: self.on_ready.clone(),
+        }
+    }
 }
 
 pub struct TrezorRpcTaskConnectProcessor<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
@@ -93,7 +136,7 @@ where
 {
     pub fn new(
         task_handle: &'a RpcTaskHandle<Item, Error, InProgressStatus, AwaitingStatus, UserAction>,
-        statuses: TrezorConnectStatuses<InProgressStatus, AwaitingStatus>,
+        statuses: HwConnectStatuses<InProgressStatus, AwaitingStatus>,
     ) -> Self {
         let request_statuses = TrezorRequestStatuses {
             on_button_request: statuses.on_button_request,

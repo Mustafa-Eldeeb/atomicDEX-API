@@ -1,6 +1,6 @@
-use crate::{lp_coinfind_or_err, AddressDerivingError, BalanceError, BalanceResult, Bip44Chain, CoinBalance,
-            CoinFindError, CoinWithDerivationMethod, DerivationMethod, HDWalletCoinOps, InvalidBip44ChainError,
-            MarketCoinOps, MmCoinEnum};
+use crate::hd_wallet::{AddressDerivingError, HDWalletCoinOps, InvalidBip44ChainError};
+use crate::{lp_coinfind_or_err, BalanceError, BalanceResult, Bip44Chain, CoinBalance, CoinFindError,
+            CoinWithDerivationMethod, DerivationMethod, MarketCoinOps, MmCoinEnum};
 use async_trait::async_trait;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
@@ -306,7 +306,7 @@ pub async fn check_hd_account_balance(
 
 pub mod common_impl {
     use super::*;
-    use crate::HDAddress;
+    use crate::hd_wallet::HDAddress;
     use common::calc_total_pages;
 
     pub(crate) async fn enable_hd_wallet_balance<Coin, Address, HDWallet, HDAccount, HDAccountChecker>(
@@ -322,7 +322,7 @@ pub mod common_impl {
                 HDAddressChecker = HDAccountChecker,
             >,
     {
-        let accounts = coin.get_accounts(hd_wallet);
+        let mut accounts = coin.get_accounts_mut(hd_wallet).await;
         let gap_limit = coin.gap_limit(hd_wallet);
         let address_checker = coin.produce_hd_address_checker().await?;
 
@@ -330,22 +330,21 @@ pub mod common_impl {
             accounts: Vec::with_capacity(accounts.len()),
         };
 
-        for mut hd_account in accounts {
+        for (account_index, hd_account) in accounts.iter_mut() {
             let addresses = coin
-                .check_hd_account_balance(&mut hd_account, &address_checker, gap_limit)
+                .check_hd_account_balance(hd_account, &address_checker, gap_limit)
                 .await?;
 
             let total_balance = addresses.iter().fold(CoinBalance::default(), |total, addr_balance| {
                 total + addr_balance.balance.clone()
             });
             let account_balance = HDAccountBalance {
-                account_index: coin.account_id(&hd_account),
-                derivation_path: RpcDerivationPath(coin.account_derivation_path(&hd_account)),
+                account_index: *account_index,
+                derivation_path: RpcDerivationPath(coin.account_derivation_path(hd_account)),
                 total_balance,
                 addresses,
             };
 
-            coin.apply_account_changes(hd_wallet, hd_account);
             result.accounts.push(account_balance);
         }
 
@@ -374,6 +373,7 @@ pub mod common_impl {
         let chain = params.chain;
         let hd_account = coin
             .get_account(hd_wallet, account_id)
+            .await
             .or_mm_err(|| HDAccountBalanceRpcError::UnknownAccount { account_id })?;
         let total_addresses_number = coin.number_of_used_account_addresses(&hd_account, params.chain)?;
 
@@ -430,7 +430,8 @@ pub mod common_impl {
 
         let account_id = params.account_index;
         let mut hd_account = coin
-            .get_account(hd_wallet, account_id)
+            .get_account_mut(hd_wallet, account_id)
+            .await
             .or_mm_err(|| HDAccountBalanceRpcError::UnknownAccount { account_id })?;
         let account_derivation_path = coin.account_derivation_path(&hd_account);
         let address_checker = coin.produce_hd_address_checker().await?;
@@ -440,7 +441,6 @@ pub mod common_impl {
             .check_hd_account_balance(&mut hd_account, &address_checker, gap_limit)
             .await?;
 
-        coin.apply_account_changes(hd_wallet, hd_account);
         Ok(CheckHDAccountBalanceResponse {
             account_index: account_id,
             derivation_path: RpcDerivationPath(account_derivation_path),

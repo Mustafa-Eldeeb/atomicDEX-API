@@ -6,8 +6,12 @@ use futures::channel::oneshot;
 use serde::Serialize;
 use std::time::Duration;
 
+#[macro_use] extern crate ser_error_derive;
+#[macro_use] extern crate serde_derive;
+
 mod handle;
 mod manager;
+pub mod rpc_common;
 mod task;
 
 pub use handle::RpcTaskHandle;

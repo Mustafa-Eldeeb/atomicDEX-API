@@ -8,12 +8,27 @@ use hw_common::primitives::{DerivationPath, Secp256k1ExtendedPublicKey};
 use keys::Public as PublicKey;
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::H264;
+use std::ops::Deref;
 use std::str::FromStr;
+use std::sync::Arc;
 use trezor::client::TrezorClient;
 use trezor::utxo::TrezorUtxoCoin;
 use trezor::{ProcessTrezorResponse, TrezorRequestProcessor};
 
 pub(crate) const MM2_TREZOR_INTERNAL_COIN: TrezorUtxoCoin = TrezorUtxoCoin::Komodo;
+
+#[derive(Clone)]
+pub struct HardwareWalletArc(Arc<HardwareWalletCtx>);
+
+impl Deref for HardwareWalletArc {
+    type Target = HardwareWalletCtx;
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+impl HardwareWalletArc {
+    pub fn new(ctx: HardwareWalletCtx) -> HardwareWalletArc { HardwareWalletArc(Arc::new(ctx)) }
+}
 
 pub struct HardwareWalletCtx {
     /// The pubkey derived from `MM2_INTERNAL_DERIVATION_PATH`.

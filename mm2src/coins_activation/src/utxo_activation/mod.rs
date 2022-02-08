@@ -2,7 +2,7 @@ mod init_qtum_activation;
 mod init_utxo_standard_activation;
 mod init_utxo_standard_activation_error;
 mod init_utxo_standard_statuses;
+mod utxo_common_impl;
 mod utxo_standard_activation_result;
-mod utxo_standard_coin_hw_ops;
 
 pub use init_utxo_standard_activation::UtxoStandardTaskManagerShared;

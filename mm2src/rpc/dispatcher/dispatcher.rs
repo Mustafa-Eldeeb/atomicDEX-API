@@ -7,6 +7,9 @@ use crate::{mm2::lp_stats::{add_node_to_version_stat, remove_node_from_version_s
             mm2::lp_swap::{recreate_swap_data, trade_preimage_rpc},
             mm2::rpc::get_public_key::get_public_key};
 use coins::coin_balance::{check_hd_account_balance, hd_account_balance};
+use coins::hd_wallet::get_new_hd_address;
+use coins::init_create_account::{init_create_new_hd_account, init_create_new_hd_account_status,
+                                 init_create_new_hd_account_user_action};
 use coins::init_withdraw::{init_withdraw, withdraw_status, withdraw_user_action};
 use coins::lightning::{connect_to_lightning_node, open_channel, LightningCoin};
 use coins::my_tx_history_v2::my_tx_history_v2_rpc;
@@ -114,9 +117,15 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "enable_bch_with_tokens" => handle_mmrpc(ctx, request, enable_platform_coin_with_tokens::<BchCoin>).await,
         "enable_lightning" => handle_mmrpc(ctx, request, enable_l2::<LightningCoin>).await,
         "enable_slp" => handle_mmrpc(ctx, request, enable_token::<SlpToken>).await,
+        "get_new_hd_address" => handle_mmrpc(ctx, request, get_new_hd_address).await,
         "get_public_key" => handle_mmrpc(ctx, request, get_public_key).await,
         "get_staking_infos" => handle_mmrpc(ctx, request, get_staking_infos).await,
         "hd_account_balance" => handle_mmrpc(ctx, request, hd_account_balance).await,
+        "init_create_new_hd_account" => handle_mmrpc(ctx, request, init_create_new_hd_account).await,
+        "init_create_new_hd_account_status" => handle_mmrpc(ctx, request, init_create_new_hd_account_status).await,
+        "init_create_new_hd_account_user_action" => {
+            handle_mmrpc(ctx, request, init_create_new_hd_account_user_action).await
+        },
         "init_qtum" => handle_mmrpc(ctx, request, init_standalone_coin::<QtumCoin>).await,
         "init_qtum_status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<QtumCoin>).await,
         "init_qtum_user_action" => handle_mmrpc(ctx, request, init_standalone_coin_user_action::<QtumCoin>).await,

@@ -10,11 +10,11 @@ use common::log::info;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::now_ms;
-use crypto::hw_rpc_task::{TrezorConnectStatuses, TrezorRpcTaskConnectProcessor};
+use crypto::hw_rpc_task::{HwConnectStatuses, TrezorRpcTaskConnectProcessor};
 use crypto::trezor::client::TrezorClient;
 use crypto::trezor::trezor_rpc_task::{TrezorRequestStatuses, TrezorRpcTaskProcessor};
 use crypto::trezor::{ProcessTrezorResponse, TrezorError, TrezorProcessingError};
-use crypto::{Bip32Error, CryptoCtx, CryptoInitError, DerivationPath, EcdsaCurve, HardwareWalletCtx, HwError,
+use crypto::{Bip32Error, CryptoCtx, CryptoInitError, DerivationPath, EcdsaCurve, HardwareWalletArc, HwError,
              HwProcessingError, HwWalletType, Secp256k1ExtendedPublicKey};
 use keys::{Public as PublicKey, Type as ScriptType};
 use primitives::hash::H264;
@@ -378,12 +378,12 @@ where
     }
 
     async fn init_with_trezor(
-        hw_ctx: &HardwareWalletCtx,
+        hw_ctx: &HardwareWalletArc,
         coin: Coin,
         req: WithdrawRequest,
         task_handle: &'a WithdrawTaskHandle,
     ) -> Result<InitUtxoWithdraw<'a, Coin>, MmError<WithdrawError>> {
-        let trezor_connect_processor = TrezorRpcTaskConnectProcessor::new(task_handle, TrezorConnectStatuses {
+        let trezor_connect_processor = TrezorRpcTaskConnectProcessor::new(task_handle, HwConnectStatuses {
             on_connect: WithdrawInProgressStatus::WaitingForTrezorToConnect,
             on_connected: WithdrawInProgressStatus::Preparing,
             on_connection_failed: WithdrawInProgressStatus::Finishing,

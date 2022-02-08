@@ -1,20 +1,27 @@
 use super::*;
-use crate::coin_balance::{common_impl, AddressBalanceOps, CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse,
-                          HDAccountBalanceParams, HDAccountBalanceResponse, HDAccountBalanceRpcError,
-                          HDAddressBalance, HDWalletBalance, HDWalletBalanceOps, HDWalletBalanceRpcOps};
+use crate::coin_balance::{self, AddressBalanceOps, CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse,
+                          HDAccountBalance, HDAccountBalanceParams, HDAccountBalanceResponse,
+                          HDAccountBalanceRpcError, HDAddressBalance, HDWalletBalance, HDWalletBalanceOps,
+                          HDWalletBalanceRpcOps};
+use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
+use crate::hd_wallet::{self, AddressDerivingError, GetNewHDAddressParams, GetNewHDAddressResponse, HDWalletRpcError,
+                       HDWalletRpcOps, InvalidBip44ChainError, MappedWriteGuard, NewAccountCreatingError,
+                       NewAddressDerivingError};
+use crate::init_create_account::{self, CreateNewAccountParams, InitCreateHDAccountRpcOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
-use crate::utxo::utxo_builder::{MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuildHwOps, UtxoCoinBuilder,
-                                UtxoCoinBuilderCommonOps, UtxoCoinWithIguanaPrivKeyBuilder,
-                                UtxoFieldsWithHardwareWalletBuilder, UtxoFieldsWithIguanaPrivKeyBuilder};
-use crate::{eth, AddressDerivingError, Bip44Chain, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod,
-            DelegationError, DelegationFut, InvalidBip44ChainError, NegotiateSwapContractAddrErr, PrivKeyBuildPolicy,
-            StakingInfosFut, SwapOps, TradePreimageValue, ValidateAddressResult, WithdrawFut};
+use crate::utxo::utxo_builder::{MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
+                                UtxoCoinWithIguanaPrivKeyBuilder, UtxoFieldsWithHardwareWalletBuilder,
+                                UtxoFieldsWithIguanaPrivKeyBuilder};
+use crate::{eth, Bip44Chain, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, DelegationError, DelegationFut,
+            NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, StakingInfosFut, SwapOps, TradePreimageValue,
+            ValidateAddressResult, WithdrawFut};
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use crypto::trezor::utxo::TrezorUtxoCoin;
 use ethereum_types::H160;
 use futures::{FutureExt, TryFutureExt};
 use keys::AddressHashEnum;
+use serde::Serialize;
 use serialization::CoinVariant;
 use utxo_signer::UtxoSignerOps;
 
@@ -171,22 +178,22 @@ pub trait QtumBasedCoin: AsRef<UtxoCoinFields> + UtxoCommonOps + MarketCoinOps {
     }
 }
 
-pub struct QtumCoinBuilder<'a, HwOps>
+pub struct QtumCoinBuilder<'a, XPubExtractor>
 where
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
     ctx: &'a MmArc,
     ticker: &'a str,
     conf: &'a Json,
     activation_params: &'a UtxoActivationParams,
     priv_key_policy: PrivKeyBuildPolicy<'a>,
-    hw_ops: HwOps,
+    xpub_extractor: XPubExtractor,
 }
 
 #[async_trait]
-impl<'a, HwOps> UtxoCoinBuilderCommonOps for QtumCoinBuilder<'a, HwOps>
+impl<'a, XPubExtractor> UtxoCoinBuilderCommonOps for QtumCoinBuilder<'a, XPubExtractor>
 where
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
     fn ctx(&self) -> &MmArc { self.ctx }
 
@@ -199,27 +206,27 @@ where
     fn check_utxo_maturity(&self) -> bool { self.activation_params().check_utxo_maturity.unwrap_or(true) }
 }
 
-impl<'a, HwOps> UtxoFieldsWithIguanaPrivKeyBuilder for QtumCoinBuilder<'a, HwOps> where
-    HwOps: UtxoCoinBuildHwOps + Send + Sync
+impl<'a, XPubExtractor> UtxoFieldsWithIguanaPrivKeyBuilder for QtumCoinBuilder<'a, XPubExtractor> where
+    XPubExtractor: HDXPubExtractor + Send + Sync
 {
 }
 
-impl<'a, HwOps> UtxoFieldsWithHardwareWalletBuilder<HwOps> for QtumCoinBuilder<'a, HwOps> where
-    HwOps: UtxoCoinBuildHwOps + Send + Sync
+impl<'a, XPubExtractor> UtxoFieldsWithHardwareWalletBuilder<XPubExtractor> for QtumCoinBuilder<'a, XPubExtractor> where
+    XPubExtractor: HDXPubExtractor + Send + Sync
 {
 }
 
 #[async_trait]
-impl<'a, HwOps> UtxoCoinBuilder<HwOps> for QtumCoinBuilder<'a, HwOps>
+impl<'a, XPubExtractor> UtxoCoinBuilder<XPubExtractor> for QtumCoinBuilder<'a, XPubExtractor>
 where
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
     type ResultCoin = QtumCoin;
     type Error = UtxoCoinBuildError;
 
     fn priv_key_policy(&self) -> PrivKeyBuildPolicy<'_> { self.priv_key_policy.clone() }
 
-    fn hw_ops(&self) -> &HwOps { &self.hw_ops }
+    fn xpub_extractor(&self) -> &XPubExtractor { &self.xpub_extractor }
 
     async fn build(self) -> MmResult<Self::ResultCoin, Self::Error> {
         let utxo = self.build_utxo_fields().await?;
@@ -232,11 +239,14 @@ where
     }
 }
 
-impl<'a, HwOps> MergeUtxoArcOps<QtumCoin> for QtumCoinBuilder<'a, HwOps> where HwOps: UtxoCoinBuildHwOps + Send + Sync {}
+impl<'a, XPubExtractor> MergeUtxoArcOps<QtumCoin> for QtumCoinBuilder<'a, XPubExtractor> where
+    XPubExtractor: HDXPubExtractor + Send + Sync
+{
+}
 
-impl<'a, HwOps> QtumCoinBuilder<'a, HwOps>
+impl<'a, XPubExtractor> QtumCoinBuilder<'a, XPubExtractor>
 where
-    HwOps: UtxoCoinBuildHwOps + Send + Sync,
+    XPubExtractor: HDXPubExtractor + Send + Sync,
 {
     pub fn new(
         ctx: &'a MmArc,
@@ -244,7 +254,7 @@ where
         conf: &'a Json,
         activation_params: &'a UtxoActivationParams,
         priv_key_policy: PrivKeyBuildPolicy<'a>,
-        hw_ops: HwOps,
+        xpub_extractor: XPubExtractor,
     ) -> Self {
         QtumCoinBuilder {
             ctx,
@@ -252,7 +262,7 @@ where
             conf,
             activation_params,
             priv_key_policy,
-            hw_ops,
+            xpub_extractor,
         }
     }
 }
@@ -921,6 +931,23 @@ impl CoinWithDerivationMethod for QtumCoin {
     }
 }
 
+#[async_trait]
+impl ExtractExtendedPubkey for QtumCoin {
+    type ExtendedPublicKey = Secp256k1ExtendedPublicKey;
+
+    async fn extract_extended_pubkey<XPubExtractor>(
+        &self,
+        xpub_extractor: &XPubExtractor,
+        derivation_path: DerivationPath,
+    ) -> MmResult<Self::ExtendedPublicKey, HDExtractPubkeyError>
+    where
+        XPubExtractor: HDXPubExtractor + Sync,
+    {
+        utxo_common::extract_extended_pubkey(&self.utxo_arc.conf, xpub_extractor, derivation_path).await
+    }
+}
+
+#[async_trait]
 impl HDWalletCoinOps for QtumCoin {
     type Address = Address;
     type HDWallet = UtxoHDWallet;
@@ -928,12 +955,27 @@ impl HDWalletCoinOps for QtumCoin {
 
     fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32 { hd_wallet.gap_limit }
 
-    fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount> {
-        utxo_common::get_hd_account(hd_wallet, account_id)
+    async fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount> {
+        utxo_common::get_hd_account(hd_wallet, account_id).await
     }
 
-    fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> Vec<Self::HDAccount> {
-        utxo_common::get_hd_accounts(hd_wallet)
+    async fn get_account_mut<'a>(
+        &self,
+        hd_wallet: &'a Self::HDWallet,
+        account_id: u32,
+    ) -> Option<MappedWriteGuard<'a, Self::HDAccount>> {
+        utxo_common::get_hd_account_mut(hd_wallet, account_id).await
+    }
+
+    async fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> AccountsMap<Self::HDAccount> {
+        utxo_common::get_hd_accounts(hd_wallet).await
+    }
+
+    async fn get_accounts_mut<'a>(
+        &self,
+        hd_wallet: &'a Self::HDWallet,
+    ) -> MappedWriteGuard<'a, AccountsMap<Self::HDAccount>> {
+        utxo_common::get_hd_accounts_mut(hd_wallet).await
     }
 
     fn number_of_used_account_addresses(
@@ -942,10 +984,6 @@ impl HDWalletCoinOps for QtumCoin {
         chain: Bip44Chain,
     ) -> MmResult<u32, InvalidBip44ChainError> {
         utxo_common::number_of_used_account_addresses(hd_account, chain)
-    }
-
-    fn apply_account_changes(&self, hd_wallet: &Self::HDWallet, hd_account: Self::HDAccount) {
-        utxo_common::apply_account_changes(hd_wallet, hd_account)
     }
 
     fn account_derivation_path(&self, hd_account: &Self::HDAccount) -> DerivationPath {
@@ -962,6 +1000,25 @@ impl HDWalletCoinOps for QtumCoin {
     ) -> MmResult<HDAddress<Self::Address>, AddressDerivingError> {
         utxo_common::derive_address(self, hd_account, chain, address_id)
     }
+
+    fn generate_new_address(
+        &self,
+        hd_account: &mut Self::HDAccount,
+        chain: Bip44Chain,
+    ) -> MmResult<HDAddress<Self::Address>, NewAddressDerivingError> {
+        utxo_common::generate_address(self, hd_account, chain)
+    }
+
+    async fn create_new_account<'a, XPubExtractor>(
+        &self,
+        hd_wallet: &'a Self::HDWallet,
+        xpub_extractor: &XPubExtractor,
+    ) -> MmResult<MappedWriteGuard<'a, Self::HDAccount>, NewAccountCreatingError>
+    where
+        XPubExtractor: HDXPubExtractor + Sync,
+    {
+        utxo_common::create_new_account(self, hd_wallet, xpub_extractor).await
+    }
 }
 
 #[async_trait]
@@ -975,7 +1032,7 @@ impl HDWalletBalanceOps for QtumCoin {
     }
 
     async fn enable_hd_wallet_balance(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<HDWalletBalance> {
-        common_impl::enable_hd_wallet_balance(self, hd_wallet).await
+        coin_balance::common_impl::enable_hd_wallet_balance(self, hd_wallet).await
     }
 
     async fn check_hd_account_balance(
@@ -989,19 +1046,43 @@ impl HDWalletBalanceOps for QtumCoin {
 }
 
 #[async_trait]
+impl HDWalletRpcOps for QtumCoin {
+    async fn get_new_hd_address_rpc(
+        &self,
+        params: GetNewHDAddressParams,
+    ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError> {
+        hd_wallet::common_impl::get_new_hd_address_rpc(self, params).await
+    }
+}
+
+#[async_trait]
 impl HDWalletBalanceRpcOps for QtumCoin {
     async fn hd_account_balance_rpc(
         &self,
         params: HDAccountBalanceParams,
     ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError> {
-        common_impl::hd_account_balance_rpc(self, params).await
+        coin_balance::common_impl::hd_account_balance_rpc(self, params).await
     }
 
     async fn check_hd_account_balance_rpc(
         &self,
         params: CheckHDAccountBalanceParams,
     ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError> {
-        common_impl::check_hd_account_balance_rpc(self, params).await
+        coin_balance::common_impl::check_hd_account_balance_rpc(self, params).await
+    }
+}
+
+#[async_trait]
+impl InitCreateHDAccountRpcOps for QtumCoin {
+    async fn init_create_hd_account_rpc<XPubExtractor>(
+        &self,
+        params: CreateNewAccountParams,
+        xpub_extractor: &XPubExtractor,
+    ) -> MmResult<HDAccountBalance, HDWalletRpcError>
+    where
+        XPubExtractor: HDXPubExtractor + Sync,
+    {
+        init_create_account::common_impl::init_create_new_hd_account_rpc(self, params, xpub_extractor).await
     }
 }
 

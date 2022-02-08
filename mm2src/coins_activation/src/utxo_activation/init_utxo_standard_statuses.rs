@@ -7,6 +7,7 @@ use std::convert::TryFrom;
 #[derive(Clone, Serialize)]
 pub enum UtxoStandardInProgressStatus {
     ActivatingCoin,
+    RequestingWalletBalance,
     Finishing,
     /// This status doesn't require the user to send `UserAction`,
     /// but it tells the user that he should confirm/decline an address on his device.

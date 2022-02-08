@@ -1,11 +1,14 @@
 use super::*;
 use crate::coin_balance::{AddressBalanceStatus, HDAddressBalance, HDWalletBalanceOps};
+use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
+use crate::hd_wallet::{AccountsMap, AddressDerivingError, InvalidBip44ChainError, MappedWriteGuard,
+                       NewAccountCreatingError, NewAddressDerivingError, WriteGuard};
 use crate::init_withdraw::WithdrawTaskHandle;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
 use crate::utxo::utxo_withdraw::{InitUtxoWithdraw, StandardUtxoWithdraw, UtxoWithdraw};
-use crate::{AddressDerivingError, Bip44Chain, CanRefundHtlc, CoinBalance, HDAddress, InvalidBip44ChainError,
-            TradePreimageValue, TxFeeDetails, ValidateAddressResult, WithdrawResult};
+use crate::{Bip44Chain, CanRefundHtlc, CoinBalance, TradePreimageValue, TxFeeDetails, ValidateAddressResult,
+            WithdrawResult};
 use bigdecimal::{BigDecimal, Zero};
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
 use chain::constants::SEQUENCE_FINAL;
@@ -76,19 +79,34 @@ pub async fn get_tx_fee(coin: &UtxoCoinFields) -> Result<ActualTxFee, JsonRpcErr
     }
 }
 
-pub fn get_hd_account(hd_wallet: &UtxoHDWallet, account_id: u32) -> Option<UtxoHDAccount> {
-    let hd_account = hd_wallet.accounts.lock().get(account_id as usize).cloned()?;
-    if hd_account.account_id != account_id {
-        warn!(
-            "'UtxoHDWallet::accounts[{}].account_id = {}",
-            account_id, hd_account.account_id
-        );
-        return None;
-    }
-    Some(hd_account)
+pub async fn get_hd_account(hd_wallet: &UtxoHDWallet, account_id: u32) -> Option<UtxoHDAccount> {
+    let accounts = hd_wallet.accounts.read().await;
+    accounts.get(&account_id).cloned()
 }
 
-pub fn get_hd_accounts(hd_wallet: &UtxoHDWallet) -> Vec<UtxoHDAccount> { hd_wallet.accounts.lock().clone() }
+pub async fn get_hd_account_mut(
+    hd_wallet: &UtxoHDWallet,
+    account_id: u32,
+) -> Option<MappedWriteGuard<'_, UtxoHDAccount>> {
+    let accounts = hd_wallet.accounts.write().await;
+    if !accounts.contains_key(&account_id) {
+        return None;
+    }
+
+    Some(WriteGuard::map(accounts, |accounts| {
+        accounts
+            .get_mut(&account_id)
+            .expect("getting an element should never fail due to the checks above")
+    }))
+}
+
+pub async fn get_hd_accounts(hd_wallet: &UtxoHDWallet) -> AccountsMap<UtxoHDAccount> {
+    hd_wallet.accounts.read().await.clone()
+}
+
+pub async fn get_hd_accounts_mut(hd_wallet: &UtxoHDWallet) -> MappedWriteGuard<'_, AccountsMap<UtxoHDAccount>> {
+    WriteGuard::into_mapped(hd_wallet.accounts.write().await)
+}
 
 pub fn number_of_used_account_addresses(
     hd_account: &UtxoHDAccount,
@@ -97,31 +115,6 @@ pub fn number_of_used_account_addresses(
     match chain {
         Bip44Chain::External => Ok(hd_account.external_addresses_number),
         Bip44Chain::Internal => Ok(hd_account.internal_addresses_number),
-    }
-}
-
-pub fn apply_account_changes(hd_wallet: &UtxoHDWallet, hd_account: UtxoHDAccount) {
-    let mut accounts = hd_wallet.accounts.lock();
-    let prev_account = match accounts.get_mut(hd_account.account_id as usize) {
-        Some(prev_account) => prev_account,
-        None => {
-            warn!("Couldn't find an account with the '{}' index", hd_account.account_id);
-            return;
-        },
-    };
-    if prev_account.account_id != hd_account.account_id {
-        warn!(
-            "'UtxoHDWallet::accounts[{}].account_id = {}",
-            hd_account.account_id, prev_account.account_id
-        );
-        return;
-    }
-
-    if prev_account.external_addresses_number < hd_account.external_addresses_number {
-        prev_account.external_addresses_number = hd_account.external_addresses_number;
-    }
-    if prev_account.internal_addresses_number < hd_account.internal_addresses_number {
-        prev_account.internal_addresses_number = hd_account.internal_addresses_number;
     }
 }
 
@@ -150,6 +143,90 @@ where
         address,
         derivation_path,
     })
+}
+
+pub fn generate_address<T>(
+    coin: &T,
+    hd_account: &mut UtxoHDAccount,
+    chain: Bip44Chain,
+) -> MmResult<HDAddress<Address>, NewAddressDerivingError>
+where
+    T: HDWalletCoinOps<Address = Address, HDAccount = UtxoHDAccount>,
+{
+    let number_of_used_addresses = match chain {
+        Bip44Chain::External => &mut hd_account.external_addresses_number,
+        Bip44Chain::Internal => &mut hd_account.internal_addresses_number,
+    };
+    let new_address_id = *number_of_used_addresses;
+    if new_address_id >= ChildNumber::HARDENED_FLAG {
+        return MmError::err(NewAddressDerivingError::AddressLimitReached {
+            max_addresses_number: ChildNumber::HARDENED_FLAG,
+        });
+    }
+    *number_of_used_addresses += 1;
+    coin.derive_address(hd_account, chain, new_address_id)
+        .mm_err(NewAddressDerivingError::from)
+}
+
+pub async fn create_new_account<'a, Coin, XPubExtractor>(
+    coin: &Coin,
+    hd_wallet: &'a UtxoHDWallet,
+    xpub_extractor: &XPubExtractor,
+) -> MmResult<MappedWriteGuard<'a, UtxoHDAccount>, NewAccountCreatingError>
+where
+    Coin: ExtractExtendedPubkey<ExtendedPublicKey = Secp256k1ExtendedPublicKey>,
+    XPubExtractor: HDXPubExtractor + Sync,
+{
+    const INIT_ACCOUNT_ID: u32 = 0;
+    let new_account_id = hd_wallet
+        .accounts
+        .read()
+        .await
+        .iter()
+        // The last element of the BTreeMap has the max account index.
+        .last()
+        .map(|(account_id, _account)| *account_id + 1)
+        .unwrap_or(INIT_ACCOUNT_ID);
+    if new_account_id >= ChildNumber::HARDENED_FLAG {
+        return MmError::err(NewAccountCreatingError::AccountLimitReached {
+            max_accounts_number: ChildNumber::HARDENED_FLAG,
+        });
+    }
+
+    let account_child_hardened = true;
+    let account_child = ChildNumber::new(new_account_id, account_child_hardened)
+        .map_to_mm(|e| NewAccountCreatingError::Internal(e.to_string()))?;
+
+    let mut account_derivation_path = hd_wallet.derivation_path.clone();
+    account_derivation_path.push(account_child);
+
+    let account_pubkey = coin
+        .extract_extended_pubkey(xpub_extractor, account_derivation_path.clone())
+        .await?;
+
+    let new_account = UtxoHDAccount {
+        account_id: new_account_id,
+        extended_pubkey: account_pubkey,
+        account_derivation_path,
+        // We don't know how many addresses are used by the user at this moment.
+        external_addresses_number: 0,
+        internal_addresses_number: 0,
+    };
+
+    let accounts = hd_wallet.accounts.write().await;
+    if accounts.contains_key(&new_account_id) {
+        let error = format!(
+            "Account '{}' has been activated while we proceed the 'create_new_account' function",
+            new_account_id
+        );
+        return MmError::err(NewAccountCreatingError::Internal(error));
+    }
+    Ok(WriteGuard::map(accounts, |accounts| {
+        accounts
+            .entry(new_account_id)
+            // the `entry` method should return [`Entry::Vacant`] due to the checks above
+            .or_insert(new_account)
+    }))
 }
 
 pub async fn produce_hd_address_checker<T>(coin: &T) -> BalanceResult<UtxoAddressBalanceChecker>
@@ -279,6 +356,21 @@ where
 }
 
 pub fn derivation_method(coin: &UtxoCoinFields) -> &DerivationMethod<Address, UtxoHDWallet> { &coin.derivation_method }
+
+pub async fn extract_extended_pubkey<XPubExtractor>(
+    conf: &UtxoCoinConf,
+    xpub_extractor: &XPubExtractor,
+    derivation_path: DerivationPath,
+) -> MmResult<Secp256k1ExtendedPublicKey, HDExtractPubkeyError>
+where
+    XPubExtractor: HDXPubExtractor,
+{
+    let trezor_coin = conf
+        .trezor_coin
+        .or_mm_err(|| HDExtractPubkeyError::CoinDoesntSupportTrezor)?;
+    let xpub = xpub_extractor.extract_utxo_xpub(trezor_coin, derivation_path).await?;
+    Secp256k1ExtendedPublicKey::from_str(&xpub).map_to_mm(HDExtractPubkeyError::InvalidXpub)
+}
 
 /// returns the fee required to be paid for HTLC spend transaction
 pub async fn get_htlc_spend_fee<T>(coin: &T, tx_size: u64) -> UtxoRpcResult<u64>
