@@ -1,5 +1,5 @@
 use crate::hd_pubkey::{HDExtractPubkeyError, HDXPubExtractor};
-use crate::hd_wallet::{AccountsMap, AsyncRwLock};
+use crate::hd_wallet::{HDAccountsMap, HDAccountsMutex};
 use crate::utxo::rpc_clients::{ElectrumClient, ElectrumClientImpl, ElectrumRpcRequest, EstimateFeeMethod,
                                UtxoRpcClientEnum};
 use crate::utxo::utxo_builder::utxo_conf_builder::{UtxoConfBuilder, UtxoConfError, UtxoConfResult};
@@ -217,7 +217,7 @@ where
         let hd_wallet = UtxoHDWallet {
             address_format,
             derivation_path,
-            accounts: AsyncRwLock::new(accounts),
+            accounts: HDAccountsMutex::new(accounts),
             gap_limit,
         };
 
@@ -255,7 +255,7 @@ where
         xpub_extractor: &XPubExtractor,
         conf: &UtxoCoinConf,
         mut derivation_path: DerivationPath,
-    ) -> UtxoCoinBuildResult<AccountsMap<UtxoHDAccount>> {
+    ) -> UtxoCoinBuildResult<HDAccountsMap<UtxoHDAccount>> {
         let initial_account_id = 0;
         let account_child_hardened = true;
         let account_child =
@@ -273,7 +273,7 @@ where
             external_addresses_number: 0,
             internal_addresses_number: 0,
         };
-        let mut accounts = AccountsMap::new();
+        let mut accounts = HDAccountsMap::new();
         accounts.insert(initial_account_id, hd_account);
         Ok(accounts)
     }

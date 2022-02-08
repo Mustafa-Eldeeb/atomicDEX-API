@@ -320,7 +320,7 @@ pub mod common_impl {
                 HDWallet = HDWallet,
                 HDAccount = HDAccount,
                 HDAddressChecker = HDAccountChecker,
-            >,
+            > + Sync,
     {
         let mut accounts = coin.get_accounts_mut(hd_wallet).await;
         let gap_limit = coin.gap_limit(hd_wallet);
@@ -360,7 +360,8 @@ pub mod common_impl {
             + HDWalletCoinOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
             + HDWalletBalanceOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
             + HDWalletBalanceRpcOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
-            + MarketCoinOps,
+            + MarketCoinOps
+            + Sync,
         Address: fmt::Display,
     {
         let hd_wallet = coin.derivation_method().hd_wallet().or_mm_err(|| {
@@ -420,7 +421,8 @@ pub mod common_impl {
         Coin: CoinWithDerivationMethod<HDWallet = HDWallet>
             + HDWalletCoinOps<HDWallet = HDWallet, HDAccount = HDAccount>
             + HDWalletBalanceOps<HDWallet = HDWallet, HDAccount = HDAccount>
-            + MarketCoinOps,
+            + MarketCoinOps
+            + Sync,
     {
         let hd_wallet = coin.derivation_method().hd_wallet().or_mm_err(|| {
             HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {

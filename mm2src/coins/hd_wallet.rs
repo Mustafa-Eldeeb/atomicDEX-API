@@ -13,10 +13,12 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-pub use tokio::sync::{RwLock as AsyncRwLock, RwLockMappedWriteGuard as MappedWriteGuard,
-                      RwLockWriteGuard as WriteGuard};
+pub use futures::lock::{MappedMutexGuard as AsyncMappedMutexGuard, Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 
-pub type AccountsMap<HDAccount> = BTreeMap<u32, HDAccount>;
+pub type HDAccountsMap<HDAccount> = BTreeMap<u32, HDAccount>;
+pub type HDAccountsMutex<HDAccount> = AsyncMutex<HDAccountsMap<HDAccount>>;
+pub type HDAccountsMut<'a, HDAccount> = AsyncMutexGuard<'a, HDAccountsMap<HDAccount>>;
+pub type HDAccountMut<'a, HDAccount> = AsyncMappedMutexGuard<'a, HDAccountsMap<HDAccount>, HDAccount>;
 
 pub enum AddressDerivingError {
     Bip32Error(Bip32Error),
@@ -234,29 +236,46 @@ pub struct HDAddress<Address> {
 #[async_trait]
 pub trait HDWalletCoinOps {
     type Address;
-    type HDWallet;
-    type HDAccount;
+    type HDWallet: Send + Sync;
+    type HDAccount: Send + Clone;
 
     fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32;
 
+    fn get_accounts_mutex<'a>(&self, hd_wallet: &'a Self::HDWallet) -> &'a HDAccountsMutex<Self::HDAccount>;
+
     /// Returns a copy of an account by the given `account_id` if it's activated.
-    async fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount>;
+    async fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount> {
+        let accounts = self.get_accounts_mutex(hd_wallet).lock().await;
+        accounts.get(&account_id).cloned()
+    }
 
     /// Returns a mutable reference to an account by the given `account_id` if it's activated.
     async fn get_account_mut<'a>(
         &self,
         hd_wallet: &'a Self::HDWallet,
         account_id: u32,
-    ) -> Option<MappedWriteGuard<'a, Self::HDAccount>>;
+    ) -> Option<HDAccountMut<'a, Self::HDAccount>> {
+        let accounts = self.get_accounts_mutex(hd_wallet).lock().await;
+        if !accounts.contains_key(&account_id) {
+            return None;
+        }
+
+        Some(AsyncMutexGuard::map(accounts, |accounts| {
+            accounts
+                .get_mut(&account_id)
+                .expect("getting an element should never fail due to the checks above")
+        }))
+    }
 
     /// Returns copies of all activated accounts.
-    async fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> AccountsMap<Self::HDAccount>;
+    async fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> HDAccountsMap<Self::HDAccount> {
+        self.get_accounts_mutex(hd_wallet).lock().await.clone()
+    }
 
     /// Returns a mutable reference to all activated accounts.
-    async fn get_accounts_mut<'a>(
-        &self,
-        hd_wallet: &'a Self::HDWallet,
-    ) -> MappedWriteGuard<'a, AccountsMap<Self::HDAccount>>;
+    async fn get_accounts_mut<'a>(&self, hd_wallet: &'a Self::HDWallet) -> HDAccountsMut<'a, Self::HDAccount> {
+        self.get_accounts_mutex(hd_wallet).lock().await
+    }
 
     /// Returns a number of used addresses of the given `hd_account`
     /// or an `InvalidBip44ChainError` error if the coin doesn't support the given `chain`.
@@ -293,7 +312,7 @@ pub trait HDWalletCoinOps {
         &self,
         hd_wallet: &'a Self::HDWallet,
         xpub_extractor: &XPubExtractor,
-    ) -> MmResult<MappedWriteGuard<'a, Self::HDAccount>, NewAccountCreatingError>
+    ) -> MmResult<HDAccountMut<'a, Self::HDAccount>, NewAccountCreatingError>
     where
         XPubExtractor: HDXPubExtractor + Sync;
 }

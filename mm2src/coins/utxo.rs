@@ -91,7 +91,7 @@ use super::{BalanceError, BalanceFut, BalanceResult, CoinsContext, DerivationMet
             RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
             Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError, WithdrawRequest};
 use crate::coin_balance::HDAddressBalanceChecker;
-use crate::hd_wallet::{AccountsMap, AsyncRwLock, HDAddress, HDWalletCoinOps};
+use crate::hd_wallet::{HDAccountsMutex, HDAddress, HDWalletCoinOps};
 
 #[cfg(test)] pub mod utxo_tests;
 #[cfg(target_arch = "wasm32")] pub mod utxo_wasm_tests;
@@ -1113,7 +1113,7 @@ pub struct UtxoHDWallet {
     /// `m/purpose'/coin_type'/account'/change/address_index`.
     pub derivation_path: DerivationPath,
     /// User accounts.
-    pub accounts: AsyncRwLock<AccountsMap<UtxoHDAccount>>,
+    pub accounts: HDAccountsMutex<UtxoHDAccount>,
     pub gap_limit: u32,
 }
 

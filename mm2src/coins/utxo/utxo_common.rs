@@ -1,8 +1,8 @@
 use super::*;
 use crate::coin_balance::{AddressBalanceStatus, HDAddressBalance, HDWalletBalanceOps};
 use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
-use crate::hd_wallet::{AccountsMap, AddressDerivingError, InvalidBip44ChainError, MappedWriteGuard,
-                       NewAccountCreatingError, NewAddressDerivingError, WriteGuard};
+use crate::hd_wallet::{AddressDerivingError, HDAccountMut, InvalidBip44ChainError, NewAccountCreatingError,
+                       NewAddressDerivingError};
 use crate::init_withdraw::WithdrawTaskHandle;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
@@ -79,35 +79,6 @@ pub async fn get_tx_fee(coin: &UtxoCoinFields) -> Result<ActualTxFee, JsonRpcErr
     }
 }
 
-pub async fn get_hd_account(hd_wallet: &UtxoHDWallet, account_id: u32) -> Option<UtxoHDAccount> {
-    let accounts = hd_wallet.accounts.read().await;
-    accounts.get(&account_id).cloned()
-}
-
-pub async fn get_hd_account_mut(
-    hd_wallet: &UtxoHDWallet,
-    account_id: u32,
-) -> Option<MappedWriteGuard<'_, UtxoHDAccount>> {
-    let accounts = hd_wallet.accounts.write().await;
-    if !accounts.contains_key(&account_id) {
-        return None;
-    }
-
-    Some(WriteGuard::map(accounts, |accounts| {
-        accounts
-            .get_mut(&account_id)
-            .expect("getting an element should never fail due to the checks above")
-    }))
-}
-
-pub async fn get_hd_accounts(hd_wallet: &UtxoHDWallet) -> AccountsMap<UtxoHDAccount> {
-    hd_wallet.accounts.read().await.clone()
-}
-
-pub async fn get_hd_accounts_mut(hd_wallet: &UtxoHDWallet) -> MappedWriteGuard<'_, AccountsMap<UtxoHDAccount>> {
-    WriteGuard::into_mapped(hd_wallet.accounts.write().await)
-}
-
 pub fn number_of_used_account_addresses(
     hd_account: &UtxoHDAccount,
     chain: Bip44Chain,
@@ -172,7 +143,7 @@ pub async fn create_new_account<'a, Coin, XPubExtractor>(
     coin: &Coin,
     hd_wallet: &'a UtxoHDWallet,
     xpub_extractor: &XPubExtractor,
-) -> MmResult<MappedWriteGuard<'a, UtxoHDAccount>, NewAccountCreatingError>
+) -> MmResult<HDAccountMut<'a, UtxoHDAccount>, NewAccountCreatingError>
 where
     Coin: ExtractExtendedPubkey<ExtendedPublicKey = Secp256k1ExtendedPublicKey>,
     XPubExtractor: HDXPubExtractor + Sync,
@@ -180,7 +151,7 @@ where
     const INIT_ACCOUNT_ID: u32 = 0;
     let new_account_id = hd_wallet
         .accounts
-        .read()
+        .lock()
         .await
         .iter()
         // The last element of the BTreeMap has the max account index.
@@ -213,7 +184,7 @@ where
         internal_addresses_number: 0,
     };
 
-    let accounts = hd_wallet.accounts.write().await;
+    let accounts = hd_wallet.accounts.lock().await;
     if accounts.contains_key(&new_account_id) {
         let error = format!(
             "Account '{}' has been activated while we proceed the 'create_new_account' function",
@@ -221,7 +192,7 @@ where
         );
         return MmError::err(NewAccountCreatingError::Internal(error));
     }
-    Ok(WriteGuard::map(accounts, |accounts| {
+    Ok(AsyncMutexGuard::map(accounts, |accounts| {
         accounts
             .entry(new_account_id)
             // the `entry` method should return [`Entry::Vacant`] due to the checks above

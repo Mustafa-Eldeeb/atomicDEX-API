@@ -4,9 +4,9 @@ use crate::coin_balance::{self, AddressBalanceOps, CheckHDAccountBalanceParams, 
                           HDAccountBalanceRpcError, HDAddressBalance, HDWalletBalance, HDWalletBalanceOps,
                           HDWalletBalanceRpcOps};
 use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
-use crate::hd_wallet::{self, AccountsMap, AddressDerivingError, GetNewHDAddressParams, GetNewHDAddressResponse,
-                       HDWalletRpcError, HDWalletRpcOps, InvalidBip44ChainError, MappedWriteGuard,
-                       NewAccountCreatingError, NewAddressDerivingError};
+use crate::hd_wallet::{self, AddressDerivingError, GetNewHDAddressParams, GetNewHDAddressResponse, HDAccountMut,
+                       HDWalletRpcError, HDWalletRpcOps, InvalidBip44ChainError, NewAccountCreatingError,
+                       NewAddressDerivingError};
 use crate::init_create_account::{self, CreateNewAccountParams, InitCreateHDAccountRpcOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
@@ -628,27 +628,8 @@ impl HDWalletCoinOps for UtxoStandardCoin {
 
     fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32 { hd_wallet.gap_limit }
 
-    async fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount> {
-        utxo_common::get_hd_account(hd_wallet, account_id).await
-    }
-
-    async fn get_account_mut<'a>(
-        &self,
-        hd_wallet: &'a Self::HDWallet,
-        account_id: u32,
-    ) -> Option<MappedWriteGuard<'a, Self::HDAccount>> {
-        utxo_common::get_hd_account_mut(hd_wallet, account_id).await
-    }
-
-    async fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> AccountsMap<Self::HDAccount> {
-        utxo_common::get_hd_accounts(hd_wallet).await
-    }
-
-    async fn get_accounts_mut<'a>(
-        &self,
-        hd_wallet: &'a Self::HDWallet,
-    ) -> MappedWriteGuard<'a, AccountsMap<Self::HDAccount>> {
-        utxo_common::get_hd_accounts_mut(hd_wallet).await
+    fn get_accounts_mutex<'a>(&self, hd_wallet: &'a Self::HDWallet) -> &'a HDAccountsMutex<Self::HDAccount> {
+        &hd_wallet.accounts
     }
 
     fn number_of_used_account_addresses(
@@ -686,7 +667,7 @@ impl HDWalletCoinOps for UtxoStandardCoin {
         &self,
         hd_wallet: &'a Self::HDWallet,
         xpub_extractor: &XPubExtractor,
-    ) -> MmResult<MappedWriteGuard<'a, Self::HDAccount>, NewAccountCreatingError>
+    ) -> MmResult<HDAccountMut<'a, Self::HDAccount>, NewAccountCreatingError>
     where
         XPubExtractor: HDXPubExtractor + Sync,
     {
