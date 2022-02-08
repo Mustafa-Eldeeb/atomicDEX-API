@@ -1,6 +1,7 @@
 use super::*;
 use crate::coin_balance::{CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse, HDAccountBalanceParams,
                           HDAccountBalanceResponse, HDAddressBalance, HDWalletBalanceRpcOps};
+use crate::hd_wallet::HDAccountsMap;
 use crate::utxo::qtum::{qtum_coin_with_priv_key, QtumCoin, QtumDelegationOps, QtumDelegationRequest};
 use crate::utxo::rpc_clients::{BlockHashOrHeight, ElectrumClient, ElectrumClientImpl, GetAddressInfoRes,
                                ListSinceBlockRes, ListTransactionsItem, NativeClient, NativeClientImpl, NetworkInfo,
@@ -3436,26 +3437,25 @@ fn test_hd_account_balance_rpc() {
 
     let client = NativeClient(Arc::new(NativeClientImpl::default()));
     let mut fields = utxo_coin_fields_for_test(UtxoRpcClientEnum::Native(client), None, false);
-    let accounts = PaMutex::new(vec![
-        UtxoHDAccount {
-            account_id: 0,
-            extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
-            account_derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap(),
-            external_addresses_number: 7,
-            internal_addresses_number: 3,
-        },
-        UtxoHDAccount {
-            account_id: 1,
-            extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
-            account_derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap(),
-            external_addresses_number: 0,
-            internal_addresses_number: 1,
-        },
-    ]);
+    let mut hd_accounts = HDAccountsMap::new();
+    hd_accounts.insert(0, UtxoHDAccount {
+        account_id: 0,
+        extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
+        account_derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap(),
+        external_addresses_number: 7,
+        internal_addresses_number: 3,
+    });
+    hd_accounts.insert(1, UtxoHDAccount {
+        account_id: 1,
+        extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
+        account_derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap(),
+        external_addresses_number: 0,
+        internal_addresses_number: 1,
+    });
     fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
         address_format: UtxoAddressFormat::Standard,
         derivation_path: DerivationPath::from_str("m/44'/141'").unwrap(),
-        accounts,
+        accounts: HDAccountsMutex::new(hd_accounts),
         gap_limit: 3,
     });
     let coin = utxo_coin_from_fields(fields);
@@ -3722,26 +3722,25 @@ fn test_check_hd_wallet_balance() {
 
     let client = NativeClient(Arc::new(NativeClientImpl::default()));
     let mut fields = utxo_coin_fields_for_test(UtxoRpcClientEnum::Native(client), None, false);
-    let accounts = PaMutex::new(vec![
-        UtxoHDAccount {
-            account_id: 0,
-            extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
-            account_derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap(),
-            external_addresses_number: 3,
-            internal_addresses_number: 1,
-        },
-        UtxoHDAccount {
-            account_id: 1,
-            extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
-            account_derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap(),
-            external_addresses_number: 0,
-            internal_addresses_number: 2,
-        },
-    ]);
+    let mut hd_accounts = HDAccountsMap::new();
+    hd_accounts.insert(0, UtxoHDAccount {
+        account_id: 0,
+        extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
+        account_derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap(),
+        external_addresses_number: 3,
+        internal_addresses_number: 1,
+    });
+    hd_accounts.insert(1, UtxoHDAccount {
+        account_id: 1,
+        extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
+        account_derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap(),
+        external_addresses_number: 0,
+        internal_addresses_number: 2,
+    });
     fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
         address_format: UtxoAddressFormat::Standard,
         derivation_path: DerivationPath::from_str("m/44'/141'").unwrap(),
-        accounts,
+        accounts: HDAccountsMutex::new(hd_accounts),
         gap_limit: 3,
     });
     let coin = utxo_coin_from_fields(fields);
@@ -3786,11 +3785,11 @@ fn test_check_hd_wallet_balance() {
     assert_eq!(actual, expected);
 
     let accounts = match coin.as_ref().derivation_method {
-        DerivationMethod::HDWallet(UtxoHDWallet { ref accounts, .. }) => accounts.lock().clone(),
+        DerivationMethod::HDWallet(UtxoHDWallet { ref accounts, .. }) => block_on(accounts.lock()).clone(),
         _ => unreachable!(),
     };
-    assert_eq!(accounts[0].external_addresses_number, 4);
-    assert_eq!(accounts[0].internal_addresses_number, 4);
-    assert_eq!(accounts[1].external_addresses_number, 5);
-    assert_eq!(accounts[1].internal_addresses_number, 2);
+    assert_eq!(accounts[&0].external_addresses_number, 4);
+    assert_eq!(accounts[&0].internal_addresses_number, 4);
+    assert_eq!(accounts[&1].external_addresses_number, 5);
+    assert_eq!(accounts[&1].internal_addresses_number, 2);
 }
