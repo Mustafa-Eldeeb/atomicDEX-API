@@ -35,7 +35,7 @@ use testcontainers::clients::Cli;
 use testcontainers::images::generic::{GenericImage, WaitFor};
 use testcontainers::{Container, Docker, Image};
 
-const WAIT_DOCKER_READY_TIMEOUT_MS: u64 = 60000;
+const WAIT_DOCKER_READY_TIMEOUT_MS: u64 = 120000;
 
 lazy_static! {
     static ref COINS_LOCK: Mutex<()> = Mutex::new(());
@@ -352,14 +352,7 @@ pub fn generate_qtum_coin_with_random_privkey(
     let priv_key = SecretKey::new(&mut rand6::thread_rng());
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_with_priv_key(
-        &ctx,
-        "QTUM",
-        &conf,
-        &params,
-        priv_key.as_ref(),
-    ))
-    .unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key.as_ref())).unwrap();
 
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");
@@ -397,14 +390,7 @@ pub fn generate_segwit_qtum_coin_with_random_privkey(
     let priv_key = SecretKey::new(&mut rand6::thread_rng());
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
-    let coin = block_on(qtum_coin_with_priv_key(
-        &ctx,
-        "QTUM",
-        &conf,
-        &params,
-        priv_key.as_ref(),
-    ))
-    .unwrap();
+    let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key.as_ref())).unwrap();
 
     let timeout = 30; // timeout if test takes more than 30 seconds to run
     let my_address = coin.my_address().expect("!my_address");

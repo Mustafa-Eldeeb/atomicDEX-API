@@ -11,7 +11,6 @@ use crate::{BlockchainNetwork, CoinTransportMetrics, DerivationMethod, HistorySy
 use async_trait::async_trait;
 use chain::TxHashAlgo;
 use common::executor::{spawn, Timer};
-use common::jsonrpc_client::JsonRpcErrorType;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::small_rng;
@@ -663,14 +662,22 @@ fn spawn_electrum_version_loop(
 ) {
     spawn(async move {
         while let Some(electrum_addr) = on_connect_rx.next().await {
-            spawn_server_version_retry_loop(weak_client.clone(), client_name.clone(), electrum_addr);
+            spawn(check_electrum_server_version(
+                weak_client.clone(),
+                client_name.clone(),
+                electrum_addr,
+            ));
         }
 
         log!("Electrum server.version loop stopped");
     });
 }
 
-fn spawn_server_version_retry_loop(weak_client: Weak<ElectrumClientImpl>, client_name: String, electrum_addr: String) {
+async fn check_electrum_server_version(
+    weak_client: Weak<ElectrumClientImpl>,
+    client_name: String,
+    electrum_addr: String,
+) {
     // client.remove_server() is called too often
     async fn remove_server(client: ElectrumClient, electrum_addr: &str) {
         if let Err(e) = client.remove_server(electrum_addr).await {
@@ -678,55 +685,49 @@ fn spawn_server_version_retry_loop(weak_client: Weak<ElectrumClientImpl>, client
         }
     }
 
-    spawn(async move {
-        while let Some(c) = weak_client.upgrade() {
-            let client = ElectrumClient(c);
-            let available_protocols = client.protocol_version();
-            let version = match client
-                .server_version(&electrum_addr, &client_name, available_protocols)
-                .compat()
-                .await
-            {
-                Ok(version) => version,
-                Err(e) => {
-                    log!("Electrum " (electrum_addr) " server.version error \"" [e] "\".");
-                    if let JsonRpcErrorType::Transport(_) = e.error {
-                        Timer::sleep(60.0).await;
-                        continue;
-                    };
+    if let Some(c) = weak_client.upgrade() {
+        let client = ElectrumClient(c);
+        let available_protocols = client.protocol_version();
+        let version = match client
+            .server_version(&electrum_addr, &client_name, available_protocols)
+            .compat()
+            .await
+        {
+            Ok(version) => version,
+            Err(e) => {
+                log!("Electrum " (electrum_addr) " server.version error \"" [e] "\".");
+                if !e.error.is_transport() {
                     remove_server(client, &electrum_addr).await;
-                    break;
-                },
-            };
+                };
+                return;
+            },
+        };
 
-            // check if the version is allowed
-            let actual_version = match version.protocol_version.parse::<f32>() {
-                Ok(v) => v,
-                Err(e) => {
-                    log!("Error on parse protocol_version "[e]);
-                    remove_server(client, &electrum_addr).await;
-                    break;
-                },
-            };
-
-            if !available_protocols.contains(&actual_version) {
-                log!("Received unsupported protocol version " [actual_version] " from " [electrum_addr] ". Remove the connection");
+        // check if the version is allowed
+        let actual_version = match version.protocol_version.parse::<f32>() {
+            Ok(v) => v,
+            Err(e) => {
+                log!("Error on parse protocol_version "[e]);
                 remove_server(client, &electrum_addr).await;
-                break;
-            }
+                return;
+            },
+        };
 
-            match client.set_protocol_version(&electrum_addr, actual_version).await {
-                Ok(()) => {
-                    log!("Use protocol version " [actual_version] " for Electrum " [electrum_addr]);
-                },
-                Err(e) => {
-                    log!("Error on set protocol_version "[e]);
-                },
-            };
-
-            break;
+        if !available_protocols.contains(&actual_version) {
+            log!("Received unsupported protocol version " [actual_version] " from " [electrum_addr] ". Remove the connection");
+            remove_server(client, &electrum_addr).await;
+            return;
         }
-    });
+
+        match client.set_protocol_version(&electrum_addr, actual_version).await {
+            Ok(()) => {
+                log!("Use protocol version " [actual_version] " for Electrum " [electrum_addr]);
+            },
+            Err(e) => {
+                log!("Error on set protocol_version "[e]);
+            },
+        };
+    }
 }
 
 /// Wait until the protocol version of at least one client's Electrum is checked.
