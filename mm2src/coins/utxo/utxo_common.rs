@@ -2674,7 +2674,7 @@ where
         UtxoRpcClientEnum::Electrum(electrum_client) => electrum_client,
     };
     if tx.outputs.is_empty() {
-        return MmError::err(SPVError::TxHeightNotAvailable);
+        return MmError::err(SPVError::UnknownError);
     }
     // note: all the outputs belong to the same tx, which is validated as the same height
     // so accessing the history of the first element should be enough.
@@ -2685,7 +2685,7 @@ where
         .await
         .unwrap_or_default();
     if history.is_empty() {
-        return MmError::err(SPVError::TxHistoryNotAvailable);
+        return MmError::err(SPVError::UnknownError);
     }
     let mut height: u64 = 0;
     for item in history {
@@ -2695,22 +2695,21 @@ where
         }
     }
     if height == 0 {
-        return MmError::err(SPVError::TxHeightNotAvailable);
+        return MmError::err(SPVError::UnknownError);
     }
 
     let block_header = client
         .blockchain_block_header(height)
         .compat()
         .await
-        .map_to_mm(|e| SPVError::UnknownError(e.to_string()))?;
-    let header: BlockHeader =
-        deserialize(block_header.0.as_slice()).map_to_mm(|e| SPVError::UnknownError(format!("{:?}", e)))?;
+        .map_to_mm(|_e| SPVError::UnknownError)?;
+    let header: BlockHeader = deserialize(block_header.0.as_slice()).map_to_mm(|_e| SPVError::UnknownError)?;
 
     let merkle_branch = client
         .blockchain_transaction_get_merkle(tx.hash().reversed().into(), height)
         .compat()
         .await
-        .map_to_mm(|e| SPVError::UnknownError(e.to_string()))?;
+        .map_to_mm(|_e| SPVError::NetworkError)?;
     let intermediate_nodes: Vec<H256> = merkle_branch
         .merkle
         .into_iter()

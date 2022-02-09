@@ -32,7 +32,7 @@ pub struct SPVProof {
 ///
 /// # Notes
 /// Re-write with our own types based on `bitcoin_spv::std_types::SPVProof::validate`
-/// Support only merkle proof inclusion for now
+/// Support only merkle proof inclusion,vin,vout for now
 impl SPVProof {
     pub fn validate(&self) -> Result<(), SPVError> {
         if !validate_vin(self.vin.as_slice()) {

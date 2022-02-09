@@ -22,7 +22,7 @@ pub fn merkle_prove(txid: H256, merkle_root: H256, intermediate_nodes: Vec<H256>
     for merkle_node in intermediate_nodes {
         vec.append(&mut merkle_node.as_slice().to_vec());
     }
-    let nodes = bitcoin_spv::types::MerkleArray::new(vec.as_slice()).unwrap();
+    let nodes = bitcoin_spv::types::MerkleArray::new(vec.as_slice())?;
     if !verify_hash256_merkle(txid.take().into(), merkle_root.take().into(), &nodes, index) {
         return Err(SPVError::BadMerkleProof);
     }
