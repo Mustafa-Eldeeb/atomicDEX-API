@@ -204,7 +204,7 @@ pub(crate) mod common_impl {
 
         let gap_limit = params.gap_limit.unwrap_or_else(|| coin.gap_limit(hd_wallet));
         let addresses = coin
-            .check_hd_account_balance(&mut new_account, &address_checker, gap_limit)
+            .scan_for_new_addresses(&mut new_account, &address_checker, gap_limit)
             .await?;
 
         let total_balance = addresses

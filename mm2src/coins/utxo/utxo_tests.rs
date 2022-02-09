@@ -3630,7 +3630,7 @@ fn test_hd_account_balance_rpc() {
 }
 
 #[test]
-fn test_check_hd_wallet_balance() {
+fn test_scan_for_new_addresses() {
     let mut checking_addresses: HashMap<String, Option<u64>> = HashMap::new();
     let mut non_empty_addresses: Vec<String> = Vec::new();
     let mut balances_by_der_path: HashMap<String, HDAddressBalance> = HashMap::new();
@@ -3751,7 +3751,7 @@ fn test_check_hd_wallet_balance() {
         account_index: 0,
         gap_limit: Some(3),
     };
-    let actual = block_on(coin.check_hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.scan_for_new_addresses_rpc(params)).expect("!hd_account_balance_rpc");
     let expected = CheckHDAccountBalanceResponse {
         account_index: 0,
         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
@@ -3770,7 +3770,7 @@ fn test_check_hd_wallet_balance() {
         account_index: 1,
         gap_limit: None,
     };
-    let actual = block_on(coin.check_hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.scan_for_new_addresses_rpc(params)).expect("!hd_account_balance_rpc");
     let expected = CheckHDAccountBalanceResponse {
         account_index: 1,
         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),

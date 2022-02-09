@@ -6,7 +6,7 @@ use crate::{mm2::lp_stats::{add_node_to_version_stat, remove_node_from_version_s
                             stop_version_stat_collection, update_version_stat_collection},
             mm2::lp_swap::{recreate_swap_data, trade_preimage_rpc},
             mm2::rpc::get_public_key::get_public_key};
-use coins::coin_balance::{check_hd_account_balance, hd_account_balance};
+use coins::coin_balance::{hd_account_balance, scan_for_new_addresses};
 use coins::hd_wallet::get_new_hd_address;
 use coins::init_create_account::{init_create_new_hd_account, init_create_new_hd_account_status,
                                  init_create_new_hd_account_user_action};
@@ -112,7 +112,6 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         // "activate_bch_protocol_coin" => handle_mmrpc(ctx, request, activate_bch_protocol_coin).await,
         "add_delegation" => handle_mmrpc(ctx, request, add_delegation).await,
         "add_node_to_version_stat" => handle_mmrpc(ctx, request, add_node_to_version_stat).await,
-        "check_hd_account_balance" => handle_mmrpc(ctx, request, check_hd_account_balance).await,
         "connect_to_lightning_node" => handle_mmrpc(ctx, request, connect_to_lightning_node).await,
         "enable_bch_with_tokens" => handle_mmrpc(ctx, request, enable_platform_coin_with_tokens::<BchCoin>).await,
         "enable_lightning" => handle_mmrpc(ctx, request, enable_l2::<LightningCoin>).await,
@@ -142,6 +141,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "recreate_swap_data" => handle_mmrpc(ctx, request, recreate_swap_data).await,
         "remove_delegation" => handle_mmrpc(ctx, request, remove_delegation).await,
         "remove_node_from_version_stat" => handle_mmrpc(ctx, request, remove_node_from_version_stat).await,
+        "scan_for_new_addresses" => handle_mmrpc(ctx, request, scan_for_new_addresses).await,
         "start_simple_market_maker_bot" => handle_mmrpc(ctx, request, start_simple_market_maker_bot).await,
         "start_version_stat_collection" => handle_mmrpc(ctx, request, start_version_stat_collection).await,
         "stop_simple_market_maker_bot" => handle_mmrpc(ctx, request, stop_simple_market_maker_bot).await,

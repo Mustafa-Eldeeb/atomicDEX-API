@@ -207,7 +207,7 @@ where
     Ok(UtxoAddressBalanceChecker::init(coin.as_ref().rpc_client.clone()).await?)
 }
 
-pub async fn check_hd_account_balance<T>(
+pub async fn scan_for_new_addresses<T>(
     coin: &T,
     hd_account: &mut UtxoHDAccount,
     address_checker: &UtxoAddressBalanceChecker,
@@ -223,9 +223,9 @@ where
         > + Sync,
 {
     let mut addresses =
-        check_hd_account_balance_impl(coin, hd_account, address_checker, Bip44Chain::External, gap_limit).await?;
+        scan_for_new_addresses_impl(coin, hd_account, address_checker, Bip44Chain::External, gap_limit).await?;
     addresses.extend(
-        check_hd_account_balance_impl(coin, hd_account, address_checker, Bip44Chain::Internal, gap_limit).await?,
+        scan_for_new_addresses_impl(coin, hd_account, address_checker, Bip44Chain::Internal, gap_limit).await?,
     );
 
     Ok(addresses)
@@ -233,7 +233,7 @@ where
 
 /// Checks addresses that either had empty transaction history last time we checked or has not been checked before.
 /// The checking stops at the moment when we find `gap_limit` consecutive empty addresses.
-pub async fn check_hd_account_balance_impl<T>(
+pub async fn scan_for_new_addresses_impl<T>(
     coin: &T,
     hd_account: &mut UtxoHDAccount,
     address_checker: &UtxoAddressBalanceChecker,
@@ -264,7 +264,7 @@ where
             derivation_path: checking_address_der_path,
         } = coin.derive_address(hd_account, chain, checking_address_id)?;
 
-        match coin.check_address_balance(&checking_address, address_checker).await? {
+        match coin.is_address_used(&checking_address, address_checker).await? {
             // We found a non-empty address, so we have to fill up the balance list
             // with zeros starting from `last_non_empty_address_id = checking_address_id - unused_addresses_counter`.
             AddressBalanceStatus::Used(non_empty_balance) => {

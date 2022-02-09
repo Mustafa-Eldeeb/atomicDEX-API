@@ -177,10 +177,13 @@ pub trait EnableCoinBalanceOps {
 #[async_trait]
 impl<Coin, Address, HDWallet, HDAccount, HDAddressChecker> EnableCoinBalanceOps for Coin
 where
-    Coin: AddressBalanceOps<Address = Address>
-        + CoinWithDerivationMethod<Address = Address, HDWallet = HDWallet>
-        + HDWalletBalanceOps<HDWallet = HDWallet, HDAccount = HDAccount, HDAddressChecker = HDAddressChecker>
-        + Sync,
+    Coin: CoinWithDerivationMethod<Address = Address, HDWallet = HDWallet>
+        + HDWalletBalanceOps<
+            HDWallet = HDWallet,
+            HDAccount = HDAccount,
+            HDAddressChecker = HDAddressChecker,
+            Address = Address,
+        > + Sync,
     Address: fmt::Display + Sync,
     HDWallet: Sync,
     HDAddressChecker: HDAddressBalanceChecker,
@@ -193,10 +196,7 @@ where
                     balance,
                 })
             }),
-            DerivationMethod::HDWallet(hd_wallet) => self
-                .enable_hd_wallet_balance(hd_wallet)
-                .await
-                .map(EnableCoinBalance::HD),
+            DerivationMethod::HDWallet(hd_wallet) => self.enable_hd_wallet(hd_wallet).await.map(EnableCoinBalance::HD),
         }
     }
 }
@@ -209,13 +209,13 @@ pub trait HDWalletBalanceOps: AddressBalanceOps {
 
     async fn produce_hd_address_checker(&self) -> BalanceResult<Self::HDAddressChecker>;
 
-    /// Checks for addresses of every known account by using [`HDWalletBalanceOps::check_hd_account_balance`].
+    /// Scans for the new addresses of every known account by using [`HDWalletBalanceOps::scan_for_new_addresses`].
     /// This method is used on coin initialization to index working addresses and to return the wallet balance to the user.
-    async fn enable_hd_wallet_balance(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<HDWalletBalance>;
+    async fn enable_hd_wallet(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<HDWalletBalance>;
 
-    /// Checks for the new account addresses using the given `address_checker`.
-    /// Returns balances of new addresses.
-    async fn check_hd_account_balance(
+    /// Scans for the new addresses of the specified `hd_account` using the given `address_checker`.
+    /// Returns balances of the new addresses.
+    async fn scan_for_new_addresses(
         &self,
         hd_account: &mut Self::HDAccount,
         address_checker: &Self::HDAddressChecker,
@@ -223,7 +223,7 @@ pub trait HDWalletBalanceOps: AddressBalanceOps {
     ) -> BalanceResult<Vec<HDAddressBalance>>;
 
     /// Requests balance of the given `address`.
-    /// This function is expected to be more efficient than ['HDWalletBalanceOps::check_address_balance'] in most cases
+    /// This function is expected to be more efficient than ['HDWalletBalanceOps::is_address_used'] in most cases
     /// since many of RPC clients allow us to request the address balance without the history.
     async fn known_address_balance(&self, address: &Self::Address) -> BalanceResult<CoinBalance> {
         self.address_balance(address).await
@@ -231,7 +231,7 @@ pub trait HDWalletBalanceOps: AddressBalanceOps {
 
     /// Checks if the address has been used by the user by checking if the transaction history of the given `address` is not empty.
     /// Please note the function can return zero balance even if the address has been used before.
-    async fn check_address_balance(
+    async fn is_address_used(
         &self,
         address: &Self::Address,
         checker: &Self::HDAddressChecker,
@@ -270,7 +270,7 @@ pub trait HDWalletBalanceRpcOps: HDWalletCoinOps {
         params: HDAccountBalanceParams,
     ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError>;
 
-    async fn check_hd_account_balance_rpc(
+    async fn scan_for_new_addresses_rpc(
         &self,
         params: CheckHDAccountBalanceParams,
     ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError>;
@@ -290,14 +290,14 @@ pub async fn hd_account_balance(
     }
 }
 
-pub async fn check_hd_account_balance(
+pub async fn scan_for_new_addresses(
     ctx: MmArc,
     req: CheckHDAccountBalanceRequest,
 ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError> {
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     match coin {
-        MmCoinEnum::UtxoCoin(utxo) => utxo.check_hd_account_balance_rpc(req.params).await,
-        MmCoinEnum::QtumCoin(qtum) => qtum.check_hd_account_balance_rpc(req.params).await,
+        MmCoinEnum::UtxoCoin(utxo) => utxo.scan_for_new_addresses_rpc(req.params).await,
+        MmCoinEnum::QtumCoin(qtum) => qtum.scan_for_new_addresses_rpc(req.params).await,
         _ => MmError::err(HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {
             coin: coin.ticker().to_owned(),
         }),
@@ -309,7 +309,7 @@ pub mod common_impl {
     use crate::hd_wallet::HDAddress;
     use common::calc_total_pages;
 
-    pub(crate) async fn enable_hd_wallet_balance<Coin, Address, HDWallet, HDAccount, HDAccountChecker>(
+    pub(crate) async fn enable_hd_wallet<Coin, Address, HDWallet, HDAccount, HDAccountChecker>(
         coin: &Coin,
         hd_wallet: &HDWallet,
     ) -> BalanceResult<HDWalletBalance>
@@ -332,7 +332,7 @@ pub mod common_impl {
 
         for (account_index, hd_account) in accounts.iter_mut() {
             let addresses = coin
-                .check_hd_account_balance(hd_account, &address_checker, gap_limit)
+                .scan_for_new_addresses(hd_account, &address_checker, gap_limit)
                 .await?;
 
             let total_balance = addresses.iter().fold(CoinBalance::default(), |total, addr_balance| {
@@ -413,7 +413,7 @@ pub mod common_impl {
         Ok(result)
     }
 
-    pub async fn check_hd_account_balance_rpc<Coin, HDWallet, HDAccount>(
+    pub async fn scan_for_new_addresses_rpc<Coin, HDWallet, HDAccount>(
         coin: &Coin,
         params: CheckHDAccountBalanceParams,
     ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError>
@@ -440,7 +440,7 @@ pub mod common_impl {
         let gap_limit = params.gap_limit.unwrap_or_else(|| coin.gap_limit(hd_wallet));
 
         let new_addresses = coin
-            .check_hd_account_balance(&mut hd_account, &address_checker, gap_limit)
+            .scan_for_new_addresses(&mut hd_account, &address_checker, gap_limit)
             .await?;
 
         Ok(CheckHDAccountBalanceResponse {

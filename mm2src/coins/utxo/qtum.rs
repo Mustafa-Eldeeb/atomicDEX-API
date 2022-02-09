@@ -1012,17 +1012,17 @@ impl HDWalletBalanceOps for QtumCoin {
         utxo_common::produce_hd_address_checker(self).await
     }
 
-    async fn enable_hd_wallet_balance(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<HDWalletBalance> {
-        coin_balance::common_impl::enable_hd_wallet_balance(self, hd_wallet).await
+    async fn enable_hd_wallet(&self, hd_wallet: &Self::HDWallet) -> BalanceResult<HDWalletBalance> {
+        coin_balance::common_impl::enable_hd_wallet(self, hd_wallet).await
     }
 
-    async fn check_hd_account_balance(
+    async fn scan_for_new_addresses(
         &self,
         hd_account: &mut Self::HDAccount,
         address_checker: &Self::HDAddressChecker,
         gap_limit: u32,
     ) -> BalanceResult<Vec<HDAddressBalance>> {
-        utxo_common::check_hd_account_balance(self, hd_account, address_checker, gap_limit).await
+        utxo_common::scan_for_new_addresses(self, hd_account, address_checker, gap_limit).await
     }
 }
 
@@ -1045,11 +1045,11 @@ impl HDWalletBalanceRpcOps for QtumCoin {
         coin_balance::common_impl::hd_account_balance_rpc(self, params).await
     }
 
-    async fn check_hd_account_balance_rpc(
+    async fn scan_for_new_addresses_rpc(
         &self,
         params: CheckHDAccountBalanceParams,
     ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError> {
-        coin_balance::common_impl::check_hd_account_balance_rpc(self, params).await
+        coin_balance::common_impl::scan_for_new_addresses_rpc(self, params).await
     }
 }
 
