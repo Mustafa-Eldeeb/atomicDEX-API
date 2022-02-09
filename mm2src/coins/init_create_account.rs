@@ -1,6 +1,6 @@
-use crate::coin_balance::{HDAccountBalance, HDWalletBalanceOps};
+use crate::coin_balance::HDAccountBalance;
 use crate::hd_pubkey::{HDXPubExtractor, RpcTaskXPubExtractor};
-use crate::hd_wallet::{HDWalletCoinOps, HDWalletRpcError};
+use crate::hd_wallet::HDWalletRpcError;
 use crate::{lp_coinfind_or_err, CoinBalance, CoinWithDerivationMethod, CoinsContext, MmCoinEnum};
 use async_trait::async_trait;
 use common::mm_ctx::MmArc;
@@ -170,9 +170,18 @@ pub async fn init_create_new_hd_account_user_action(
 
 pub(crate) mod common_impl {
     use super::*;
+    use crate::coin_balance::HDWalletCoinAndBalanceOps;
     use crate::MarketCoinOps;
 
-    pub async fn init_create_new_hd_account_rpc<'a, Coin, HDWallet, HDAccount, HDAddressChecker, XPubExtractor>(
+    pub async fn init_create_new_hd_account_rpc<
+        'a,
+        Coin,
+        Address,
+        HDWallet,
+        HDAccount,
+        HDAddressChecker,
+        XPubExtractor,
+    >(
         coin: &Coin,
         params: CreateNewAccountParams,
         xpub_extractor: &XPubExtractor,
@@ -180,8 +189,7 @@ pub(crate) mod common_impl {
     where
         Coin: InitCreateHDAccountRpcOps
             + CoinWithDerivationMethod<HDWallet = HDWallet>
-            + HDWalletCoinOps<HDWallet = HDWallet, HDAccount = HDAccount>
-            + HDWalletBalanceOps<HDWallet = HDWallet, HDAccount = HDAccount, HDAddressChecker = HDAddressChecker>
+            + HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAddressChecker>
             + Send
             + Sync
             + MarketCoinOps,

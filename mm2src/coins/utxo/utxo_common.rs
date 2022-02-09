@@ -1,5 +1,5 @@
 use super::*;
-use crate::coin_balance::{AddressBalanceStatus, HDAddressBalance, HDWalletBalanceOps};
+use crate::coin_balance::{AddressBalanceStatus, HDAddressBalance, HDWalletCoinAndBalanceOps};
 use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
 use crate::hd_wallet::{AddressDerivingError, HDAccountMut, InvalidBip44ChainError, NewAccountCreatingError,
                        NewAddressDerivingError};
@@ -214,19 +214,12 @@ pub async fn scan_for_new_addresses<T>(
     gap_limit: u32,
 ) -> BalanceResult<Vec<HDAddressBalance>>
 where
-    T: HDWalletCoinOps<Address = Address, HDAccount = UtxoHDAccount>
-        + HDWalletBalanceOps<
-            Address = Address,
-            HDWallet = UtxoHDWallet,
-            HDAccount = UtxoHDAccount,
-            HDAddressChecker = UtxoAddressBalanceChecker,
-        > + Sync,
+    T: HDWalletCoinAndBalanceOps<Address, UtxoHDWallet, UtxoHDAccount, UtxoAddressBalanceChecker> + Sync,
 {
     let mut addresses =
         scan_for_new_addresses_impl(coin, hd_account, address_checker, Bip44Chain::External, gap_limit).await?;
-    addresses.extend(
-        scan_for_new_addresses_impl(coin, hd_account, address_checker, Bip44Chain::Internal, gap_limit).await?,
-    );
+    addresses
+        .extend(scan_for_new_addresses_impl(coin, hd_account, address_checker, Bip44Chain::Internal, gap_limit).await?);
 
     Ok(addresses)
 }
@@ -241,13 +234,7 @@ pub async fn scan_for_new_addresses_impl<T>(
     gap_limit: u32,
 ) -> BalanceResult<Vec<HDAddressBalance>>
 where
-    T: HDWalletCoinOps<Address = Address, HDAccount = UtxoHDAccount>
-        + HDWalletBalanceOps<
-            Address = Address,
-            HDWallet = UtxoHDWallet,
-            HDAccount = UtxoHDAccount,
-            HDAddressChecker = UtxoAddressBalanceChecker,
-        > + Sync,
+    T: HDWalletCoinAndBalanceOps<Address, UtxoHDWallet, UtxoHDAccount, UtxoAddressBalanceChecker> + Sync,
 {
     let mut balances = Vec::with_capacity(gap_limit as usize);
 

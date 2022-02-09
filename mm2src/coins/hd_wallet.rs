@@ -357,19 +357,18 @@ pub async fn get_new_hd_address(
 
 pub mod common_impl {
     use super::*;
-    use crate::coin_balance::HDWalletBalanceOps;
+    use crate::coin_balance::HDWalletCoinAndBalanceOps;
     use crate::{CoinWithDerivationMethod, MarketCoinOps};
     use crypto::RpcDerivationPath;
     use std::fmt;
 
-    pub async fn get_new_hd_address_rpc<Coin, Address, HDWallet, HDAccount>(
+    pub async fn get_new_hd_address_rpc<Coin, Address, HDWallet, HDAccount, HDAddressChecker>(
         coin: &Coin,
         params: GetNewHDAddressParams,
     ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError>
     where
         Coin: CoinWithDerivationMethod<Address = Address, HDWallet = HDWallet>
-            + HDWalletCoinOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
-            + HDWalletBalanceOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
+            + HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAddressChecker>
             + MarketCoinOps
             + Sync,
         Address: fmt::Display,

@@ -244,6 +244,32 @@ pub trait HDWalletBalanceOps: AddressBalanceOps {
     }
 }
 
+pub trait HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAddressChecker>:
+    HDWalletCoinOps<HDWallet = HDWallet, HDAccount = HDAccount, Address = Address>
+    + HDWalletBalanceOps<
+        Address = Address,
+        HDWallet = HDWallet,
+        HDAccount = HDAccount,
+        HDAddressChecker = HDAddressChecker,
+    >
+{
+}
+
+/// Automatic implementation of the `HDWalletCoinAndBalanceOps` trait alias for every coin
+/// that implements `HDWalletCoinOps` and `HDWalletBalanceOps`.
+impl<Coin, Address, HDWallet, HDAccount, HDAddressChecker>
+    HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAddressChecker> for Coin
+where
+    Coin: HDWalletCoinOps<HDWallet = HDWallet, HDAccount = HDAccount, Address = Address>
+        + HDWalletBalanceOps<
+            Address = Address,
+            HDWallet = HDWallet,
+            HDAccount = HDAccount,
+            HDAddressChecker = HDAddressChecker,
+        >,
+{
+}
+
 #[async_trait]
 pub trait HDAddressBalanceChecker: Sync {
     type Address;
@@ -314,13 +340,7 @@ pub mod common_impl {
         hd_wallet: &HDWallet,
     ) -> BalanceResult<HDWalletBalance>
     where
-        Coin: HDWalletCoinOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
-            + HDWalletBalanceOps<
-                Address = Address,
-                HDWallet = HDWallet,
-                HDAccount = HDAccount,
-                HDAddressChecker = HDAccountChecker,
-            > + Sync,
+        Coin: HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAccountChecker> + Sync,
     {
         let mut accounts = coin.get_accounts_mut(hd_wallet).await;
         let gap_limit = coin.gap_limit(hd_wallet);
@@ -351,14 +371,13 @@ pub mod common_impl {
         Ok(result)
     }
 
-    pub async fn hd_account_balance_rpc<Coin, Address, HDWallet, HDAccount>(
+    pub async fn hd_account_balance_rpc<Coin, Address, HDWallet, HDAccount, HDAccountAddress>(
         coin: &Coin,
         params: HDAccountBalanceParams,
     ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError>
     where
         Coin: CoinWithDerivationMethod<Address = Address, HDWallet = HDWallet>
-            + HDWalletCoinOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
-            + HDWalletBalanceOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
+            + HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAccountAddress>
             + HDWalletBalanceRpcOps<Address = Address, HDWallet = HDWallet, HDAccount = HDAccount>
             + MarketCoinOps
             + Sync,
@@ -413,14 +432,13 @@ pub mod common_impl {
         Ok(result)
     }
 
-    pub async fn scan_for_new_addresses_rpc<Coin, HDWallet, HDAccount>(
+    pub async fn scan_for_new_addresses_rpc<Coin, Address, HDWallet, HDAccount, HDAddressChecker>(
         coin: &Coin,
         params: CheckHDAccountBalanceParams,
     ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError>
     where
         Coin: CoinWithDerivationMethod<HDWallet = HDWallet>
-            + HDWalletCoinOps<HDWallet = HDWallet, HDAccount = HDAccount>
-            + HDWalletBalanceOps<HDWallet = HDWallet, HDAccount = HDAccount>
+            + HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAddressChecker>
             + MarketCoinOps
             + Sync,
     {
