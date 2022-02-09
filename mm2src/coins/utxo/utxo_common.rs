@@ -26,7 +26,8 @@ use rpc::v1::types::{Bytes as BytesJson, TransactionInputEnum, H256 as H256Json}
 use script::{Builder, Opcode, Script, ScriptAddress, TransactionInputSigner, UnsignedTransactionInput};
 use secp256k1::{PublicKey, Signature};
 use serde_json::{self as json};
-use serialization::{deserialize, serialize, serialize_with_flags, CoinVariant, SERIALIZE_TRANSACTION_WITNESS};
+use serialization::{deserialize, serialize, serialize_list, serialize_with_flags, CoinVariant,
+                    SERIALIZE_TRANSACTION_WITNESS};
 use std::cmp::Ordering;
 use std::collections::hash_map::{Entry, HashMap};
 use std::str::FromStr;
@@ -2717,6 +2718,8 @@ where
         .collect();
     let proof = SPVProof {
         tx_id: tx.hash(),
+        vin: serialize_list(&tx.inputs).take(),
+        vout: serialize_list(&tx.outputs).take(),
         index: merkle_branch.pos as u64,
         confirming_header: header,
         intermediate_nodes,
