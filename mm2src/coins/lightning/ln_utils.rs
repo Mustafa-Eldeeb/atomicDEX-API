@@ -112,6 +112,10 @@ pub struct LightningParams {
     pub node_name: [u8; 32],
     // Node's RGB color. This is used for showing the node in a network graph with the desired color.
     pub node_color: [u8; 3],
+    // Invoice Payer is initialized while starting the lightning node, and it requires the number of payment retries that
+    // it should do before considering a payment failed or partially failed. If not provided the number of retries will be 5
+    // as this is a good default value.
+    pub payment_retries: Option<usize>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -390,9 +394,8 @@ pub async fn start_lightning(
         router,
         scorer,
         logger.clone(),
-        event_handler.clone(),
-        // TODO: payment retries
-        payment::RetryAttempts(5),
+        event_handler,
+        payment::RetryAttempts(params.payment_retries.unwrap_or(5)),
     ));
 
     // Persist ChannelManager
@@ -403,10 +406,12 @@ pub async fn start_lightning(
     let persist_channel_manager_callback =
         move |node: &ChannelManager| FilesystemPersister::persist_manager(ln_data_dir.clone(), &*node);
 
-    // Start Background Processing. Runs tasks periodically in the background to keep LN node operational
+    // Start Background Processing. Runs tasks periodically in the background to keep LN node operational.
+    // InvoicePayer will act as our event handler as it handles some of the payments related events before
+    // delegating it to LightningEventHandler.
     let background_processor = BackgroundProcessor::start(
         persist_channel_manager_callback,
-        event_handler,
+        invoice_payer.clone(),
         chain_monitor.clone(),
         channel_manager.clone(),
         Some(network_gossip),

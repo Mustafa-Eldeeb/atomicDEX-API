@@ -56,6 +56,8 @@ pub struct LightningActivationParams {
     pub name: String,
     // Node's HEX color. This is used for showing the node in a network graph with the desired color.
     pub color: Option<String>,
+    // The number of payment retries that should be done before considering a payment failed or partially failed.
+    pub payment_retries: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
@@ -167,6 +169,7 @@ impl L2ActivationOps for LightningCoin {
             listening_port,
             node_name,
             node_color,
+            payment_retries: activation_params.payment_retries,
         })
     }
 

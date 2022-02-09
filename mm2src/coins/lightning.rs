@@ -1134,7 +1134,7 @@ pub async fn get_payment_details(
 #[derive(Deserialize)]
 pub struct CloseChannelReq {
     pub coin: String,
-    pub channel: String,
+    pub channel_id: String,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1154,14 +1154,14 @@ pub async fn close_channel(ctx: MmArc, req: CloseChannelReq) -> CloseChannelResu
     };
     let mut channel_id = [0; 32];
     channel_id.copy_from_slice(
-        &hex::decode(req.channel.clone()).map_to_mm(|e| CloseChannelError::DecodeError(format!("{}", e)))?,
+        &hex::decode(req.channel_id.clone()).map_to_mm(|e| CloseChannelError::DecodeError(format!("{}", e)))?,
     );
     ln_coin
         .channel_manager
         .close_channel(&channel_id)
         .map_to_mm(|e| CloseChannelError::CloseChannelError(format!("{:?}", e)))?;
 
-    Ok(format!("Initiated closing of channel: {}", req.channel))
+    Ok(format!("Initiated closing of channel: {}", req.channel_id))
 }
 
 /// Details about the balance(s) available for spending once the channel appears on chain.
