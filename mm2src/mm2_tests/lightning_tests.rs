@@ -7,7 +7,7 @@ const T_BTC_ELECTRUMS: &[&str] = &[
     "electrum3.cipig.net:10068",
 ];
 
-fn start_lightning_nodes() -> (MarketMakerIt, MarketMakerIt) {
+fn start_lightning_nodes() -> (MarketMakerIt, MarketMakerIt, String, String) {
     let node_1_seed = "become nominee mountain person volume business diet zone govern voice debris hidden";
     let node_2_seed = "february coast tortoise grab shadow vast volcano affair ordinary gesture brass oxygen";
 
@@ -71,7 +71,8 @@ fn start_lightning_nodes() -> (MarketMakerIt, MarketMakerIt) {
 
     let _electrum = block_on(enable_electrum(&mm_node_1, "tBTC-TEST-segwit", false, T_BTC_ELECTRUMS));
 
-    let _enable_lightning = block_on(enable_lightning(&mm_node_1, "tBTC-TEST-lightning"));
+    let enable_lightning_1 = block_on(enable_lightning(&mm_node_1, "tBTC-TEST-lightning"));
+    let node_1_address = enable_lightning_1["result"]["address"].as_str().unwrap().to_string();
 
     let mm_node_2 = MarketMakerIt::start(
         json! ({
@@ -92,9 +93,10 @@ fn start_lightning_nodes() -> (MarketMakerIt, MarketMakerIt) {
 
     let _electrum = block_on(enable_electrum(&mm_node_2, "tBTC-TEST-segwit", false, T_BTC_ELECTRUMS));
 
-    let _enable_lightning = block_on(enable_lightning(&mm_node_2, "tBTC-TEST-lightning"));
+    let enable_lightning_2 = block_on(enable_lightning(&mm_node_2, "tBTC-TEST-lightning"));
+    let node_2_address = enable_lightning_2["result"]["address"].as_str().unwrap().to_string();
 
-    (mm_node_1, mm_node_2)
+    (mm_node_1, mm_node_2, node_1_address, node_2_address)
 }
 
 #[test]
@@ -172,24 +174,7 @@ fn test_enable_lightning() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn test_connect_to_lightning_node() {
-    let (mm_node_1, mm_node_2) = start_lightning_nodes();
-
-    let get_ln_node_id_1 = block_on(mm_node_1.rpc(json! ({
-        "userpass": mm_node_1.userpass,
-        "mmrpc": "2.0",
-        "method": "get_ln_node_id",
-        "params": {
-            "coin": "tBTC-TEST-lightning",
-        },
-    })))
-    .unwrap();
-    assert!(
-        get_ln_node_id_1.0.is_success(),
-        "!get_ln_node_id: {}",
-        get_ln_node_id_1.1
-    );
-    let get_ln_node_id_1_res: Json = json::from_str(&get_ln_node_id_1.1).unwrap();
-    let node_1_id = get_ln_node_id_1_res["result"]["node_id"].as_str().unwrap();
+    let (mm_node_1, mm_node_2, node_1_id, _) = start_lightning_nodes();
     let node_1_address = format!("{}@{}:9735", node_1_id, mm_node_1.ip.to_string());
 
     let connect = block_on(mm_node_2.rpc(json! ({
@@ -206,47 +191,16 @@ fn test_connect_to_lightning_node() {
     let connect_res: Json = json::from_str(&connect.1).unwrap();
     let expected = format!("Connected successfully to node : {}", node_1_address);
     assert_eq!(connect_res["result"], expected);
+
+    block_on(mm_node_1.stop()).unwrap();
+    block_on(mm_node_2.stop()).unwrap();
 }
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn test_open_channel() {
-    let (mm_node_1, mut mm_node_2) = start_lightning_nodes();
-
-    let get_ln_node_id_1 = block_on(mm_node_1.rpc(json! ({
-        "userpass": mm_node_1.userpass,
-        "mmrpc": "2.0",
-        "method": "get_ln_node_id",
-        "params": {
-            "coin": "tBTC-TEST-lightning",
-        },
-    })))
-    .unwrap();
-    assert!(
-        get_ln_node_id_1.0.is_success(),
-        "!get_ln_node_id: {}",
-        get_ln_node_id_1.1
-    );
-    let get_ln_node_id_1_res: Json = json::from_str(&get_ln_node_id_1.1).unwrap();
-    let node_1_id = get_ln_node_id_1_res["result"]["node_id"].as_str().unwrap();
+    let (mm_node_1, mut mm_node_2, node_1_id, node_2_id) = start_lightning_nodes();
     let node_1_address = format!("{}@{}:9735", node_1_id, mm_node_1.ip.to_string());
-
-    let get_ln_node_id_2 = block_on(mm_node_2.rpc(json! ({
-        "userpass": mm_node_2.userpass,
-        "mmrpc": "2.0",
-        "method": "get_ln_node_id",
-        "params": {
-            "coin": "tBTC-TEST-lightning",
-        },
-    })))
-    .unwrap();
-    assert!(
-        get_ln_node_id_2.0.is_success(),
-        "!get_ln_node_id: {}",
-        get_ln_node_id_2.1
-    );
-    let get_ln_node_id_2_res: Json = json::from_str(&get_ln_node_id_2.1).unwrap();
-    let node_2_id = get_ln_node_id_2_res["result"]["node_id"].as_str().unwrap();
 
     let open_channel = block_on(mm_node_2.rpc(json! ({
         "userpass": mm_node_2.userpass,

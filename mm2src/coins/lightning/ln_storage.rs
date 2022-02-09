@@ -105,6 +105,7 @@ pub fn save_network_graph_to_file(path: &Path, network_graph: &NetworkGraph) -> 
 
 pub fn read_network_graph_from_file(path: &Path) -> EnableLightningResult<NetworkGraph> {
     let file = File::open(path).map_to_mm(|e| EnableLightningError::IOError(e.to_string()))?;
+    log::info!("Reading the saved lightning network graph from file, this can take some time!");
     NetworkGraph::read(&mut BufReader::new(file)).map_to_mm(|e| EnableLightningError::IOError(e.to_string()))
 }
 

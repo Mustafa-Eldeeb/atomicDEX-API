@@ -48,9 +48,9 @@ use ln_connections::{connect_to_node, ConnectToNodeRes};
 use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelError, CloseChannelResult,
                 ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
                 GenerateInvoiceError, GenerateInvoiceResult, GetChannelDetailsError, GetChannelDetailsResult,
-                GetNodeIdError, GetNodeIdResult, GetPaymentDetailsError, GetPaymentDetailsResult, ListChannelsError,
-                ListChannelsResult, ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult,
-                SendPaymentError, SendPaymentResult};
+                GetPaymentDetailsError, GetPaymentDetailsResult, ListChannelsError, ListChannelsResult,
+                ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult, SendPaymentError,
+                SendPaymentResult};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
@@ -900,35 +900,6 @@ pub async fn generate_invoice(
         invoice: invoice.to_string(),
         payment_hash: invoice.payment_hash().to_string(),
     })
-}
-
-#[derive(Deserialize)]
-pub struct GetNodeIdReq {
-    pub coin: String,
-}
-
-#[derive(Serialize)]
-pub struct GetNodeIdResponse {
-    node_id: String,
-}
-
-#[cfg(target_arch = "wasm32")]
-pub async fn get_ln_node_id(_ctx: MmArc, _req: GetNodeIdReq) -> GetNodeIdResult<GetNodeIdResponse> {
-    MmError::err(GetNodeIdError::UnsupportedMode(
-        "'get_ln_node_id'".into(),
-        "native".into(),
-    ))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub async fn get_ln_node_id(ctx: MmArc, req: GetNodeIdReq) -> GetNodeIdResult<GetNodeIdResponse> {
-    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
-    let ln_coin = match coin {
-        MmCoinEnum::LightningCoin(c) => c,
-        _ => return MmError::err(GetNodeIdError::UnsupportedCoin(coin.ticker().to_string())),
-    };
-    let node_id = ln_coin.my_node_id();
-    Ok(GetNodeIdResponse { node_id })
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
