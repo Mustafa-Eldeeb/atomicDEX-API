@@ -1,3 +1,4 @@
+use crate::utxo::BlockchainNetwork;
 use lightning::util::config::{ChannelConfig, ChannelHandshakeConfig, ChannelHandshakeLimits, UserConfig};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -16,6 +17,7 @@ pub struct PlatformCoinConfirmations {
 #[derive(Debug)]
 pub struct LightningProtocolConf {
     pub platform_coin_ticker: String,
+    pub network: BlockchainNetwork,
     pub confirmations: PlatformCoinConfirmations,
 }
 

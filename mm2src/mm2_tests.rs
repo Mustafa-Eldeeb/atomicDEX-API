@@ -6124,29 +6124,6 @@ fn test_update_maker_order() {
         "http://195.201.0.6:8565"
     ]))]);
 
-    log!("Get bob balance");
-    let my_balance = block_on(mm_bob.rpc(json! ({
-        "userpass": mm_bob.userpass,
-        "method": "my_balance",
-        "coin": "RICK",
-    })))
-    .unwrap();
-    assert!(my_balance.0.is_success(), "!my_balance: {}", my_balance.1);
-    let my_balance_json: Json = json::from_str(&my_balance.1).unwrap();
-    let balance: BigDecimal = json::from_value(my_balance_json["balance"].clone()).unwrap();
-
-    log!("Get RICK trade fee");
-    let get_trade_fee = block_on(mm_bob.rpc(json! ({
-        "userpass": mm_bob.userpass,
-        "method": "get_trade_fee",
-        "coin": "RICK",
-    })))
-    .unwrap();
-    assert!(get_trade_fee.0.is_success(), "!get_trade_fee: {}", get_trade_fee.1);
-    let get_trade_fee_json: Json = json::from_str(&get_trade_fee.1).unwrap();
-    let trade_fee: BigDecimal = json::from_value(get_trade_fee_json["result"]["amount"].clone()).unwrap();
-    let max_volume = balance - trade_fee;
-
     log!("Issue bob sell request");
     let setprice = block_on(mm_bob.rpc(json! ({
         "userpass": mm_bob.userpass,
@@ -6201,6 +6178,37 @@ fn test_update_maker_order() {
     assert_eq!(update_maker_order_json["result"]["price"], Json::from("2"));
     assert_eq!(update_maker_order_json["result"]["max_base_vol"], Json::from("4"));
     assert_eq!(update_maker_order_json["result"]["min_base_vol"], Json::from("1"));
+
+    log!("Get bob balance");
+    let my_balance = block_on(mm_bob.rpc(json! ({
+        "userpass": mm_bob.userpass,
+        "method": "my_balance",
+        "coin": "RICK",
+    })))
+    .unwrap();
+    assert!(my_balance.0.is_success(), "!my_balance: {}", my_balance.1);
+    let my_balance_json: Json = json::from_str(&my_balance.1).unwrap();
+    let balance: BigDecimal = json::from_value(my_balance_json["balance"].clone()).unwrap();
+
+    log!("Get RICK trade fee");
+    let trade_preimage = block_on(mm_bob.rpc(json!({
+        "userpass": mm_bob.userpass,
+        "mmrpc": "2.0",
+        "method": "trade_preimage",
+        "params": {
+            "base": "RICK",
+            "rel": "MORTY",
+            "swap_method": "setprice",
+            "price": 2,
+            "max": true,
+        },
+    })))
+    .unwrap();
+    assert!(trade_preimage.0.is_success(), "!trade_preimage: {}", trade_preimage.1);
+    let get_trade_fee_json: Json = json::from_str(&trade_preimage.1).unwrap();
+    let trade_fee: BigDecimal =
+        json::from_value(get_trade_fee_json["result"]["base_coin_fee"]["amount"].clone()).unwrap();
+    let max_volume = balance - trade_fee;
 
     log!("Issue another bob update maker order request");
     let update_maker_order = block_on(mm_bob.rpc(json! ({

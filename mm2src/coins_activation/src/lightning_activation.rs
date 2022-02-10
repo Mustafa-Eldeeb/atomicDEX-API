@@ -38,9 +38,11 @@ impl TryFromCoinProtocol for LightningProtocolConf {
         match proto {
             CoinProtocol::LIGHTNING {
                 platform,
+                network,
                 confirmations,
             } => Ok(LightningProtocolConf {
                 platform_coin_ticker: platform,
+                network,
                 confirmations,
             }),
             proto => MmError::err(proto),

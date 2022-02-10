@@ -22,7 +22,6 @@ fn start_lightning_nodes() -> (MarketMakerIt, MarketMakerIt, String, String) {
             "wiftype": 239,
             "segwit": true,
             "bech32_hrp": "tb",
-            "network": "testnet",
             "address_format":{"format":"segwit"},
             "orderbook_ticker": "tBTC-TEST",
             "txfee": 0,
@@ -47,6 +46,7 @@ fn start_lightning_nodes() -> (MarketMakerIt, MarketMakerIt, String, String) {
               "type": "LIGHTNING",
               "protocol_data":{
                 "platform": "tBTC-TEST-segwit",
+                "network": "testnet",
                 "confirmations": {
                   "background": {
                     "default_feerate": 253,
@@ -129,7 +129,6 @@ fn test_enable_lightning() {
             "wiftype": 239,
             "segwit": true,
             "bech32_hrp": "tb",
-            "network": "testnet",
             "address_format":{"format":"segwit"},
             "orderbook_ticker": "tBTC-TEST",
             "txfee": 0,
@@ -148,6 +147,7 @@ fn test_enable_lightning() {
               "type": "LIGHTNING",
               "protocol_data":{
                 "platform": "tBTC-TEST-segwit",
+                "network": "testnet",
                 "confirmations": {
                   "background": {
                     "default_feerate": 253,

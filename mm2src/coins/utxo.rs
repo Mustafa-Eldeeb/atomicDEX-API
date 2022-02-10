@@ -553,8 +553,6 @@ pub struct UtxoCoinFields {
     /// Emercoin has 6
     /// Bitcoin Diamond has 7
     pub decimals: u8,
-    /// Main/testnet/signet/regtest Needed for lightning node to know which network to connect to
-    pub network: BlockchainNetwork,
     pub tx_fee: TxFee,
     /// Minimum transaction value at which the value is not less than fee
     pub dust_amount: u64,
@@ -1456,7 +1454,6 @@ pub trait UtxoCoinBuilder {
         let rpc_client = self.rpc_client().await?;
         let tx_fee = self.tx_fee(&rpc_client).await?;
         let decimals = self.decimals(&rpc_client).await?;
-        let network = self.network()?;
         let dust_amount = self.dust_amount();
 
         let initial_history_state = self.initial_history_state();
@@ -1466,7 +1463,6 @@ pub trait UtxoCoinBuilder {
         let coin = UtxoCoinFields {
             conf,
             decimals,
-            network,
             dust_amount,
             rpc_client,
             priv_key_policy,
@@ -1491,7 +1487,6 @@ pub trait UtxoCoinBuilder {
         let rpc_client = self.rpc_client().await?;
         let tx_fee = self.tx_fee(&rpc_client).await?;
         let decimals = self.decimals(&rpc_client).await?;
-        let network = self.network()?;
         let dust_amount = self.dust_amount();
 
         let initial_history_state = self.initial_history_state();
@@ -1501,7 +1496,6 @@ pub trait UtxoCoinBuilder {
         let coin = UtxoCoinFields {
             conf,
             decimals,
-            network,
             dust_amount,
             rpc_client,
             priv_key_policy: PrivKeyPolicy::HardwareWallet,

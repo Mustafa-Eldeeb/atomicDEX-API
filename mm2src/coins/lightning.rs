@@ -5,6 +5,7 @@ use crate::utxo::rpc_clients::UtxoRpcClientEnum;
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::utxo_common::UtxoTxBuilder;
+use crate::utxo::BlockchainNetwork;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::utxo::{sat_from_big_decimal, FeePolicy, UtxoCommonOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
@@ -83,6 +84,8 @@ pub mod ln_utils;
 
 pub struct PlatformFields {
     pub platform_coin: UtxoStandardCoin,
+    /// Main/testnet/signet/regtest Needed for lightning node to know which network to connect to
+    pub network: BlockchainNetwork,
     // Default fees to and confirmation targets to be used for FeeEstimator. Default fees are used when the call for
     // estimate_fee_sat fails.
     pub default_fees_and_confirmations: PlatformCoinConfirmations,
@@ -891,7 +894,7 @@ pub async fn generate_invoice(
             );
         }
     }
-    let network = ln_coin.platform_coin().as_ref().network.clone().into();
+    let network = ln_coin.platform_fields.network.clone().into();
     let invoice = create_invoice_from_channelmanager(
         &ln_coin.channel_manager,
         ln_coin.keys_manager,

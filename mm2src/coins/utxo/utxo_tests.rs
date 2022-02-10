@@ -121,7 +121,6 @@ fn utxo_coin_fields_for_test(
             derivation_path: None,
         },
         decimals: 8,
-        network: BlockchainNetwork::Mainnet,
         dust_amount: UTXO_DUST_AMOUNT,
         tx_fee: TxFee::FixedPerKb(1000),
         rpc_client,

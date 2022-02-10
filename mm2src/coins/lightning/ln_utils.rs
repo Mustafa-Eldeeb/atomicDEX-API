@@ -148,7 +148,6 @@ pub async fn start_lightning(
         ));
     }
 
-    let network = platform_coin.as_ref().network.clone().into();
     // The set (possibly empty) of socket addresses on which this node accepts incoming connections.
     // If the user wishes to preserve privacy, addresses should likely contain only Tor Onion addresses.
     let listening_addr = myipaddr(ctx.clone())
@@ -159,8 +158,10 @@ pub async fn start_lightning(
         .await
         .map_to_mm(|e| EnableLightningError::IOError(e.to_string()))?;
 
+    let network = protocol_conf.network.clone().into();
     let platform_fields = Arc::new(PlatformFields {
         platform_coin: platform_coin.clone(),
+        network: protocol_conf.network,
         default_fees_and_confirmations: protocol_conf.confirmations,
         registered_txs: PaMutex::new(HashMap::new()),
         registered_outputs: PaMutex::new(Vec::new()),
