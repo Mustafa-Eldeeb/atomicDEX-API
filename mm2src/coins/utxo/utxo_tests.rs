@@ -1,5 +1,5 @@
 use super::*;
-use crate::coin_balance::{CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse, HDAccountBalanceParams,
+use crate::coin_balance::{AccountBalanceParams, CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse,
                           HDAccountBalanceResponse, HDAddressBalance, HDWalletBalanceRpcOps};
 use crate::hd_wallet::HDAccountsMap;
 use crate::utxo::qtum::{qtum_coin_with_priv_key, QtumCoin, QtumDelegationOps, QtumDelegationRequest};
@@ -3385,7 +3385,7 @@ fn test_qtum_with_check_utxo_maturity_false() {
 }
 
 #[test]
-fn test_hd_account_balance_rpc() {
+fn test_account_balance_rpc() {
     let mut addresses_map: HashMap<String, u64> = HashMap::new();
     let mut balances_by_der_path: HashMap<String, HDAddressBalance> = HashMap::new();
 
@@ -3462,13 +3462,13 @@ fn test_hd_account_balance_rpc() {
 
     // Request a balance of Account#0, external addresses, 1st page
 
-    let params = HDAccountBalanceParams {
+    let params = AccountBalanceParams {
         account_index: 0,
         chain: Bip44Chain::External,
         limit: 3,
         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
     };
-    let actual = block_on(coin.hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
     let expected = HDAccountBalanceResponse {
         account_index: 0,
         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
@@ -3483,13 +3483,13 @@ fn test_hd_account_balance_rpc() {
 
     // Request a balance of Account#0, external addresses, 2nd page
 
-    let params = HDAccountBalanceParams {
+    let params = AccountBalanceParams {
         account_index: 0,
         chain: Bip44Chain::External,
         limit: 3,
         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(2).unwrap()),
     };
-    let actual = block_on(coin.hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
     let expected = HDAccountBalanceResponse {
         account_index: 0,
         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
@@ -3504,13 +3504,13 @@ fn test_hd_account_balance_rpc() {
 
     // Request a balance of Account#0, external addresses, 3rd page
 
-    let params = HDAccountBalanceParams {
+    let params = AccountBalanceParams {
         account_index: 0,
         chain: Bip44Chain::External,
         limit: 3,
         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(3).unwrap()),
     };
-    let actual = block_on(coin.hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
     let expected = HDAccountBalanceResponse {
         account_index: 0,
         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
@@ -3525,13 +3525,13 @@ fn test_hd_account_balance_rpc() {
 
     // Request a balance of Account#0, external addresses, page 4 (out of bound)
 
-    let params = HDAccountBalanceParams {
+    let params = AccountBalanceParams {
         account_index: 0,
         chain: Bip44Chain::External,
         limit: 3,
         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(4).unwrap()),
     };
-    let actual = block_on(coin.hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
     let expected = HDAccountBalanceResponse {
         account_index: 0,
         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
@@ -3546,13 +3546,13 @@ fn test_hd_account_balance_rpc() {
 
     // Request a balance of Account#0, internal addresses, starting from idx=1
 
-    let params = HDAccountBalanceParams {
+    let params = AccountBalanceParams {
         account_index: 0,
         chain: Bip44Chain::Internal,
         limit: 3,
         paging_options: PagingOptionsEnum::FromId(1),
     };
-    let actual = block_on(coin.hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
     let expected = HDAccountBalanceResponse {
         account_index: 0,
         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
@@ -3567,13 +3567,13 @@ fn test_hd_account_balance_rpc() {
 
     // Request a balance of Account#1, external addresses, page 1 (out of bound)
 
-    let params = HDAccountBalanceParams {
+    let params = AccountBalanceParams {
         account_index: 1,
         chain: Bip44Chain::External,
         limit: 3,
         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
     };
-    let actual = block_on(coin.hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
     let expected = HDAccountBalanceResponse {
         account_index: 1,
         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
@@ -3588,13 +3588,13 @@ fn test_hd_account_balance_rpc() {
 
     // Request a balance of Account#1, external addresses, page 1
 
-    let params = HDAccountBalanceParams {
+    let params = AccountBalanceParams {
         account_index: 1,
         chain: Bip44Chain::Internal,
         limit: 3,
         paging_options: PagingOptionsEnum::PageNumber(NonZeroUsize::new(1).unwrap()),
     };
-    let actual = block_on(coin.hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
     let expected = HDAccountBalanceResponse {
         account_index: 1,
         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
@@ -3609,13 +3609,13 @@ fn test_hd_account_balance_rpc() {
 
     // Request a balance of Account#1, external addresses, starting from idx=1 (out of bound)
 
-    let params = HDAccountBalanceParams {
+    let params = AccountBalanceParams {
         account_index: 1,
         chain: Bip44Chain::Internal,
         limit: 3,
         paging_options: PagingOptionsEnum::FromId(1),
     };
-    let actual = block_on(coin.hd_account_balance_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.account_balance_rpc(params)).expect("!account_balance_rpc");
     let expected = HDAccountBalanceResponse {
         account_index: 1,
         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),
@@ -3751,7 +3751,7 @@ fn test_scan_for_new_addresses() {
         account_index: 0,
         gap_limit: Some(3),
     };
-    let actual = block_on(coin.scan_for_new_addresses_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.scan_for_new_addresses_rpc(params)).expect("!account_balance_rpc");
     let expected = CheckHDAccountBalanceResponse {
         account_index: 0,
         derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap().into(),
@@ -3770,7 +3770,7 @@ fn test_scan_for_new_addresses() {
         account_index: 1,
         gap_limit: None,
     };
-    let actual = block_on(coin.scan_for_new_addresses_rpc(params)).expect("!hd_account_balance_rpc");
+    let actual = block_on(coin.scan_for_new_addresses_rpc(params)).expect("!account_balance_rpc");
     let expected = CheckHDAccountBalanceResponse {
         account_index: 1,
         derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap().into(),

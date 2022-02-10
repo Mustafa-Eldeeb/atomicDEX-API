@@ -71,7 +71,7 @@ pub enum CreateAccountInProgressStatus {
 
 #[async_trait]
 pub trait InitCreateHDAccountRpcOps {
-    async fn init_create_hd_account_rpc<XPubExtractor>(
+    async fn init_create_account_rpc<XPubExtractor>(
         &self,
         params: CreateNewAccountParams,
         xpub_extractor: &XPubExtractor,
@@ -110,16 +110,16 @@ where
         };
         let xpub_extractor = CreateAccountXPubExtractor::new(&self.ctx, task_handle, hw_statuses)?;
         self.coin
-            .init_create_hd_account_rpc(self.req.params, &xpub_extractor)
+            .init_create_account_rpc(self.req.params, &xpub_extractor)
             .await
     }
 }
 
-pub async fn init_create_new_hd_account(
+pub async fn init_create_new_account(
     ctx: MmArc,
     req: CreateNewAccountRequest,
 ) -> MmResult<InitRpcTaskResponse, HDWalletRpcError> {
-    async fn init_create_new_hd_account_helper<Coin>(
+    async fn init_create_new_account_helper<Coin>(
         ctx: MmArc,
         coin: Coin,
         req: CreateNewAccountRequest,
@@ -135,13 +135,13 @@ pub async fn init_create_new_hd_account(
 
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     match coin {
-        MmCoinEnum::UtxoCoin(utxo) => init_create_new_hd_account_helper(ctx, utxo, req).await,
-        MmCoinEnum::QtumCoin(qtum) => init_create_new_hd_account_helper(ctx, qtum, req).await,
+        MmCoinEnum::UtxoCoin(utxo) => init_create_new_account_helper(ctx, utxo, req).await,
+        MmCoinEnum::QtumCoin(qtum) => init_create_new_account_helper(ctx, qtum, req).await,
         _ => MmError::err(HDWalletRpcError::ExpectedHDWalletDerivationMethod { coin: req.coin }),
     }
 }
 
-pub async fn init_create_new_hd_account_status(
+pub async fn init_create_new_account_status(
     ctx: MmArc,
     req: RpcTaskStatusRequest,
 ) -> MmResult<CreateAccountRpcTaskStatus, RpcTaskStatusError> {
@@ -155,7 +155,7 @@ pub async fn init_create_new_hd_account_status(
         .or_mm_err(|| RpcTaskStatusError::NoSuchTask(req.task_id))
 }
 
-pub async fn init_create_new_hd_account_user_action(
+pub async fn init_create_new_account_user_action(
     ctx: MmArc,
     req: HwRpcTaskUserActionRequest,
 ) -> MmResult<SuccessResponse, RpcTaskUserActionError> {
@@ -171,17 +171,10 @@ pub async fn init_create_new_hd_account_user_action(
 pub(crate) mod common_impl {
     use super::*;
     use crate::coin_balance::HDWalletCoinAndBalanceOps;
+    use crate::hd_wallet::{HDAccountOps, HDWalletOps};
     use crate::MarketCoinOps;
 
-    pub async fn init_create_new_hd_account_rpc<
-        'a,
-        Coin,
-        Address,
-        HDWallet,
-        HDAccount,
-        HDAddressChecker,
-        XPubExtractor,
-    >(
+    pub async fn init_create_new_account_rpc<'a, Coin, Address, HDWallet, HDAccount, HDAddressChecker, XPubExtractor>(
         coin: &Coin,
         params: CreateNewAccountParams,
         xpub_extractor: &XPubExtractor,
@@ -194,8 +187,8 @@ pub(crate) mod common_impl {
             + Sync
             + MarketCoinOps,
         XPubExtractor: HDXPubExtractor + Sync,
-        HDWallet: Send + Sync,
-        HDAccount: Send + Sync,
+        HDWallet: HDWalletOps,
+        HDAccount: HDAccountOps,
         HDAddressChecker: Send + Sync,
     {
         let hd_wallet =
@@ -207,10 +200,10 @@ pub(crate) mod common_impl {
 
         let mut new_account = coin.create_new_account(hd_wallet, xpub_extractor).await?;
         let address_checker = coin.produce_hd_address_checker().await?;
-        let account_index = coin.account_id(&new_account);
-        let account_derivation_path = coin.account_derivation_path(&new_account);
+        let account_index = new_account.account_id();
+        let account_derivation_path = new_account.account_derivation_path();
 
-        let gap_limit = params.gap_limit.unwrap_or_else(|| coin.gap_limit(hd_wallet));
+        let gap_limit = params.gap_limit.unwrap_or_else(|| hd_wallet.gap_limit());
         let addresses = coin
             .scan_for_new_addresses(&mut new_account, &address_checker, gap_limit)
             .await?;

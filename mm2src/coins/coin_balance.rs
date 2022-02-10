@@ -124,11 +124,11 @@ pub struct HDAddressBalance {
 pub struct HDAccountBalanceRequest {
     coin: String,
     #[serde(flatten)]
-    params: HDAccountBalanceParams,
+    params: AccountBalanceParams,
 }
 
 #[derive(Deserialize)]
-pub struct HDAccountBalanceParams {
+pub struct AccountBalanceParams {
     pub account_index: u32,
     pub chain: Bip44Chain,
     #[serde(default = "common::ten")]
@@ -291,9 +291,9 @@ pub trait AddressBalanceOps {
 
 #[async_trait]
 pub trait HDWalletBalanceRpcOps: HDWalletCoinOps {
-    async fn hd_account_balance_rpc(
+    async fn account_balance_rpc(
         &self,
-        params: HDAccountBalanceParams,
+        params: AccountBalanceParams,
     ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError>;
 
     async fn scan_for_new_addresses_rpc(
@@ -302,14 +302,14 @@ pub trait HDWalletBalanceRpcOps: HDWalletCoinOps {
     ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError>;
 }
 
-pub async fn hd_account_balance(
+pub async fn account_balance(
     ctx: MmArc,
     req: HDAccountBalanceRequest,
 ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError> {
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     match coin {
-        MmCoinEnum::UtxoCoin(utxo) => utxo.hd_account_balance_rpc(req.params).await,
-        MmCoinEnum::QtumCoin(qtum) => qtum.hd_account_balance_rpc(req.params).await,
+        MmCoinEnum::UtxoCoin(utxo) => utxo.account_balance_rpc(req.params).await,
+        MmCoinEnum::QtumCoin(qtum) => qtum.account_balance_rpc(req.params).await,
         _ => MmError::err(HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {
             coin: coin.ticker().to_owned(),
         }),
@@ -332,18 +332,25 @@ pub async fn scan_for_new_addresses(
 
 pub mod common_impl {
     use super::*;
-    use crate::hd_wallet::HDAddress;
+    use crate::hd_wallet::{HDAccountOps, HDAddress, HDWalletOps};
     use common::calc_total_pages;
 
-    pub(crate) async fn enable_hd_wallet<Coin, Address, HDWallet, HDAccount, HDAccountChecker>(
+    pub(crate) async fn enable_hd_wallet<Coin, Address, HDWallet, HDAccount, HDAddressChecker>(
         coin: &Coin,
         hd_wallet: &HDWallet,
     ) -> BalanceResult<HDWalletBalance>
     where
-        Coin: HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAccountChecker> + Sync,
+        Coin: HDWalletBalanceOps<
+                Address = Address,
+                HDWallet = HDWallet,
+                HDAccount = HDAccount,
+                HDAddressChecker = HDAddressChecker,
+            > + Sync,
+        HDWallet: HDWalletOps<HDAccount = HDAccount> + Sync,
+        HDAccount: HDAccountOps,
     {
-        let mut accounts = coin.get_accounts_mut(hd_wallet).await;
-        let gap_limit = coin.gap_limit(hd_wallet);
+        let mut accounts = hd_wallet.get_accounts_mut().await;
+        let gap_limit = hd_wallet.gap_limit();
         let address_checker = coin.produce_hd_address_checker().await?;
 
         let mut result = HDWalletBalance {
@@ -360,7 +367,7 @@ pub mod common_impl {
             });
             let account_balance = HDAccountBalance {
                 account_index: *account_index,
-                derivation_path: RpcDerivationPath(coin.account_derivation_path(hd_account)),
+                derivation_path: RpcDerivationPath(hd_account.account_derivation_path()),
                 total_balance,
                 addresses,
             };
@@ -371,9 +378,9 @@ pub mod common_impl {
         Ok(result)
     }
 
-    pub async fn hd_account_balance_rpc<Coin, Address, HDWallet, HDAccount, HDAccountAddress>(
+    pub async fn account_balance_rpc<Coin, Address, HDWallet, HDAccount, HDAccountAddress>(
         coin: &Coin,
-        params: HDAccountBalanceParams,
+        params: AccountBalanceParams,
     ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError>
     where
         Coin: CoinWithDerivationMethod<Address = Address, HDWallet = HDWallet>
@@ -382,6 +389,8 @@ pub mod common_impl {
             + MarketCoinOps
             + Sync,
         Address: fmt::Display,
+        HDWallet: HDWalletOps<HDAccount = HDAccount> + Sync,
+        HDAccount: HDAccountOps,
     {
         let hd_wallet = coin.derivation_method().hd_wallet().or_mm_err(|| {
             HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {
@@ -391,11 +400,11 @@ pub mod common_impl {
 
         let account_id = params.account_index;
         let chain = params.chain;
-        let hd_account = coin
-            .get_account(hd_wallet, account_id)
+        let hd_account = hd_wallet
+            .get_account(account_id)
             .await
             .or_mm_err(|| HDAccountBalanceRpcError::UnknownAccount { account_id })?;
-        let total_addresses_number = coin.number_of_used_account_addresses(&hd_account, params.chain)?;
+        let total_addresses_number = hd_account.number_of_used_account_addresses(params.chain)?;
 
         let from_address_id = match params.paging_options {
             PagingOptionsEnum::FromId(from_address_id) => from_address_id,
@@ -405,7 +414,7 @@ pub mod common_impl {
 
         let mut result = HDAccountBalanceResponse {
             account_index: params.account_index,
-            derivation_path: RpcDerivationPath(coin.account_derivation_path(&hd_account)),
+            derivation_path: RpcDerivationPath(hd_account.account_derivation_path()),
             addresses: Vec::with_capacity(params.limit),
             limit: params.limit,
             skipped: std::cmp::min(from_address_id, total_addresses_number),
@@ -438,9 +447,15 @@ pub mod common_impl {
     ) -> MmResult<CheckHDAccountBalanceResponse, HDAccountBalanceRpcError>
     where
         Coin: CoinWithDerivationMethod<HDWallet = HDWallet>
-            + HDWalletCoinAndBalanceOps<Address, HDWallet, HDAccount, HDAddressChecker>
-            + MarketCoinOps
+            + HDWalletBalanceOps<
+                Address = Address,
+                HDWallet = HDWallet,
+                HDAccount = HDAccount,
+                HDAddressChecker = HDAddressChecker,
+            > + MarketCoinOps
             + Sync,
+        HDWallet: HDWalletOps<HDAccount = HDAccount> + Sync,
+        HDAccount: HDAccountOps,
     {
         let hd_wallet = coin.derivation_method().hd_wallet().or_mm_err(|| {
             HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {
@@ -449,13 +464,13 @@ pub mod common_impl {
         })?;
 
         let account_id = params.account_index;
-        let mut hd_account = coin
-            .get_account_mut(hd_wallet, account_id)
+        let mut hd_account = hd_wallet
+            .get_account_mut(account_id)
             .await
             .or_mm_err(|| HDAccountBalanceRpcError::UnknownAccount { account_id })?;
-        let account_derivation_path = coin.account_derivation_path(&hd_account);
+        let account_derivation_path = hd_account.account_derivation_path();
         let address_checker = coin.produce_hd_address_checker().await?;
-        let gap_limit = params.gap_limit.unwrap_or_else(|| coin.gap_limit(hd_wallet));
+        let gap_limit = params.gap_limit.unwrap_or_else(|| hd_wallet.gap_limit());
 
         let new_addresses = coin
             .scan_for_new_addresses(&mut hd_account, &address_checker, gap_limit)

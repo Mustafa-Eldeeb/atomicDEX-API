@@ -85,13 +85,14 @@ use utxo_signer::{TxProvider, TxProviderError, UtxoSignTxError, UtxoSignTxResult
 
 use self::rpc_clients::{electrum_script_hash, ElectrumClient, ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode,
                         NativeClient, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
-use super::{BalanceError, BalanceFut, BalanceResult, CoinsContext, DerivationMethod, DerivationMethodNotSupported,
-            FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails, MarketCoinOps, MmCoin,
-            NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy, RpcTransportEventHandler,
-            RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
-            Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError, WithdrawRequest};
+use super::{BalanceError, BalanceFut, BalanceResult, Bip44Chain, CoinsContext, DerivationMethod,
+            DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails,
+            MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy,
+            RpcTransportEventHandler, RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut,
+            TradePreimageResult, Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError,
+            WithdrawRequest};
 use crate::coin_balance::HDAddressBalanceChecker;
-use crate::hd_wallet::{HDAccountsMutex, HDAddress, HDWalletCoinOps};
+use crate::hd_wallet::{HDAccountOps, HDAccountsMutex, HDAddress, HDWalletCoinOps, HDWalletOps, InvalidBip44ChainError};
 
 #[cfg(test)] pub mod utxo_tests;
 #[cfg(target_arch = "wasm32")] pub mod utxo_wasm_tests;
@@ -1117,6 +1118,14 @@ pub struct UtxoHDWallet {
     pub gap_limit: u32,
 }
 
+impl HDWalletOps for UtxoHDWallet {
+    type HDAccount = UtxoHDAccount;
+
+    fn gap_limit(&self) -> u32 { self.gap_limit }
+
+    fn get_accounts_mutex(&self) -> &HDAccountsMutex<Self::HDAccount> { &self.accounts }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct UtxoHDAccount {
     pub account_id: u32,
@@ -1130,6 +1139,19 @@ pub struct UtxoHDAccount {
     /// but to request the balance of addresses whose index is less than `address_number`.
     pub external_addresses_number: u32,
     pub internal_addresses_number: u32,
+}
+
+impl HDAccountOps for UtxoHDAccount {
+    fn number_of_used_account_addresses(&self, chain: Bip44Chain) -> MmResult<u32, InvalidBip44ChainError> {
+        match chain {
+            Bip44Chain::External => Ok(self.external_addresses_number),
+            Bip44Chain::Internal => Ok(self.internal_addresses_number),
+        }
+    }
+
+    fn account_derivation_path(&self) -> DerivationPath { self.account_derivation_path.clone() }
+
+    fn account_id(&self) -> u32 { self.account_id }
 }
 
 /// Function calculating KMD interest

@@ -79,16 +79,6 @@ pub async fn get_tx_fee(coin: &UtxoCoinFields) -> Result<ActualTxFee, JsonRpcErr
     }
 }
 
-pub fn number_of_used_account_addresses(
-    hd_account: &UtxoHDAccount,
-    chain: Bip44Chain,
-) -> MmResult<u32, InvalidBip44ChainError> {
-    match chain {
-        Bip44Chain::External => Ok(hd_account.external_addresses_number),
-        Bip44Chain::Internal => Ok(hd_account.internal_addresses_number),
-    }
-}
-
 pub fn derive_address<T>(
     coin: &T,
     hd_account: &UtxoHDAccount,
@@ -239,8 +229,8 @@ where
     let mut balances = Vec::with_capacity(gap_limit as usize);
 
     // Get the first unknown address id.
-    let mut checking_address_id = coin
-        .number_of_used_account_addresses(hd_account, chain)
+    let mut checking_address_id = hd_account
+        .number_of_used_account_addresses(chain)
         // A UTXO coin should support both [`Bip44Chain::External`] and [`Bip44Chain::Internal`].
         .mm_err(|e| BalanceError::Internal(e.to_string()))?;
 

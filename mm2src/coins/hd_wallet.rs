@@ -236,60 +236,8 @@ pub struct HDAddress<Address> {
 #[async_trait]
 pub trait HDWalletCoinOps {
     type Address;
-    type HDWallet: Send + Sync;
-    type HDAccount: Send + Clone;
-
-    fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32;
-
-    fn get_accounts_mutex<'a>(&self, hd_wallet: &'a Self::HDWallet) -> &'a HDAccountsMutex<Self::HDAccount>;
-
-    /// Returns a copy of an account by the given `account_id` if it's activated.
-    async fn get_account(&self, hd_wallet: &Self::HDWallet, account_id: u32) -> Option<Self::HDAccount> {
-        let accounts = self.get_accounts_mutex(hd_wallet).lock().await;
-        accounts.get(&account_id).cloned()
-    }
-
-    /// Returns a mutable reference to an account by the given `account_id` if it's activated.
-    async fn get_account_mut<'a>(
-        &self,
-        hd_wallet: &'a Self::HDWallet,
-        account_id: u32,
-    ) -> Option<HDAccountMut<'a, Self::HDAccount>> {
-        let accounts = self.get_accounts_mutex(hd_wallet).lock().await;
-        if !accounts.contains_key(&account_id) {
-            return None;
-        }
-
-        Some(AsyncMutexGuard::map(accounts, |accounts| {
-            accounts
-                .get_mut(&account_id)
-                .expect("getting an element should never fail due to the checks above")
-        }))
-    }
-
-    /// Returns copies of all activated accounts.
-    async fn get_accounts(&self, hd_wallet: &Self::HDWallet) -> HDAccountsMap<Self::HDAccount> {
-        self.get_accounts_mutex(hd_wallet).lock().await.clone()
-    }
-
-    /// Returns a mutable reference to all activated accounts.
-    async fn get_accounts_mut<'a>(&self, hd_wallet: &'a Self::HDWallet) -> HDAccountsMut<'a, Self::HDAccount> {
-        self.get_accounts_mutex(hd_wallet).lock().await
-    }
-
-    /// Returns a number of used addresses of the given `hd_account`
-    /// or an `InvalidBip44ChainError` error if the coin doesn't support the given `chain`.
-    fn number_of_used_account_addresses(
-        &self,
-        hd_account: &Self::HDAccount,
-        chain: Bip44Chain,
-    ) -> MmResult<u32, InvalidBip44ChainError>;
-
-    /// Returns a derivation path of the given `hd_account`.
-    fn account_derivation_path(&self, hd_account: &Self::HDAccount) -> DerivationPath;
-
-    /// Returns an index of the given `hd_account`.
-    fn account_id(&self, hd_account: &Self::HDAccount) -> u32;
+    type HDWallet: HDWalletOps;
+    type HDAccount: HDAccountOps;
 
     /// Derives an address from the given info.
     fn derive_address(
@@ -317,6 +265,53 @@ pub trait HDWalletCoinOps {
         XPubExtractor: HDXPubExtractor + Sync;
 }
 
+#[async_trait]
+pub trait HDWalletOps {
+    type HDAccount: HDAccountOps + Clone + Send;
+
+    fn gap_limit(&self) -> u32;
+
+    fn get_accounts_mutex(&self) -> &HDAccountsMutex<Self::HDAccount>;
+
+    /// Returns a copy of an account by the given `account_id` if it's activated.
+    async fn get_account(&self, account_id: u32) -> Option<Self::HDAccount> {
+        let accounts = self.get_accounts_mutex().lock().await;
+        accounts.get(&account_id).cloned()
+    }
+
+    /// Returns a mutable reference to an account by the given `account_id` if it's activated.
+    async fn get_account_mut(&self, account_id: u32) -> Option<HDAccountMut<'_, Self::HDAccount>> {
+        let accounts = self.get_accounts_mutex().lock().await;
+        if !accounts.contains_key(&account_id) {
+            return None;
+        }
+
+        Some(AsyncMutexGuard::map(accounts, |accounts| {
+            accounts
+                .get_mut(&account_id)
+                .expect("getting an element should never fail due to the checks above")
+        }))
+    }
+
+    /// Returns copies of all activated accounts.
+    async fn get_accounts(&self) -> HDAccountsMap<Self::HDAccount> { self.get_accounts_mutex().lock().await.clone() }
+
+    /// Returns a mutable reference to all activated accounts.
+    async fn get_accounts_mut(&self) -> HDAccountsMut<'_, Self::HDAccount> { self.get_accounts_mutex().lock().await }
+}
+
+pub trait HDAccountOps {
+    /// Returns a number of used addresses of this account
+    /// or an `InvalidBip44ChainError` error if the coin doesn't support the given `chain`.
+    fn number_of_used_account_addresses(&self, chain: Bip44Chain) -> MmResult<u32, InvalidBip44ChainError>;
+
+    /// Returns a derivation path of this account.
+    fn account_derivation_path(&self) -> DerivationPath;
+
+    /// Returns an index of this account.
+    fn account_id(&self) -> u32;
+}
+
 #[derive(Deserialize)]
 pub struct GetNewHDAddressRequest {
     coin: String,
@@ -337,20 +332,20 @@ pub struct GetNewHDAddressResponse {
 
 #[async_trait]
 pub trait HDWalletRpcOps {
-    async fn get_new_hd_address_rpc(
+    async fn get_new_address_rpc(
         &self,
         params: GetNewHDAddressParams,
     ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError>;
 }
 
-pub async fn get_new_hd_address(
+pub async fn get_new_address(
     ctx: MmArc,
     req: GetNewHDAddressRequest,
 ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError> {
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     match coin {
-        MmCoinEnum::UtxoCoin(utxo) => utxo.get_new_hd_address_rpc(req.params).await,
-        MmCoinEnum::QtumCoin(qtum) => qtum.get_new_hd_address_rpc(req.params).await,
+        MmCoinEnum::UtxoCoin(utxo) => utxo.get_new_address_rpc(req.params).await,
+        MmCoinEnum::QtumCoin(qtum) => qtum.get_new_address_rpc(req.params).await,
         _ => MmError::err(HDWalletRpcError::ExpectedHDWalletDerivationMethod { coin: req.coin }),
     }
 }
@@ -362,7 +357,7 @@ pub mod common_impl {
     use crypto::RpcDerivationPath;
     use std::fmt;
 
-    pub async fn get_new_hd_address_rpc<Coin, Address, HDWallet, HDAccount, HDAddressChecker>(
+    pub async fn get_new_address_rpc<Coin, Address, HDWallet, HDAccount, HDAddressChecker>(
         coin: &Coin,
         params: GetNewHDAddressParams,
     ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError>
@@ -372,6 +367,7 @@ pub mod common_impl {
             + MarketCoinOps
             + Sync,
         Address: fmt::Display,
+        HDWallet: HDWalletOps<HDAccount = HDAccount> + Sync,
     {
         let account_id = params.account_id;
         let chain = params.chain;
@@ -382,8 +378,8 @@ pub mod common_impl {
                 .or_mm_err(|| HDWalletRpcError::ExpectedHDWalletDerivationMethod {
                     coin: coin.ticker().to_owned(),
                 })?;
-        let mut hd_account = coin
-            .get_account_mut(hd_wallet, params.account_id)
+        let mut hd_account = hd_wallet
+            .get_account_mut(params.account_id)
             .await
             .or_mm_err(|| HDWalletRpcError::UnknownAccount { account_id })?;
 

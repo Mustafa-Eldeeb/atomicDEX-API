@@ -1,12 +1,11 @@
 use super::*;
-use crate::coin_balance::{self, AddressBalanceOps, CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse,
-                          HDAccountBalance, HDAccountBalanceParams, HDAccountBalanceResponse,
+use crate::coin_balance::{self, AccountBalanceParams, AddressBalanceOps, CheckHDAccountBalanceParams,
+                          CheckHDAccountBalanceResponse, HDAccountBalance, HDAccountBalanceResponse,
                           HDAccountBalanceRpcError, HDAddressBalance, HDWalletBalance, HDWalletBalanceOps,
                           HDWalletBalanceRpcOps};
 use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
 use crate::hd_wallet::{self, AddressDerivingError, GetNewHDAddressParams, GetNewHDAddressResponse, HDAccountMut,
-                       HDWalletRpcError, HDWalletRpcOps, InvalidBip44ChainError, NewAccountCreatingError,
-                       NewAddressDerivingError};
+                       HDWalletRpcError, HDWalletRpcOps, NewAccountCreatingError, NewAddressDerivingError};
 use crate::init_create_account::{self, CreateNewAccountParams, InitCreateHDAccountRpcOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::utxo::utxo_builder::{MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
@@ -953,26 +952,6 @@ impl HDWalletCoinOps for QtumCoin {
     type HDWallet = UtxoHDWallet;
     type HDAccount = UtxoHDAccount;
 
-    fn gap_limit(&self, hd_wallet: &Self::HDWallet) -> u32 { hd_wallet.gap_limit }
-
-    fn get_accounts_mutex<'a>(&self, hd_wallet: &'a Self::HDWallet) -> &'a HDAccountsMutex<Self::HDAccount> {
-        &hd_wallet.accounts
-    }
-
-    fn number_of_used_account_addresses(
-        &self,
-        hd_account: &Self::HDAccount,
-        chain: Bip44Chain,
-    ) -> MmResult<u32, InvalidBip44ChainError> {
-        utxo_common::number_of_used_account_addresses(hd_account, chain)
-    }
-
-    fn account_derivation_path(&self, hd_account: &Self::HDAccount) -> DerivationPath {
-        hd_account.account_derivation_path.clone()
-    }
-
-    fn account_id(&self, hd_account: &Self::HDAccount) -> u32 { hd_account.account_id }
-
     fn derive_address(
         &self,
         hd_account: &Self::HDAccount,
@@ -1028,21 +1007,21 @@ impl HDWalletBalanceOps for QtumCoin {
 
 #[async_trait]
 impl HDWalletRpcOps for QtumCoin {
-    async fn get_new_hd_address_rpc(
+    async fn get_new_address_rpc(
         &self,
         params: GetNewHDAddressParams,
     ) -> MmResult<GetNewHDAddressResponse, HDWalletRpcError> {
-        hd_wallet::common_impl::get_new_hd_address_rpc(self, params).await
+        hd_wallet::common_impl::get_new_address_rpc(self, params).await
     }
 }
 
 #[async_trait]
 impl HDWalletBalanceRpcOps for QtumCoin {
-    async fn hd_account_balance_rpc(
+    async fn account_balance_rpc(
         &self,
-        params: HDAccountBalanceParams,
+        params: AccountBalanceParams,
     ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError> {
-        coin_balance::common_impl::hd_account_balance_rpc(self, params).await
+        coin_balance::common_impl::account_balance_rpc(self, params).await
     }
 
     async fn scan_for_new_addresses_rpc(
@@ -1055,7 +1034,7 @@ impl HDWalletBalanceRpcOps for QtumCoin {
 
 #[async_trait]
 impl InitCreateHDAccountRpcOps for QtumCoin {
-    async fn init_create_hd_account_rpc<XPubExtractor>(
+    async fn init_create_account_rpc<XPubExtractor>(
         &self,
         params: CreateNewAccountParams,
         xpub_extractor: &XPubExtractor,
@@ -1063,7 +1042,7 @@ impl InitCreateHDAccountRpcOps for QtumCoin {
     where
         XPubExtractor: HDXPubExtractor + Sync,
     {
-        init_create_account::common_impl::init_create_new_hd_account_rpc(self, params, xpub_extractor).await
+        init_create_account::common_impl::init_create_new_account_rpc(self, params, xpub_extractor).await
     }
 }
 
