@@ -309,6 +309,8 @@ pub enum SendPaymentError {
     NoRouteFound(String),
     #[display(fmt = "Payment error: {}", _0)]
     PaymentError(String),
+    #[display(fmt = "Final cltv expiry delta {} is below the required minimum of {}", _0, _1)]
+    CLTVExpiryError(u32, u32),
 }
 
 impl HttpStatusCode for SendPaymentError {
@@ -320,7 +322,8 @@ impl HttpStatusCode for SendPaymentError {
             SendPaymentError::InvalidInvoice(_)
             | SendPaymentError::PaymentError(_)
             | SendPaymentError::InvalidDestination(_)
-            | SendPaymentError::NoRouteFound(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            | SendPaymentError::NoRouteFound(_)
+            | SendPaymentError::CLTVExpiryError(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

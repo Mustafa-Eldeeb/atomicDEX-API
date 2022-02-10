@@ -34,6 +34,8 @@ use lightning::chain::keysinterface::KeysInterface;
 use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
 use lightning::ln::channelmanager::ChannelDetails;
+#[cfg(not(target_arch = "wasm32"))]
+use lightning::ln::channelmanager::MIN_FINAL_CLTV_EXPIRY;
 use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
 #[cfg(not(target_arch = "wasm32"))]
 use lightning::util::config::UserConfig;
@@ -134,6 +136,7 @@ pub struct PaymentInfo {
     pub secret: Option<PaymentSecret>,
     pub status: HTLCStatus,
     pub amt_msat: Option<u64>,
+    pub fee_paid_msat: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -213,6 +216,7 @@ impl LightningCoin {
             secret: payment_secret,
             status: HTLCStatus::Pending,
             amt_msat: invoice.amount_milli_satoshis(),
+            fee_paid_msat: None,
         }))
     }
 
@@ -223,6 +227,12 @@ impl LightningCoin {
         amount_msat: u64,
         final_cltv_expiry_delta: u32,
     ) -> SendPaymentResult<(PaymentHash, PaymentInfo)> {
+        if final_cltv_expiry_delta < MIN_FINAL_CLTV_EXPIRY {
+            return MmError::err(SendPaymentError::CLTVExpiryError(
+                final_cltv_expiry_delta,
+                MIN_FINAL_CLTV_EXPIRY,
+            ));
+        }
         let destination_pubkey =
             PublicKey::from_str(&destination).map_to_mm(|e| SendPaymentError::InvalidDestination(e.to_string()))?;
         let payment_preimage = PaymentPreimage(self.keys_manager.get_secure_random_bytes());
@@ -241,6 +251,7 @@ impl LightningCoin {
             secret: None,
             status: HTLCStatus::Pending,
             amt_msat: Some(amount_msat),
+            fee_paid_msat: None,
         }))
     }
 }
@@ -737,7 +748,7 @@ pub struct ChannelDetailsForRPC {
     pub counterparty_node_id: String,
     pub funding_tx: Option<String>,
     pub funding_tx_output_index: Option<u16>,
-    pub funding_tx_value: u64,
+    pub funding_tx_value_sats: u64,
     /// True if the channel was initiated (and thus funded) by us.
     pub is_outbound: bool,
     pub balance_msat: u64,
@@ -760,7 +771,7 @@ impl From<ChannelDetails> for ChannelDetailsForRPC {
             counterparty_node_id: details.counterparty.node_id.to_string(),
             funding_tx: details.funding_txo.map(|tx| tx.txid.to_string()),
             funding_tx_output_index: details.funding_txo.map(|tx| tx.index),
-            funding_tx_value: details.channel_value_satoshis,
+            funding_tx_value_sats: details.channel_value_satoshis,
             is_outbound: details.is_outbound,
             balance_msat: details.balance_msat,
             outbound_capacity_msat: details.outbound_capacity_msat,
@@ -921,11 +932,7 @@ pub enum Payment {
         amount_in_msat: u64,
         // The number of blocks the payment will be locked for if not claimed by the destination,
         // It's can be assumed that 6 blocks = 1 hour. We can claim the payment amount back after this cltv expires.
-        // This is also the locktime for the commitment transaction so if the destination (counterparty)
-        // would broadcast the old commitment transaction related to this payment to the blockchain,
-        // this is the window time that we have to be online at least once to be able to punish him otherwise he can
-        // claim the channel funds that were available at this point in time. (We have to account also for time to broadcast
-        // and confirm a transaction, possibly with time in between to RBF (Replace-By-Fee) the spending transaction)
+        // Minmum value allowed is MIN_FINAL_CLTV_EXPIRY which is currently 24 for rust-lightning.
         expiry: u32,
     },
 }
@@ -992,6 +999,7 @@ pub struct ListPaymentsReq {
 pub struct PaymentInfoForRPC {
     status: HTLCStatus,
     amount_in_msat: Option<u64>,
+    fee_paid_msat: Option<u64>,
 }
 
 impl From<PaymentInfo> for PaymentInfoForRPC {
@@ -999,6 +1007,7 @@ impl From<PaymentInfo> for PaymentInfoForRPC {
         PaymentInfoForRPC {
             status: info.status,
             amount_in_msat: info.amt_msat,
+            fee_paid_msat: info.fee_paid_msat,
         }
     }
 }

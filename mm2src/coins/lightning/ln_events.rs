@@ -53,13 +53,14 @@ impl EventHandler for LightningEventHandler {
             Event::PaymentSent {
                 payment_preimage,
                 payment_hash,
+                fee_paid_msat,
                 ..
             } => {
                 log::info!(
                     "Handling PaymentSent event for payment_hash: {}",
                     hex::encode(payment_hash.0)
                 );
-                self.handle_payment_sent(*payment_preimage, *payment_hash);
+                self.handle_payment_sent(*payment_preimage, *payment_hash, *fee_paid_msat);
             },
             // Handling updating channel penalties after a payment fails to route through a channel is done by the InvoicePayer.
             // Also abandoning or retrying a payment is handled by the InvoicePayer. 
@@ -189,8 +190,6 @@ impl LightningEventHandler {
                     temporary_channel_id,
                     e.to_string()
                 );
-                // TODO: use issue_channel_close_events here when implementing channel closure this will push a Event::DiscardFunding
-                // event for the other peer
                 return;
             },
         };
@@ -239,17 +238,24 @@ impl LightningEventHandler {
                     secret: payment_secret,
                     status,
                     amt_msat: Some(amt),
+                    fee_paid_msat: None,
                 });
             },
         }
     }
 
-    fn handle_payment_sent(&self, payment_preimage: PaymentPreimage, payment_hash: PaymentHash) {
+    fn handle_payment_sent(
+        &self,
+        payment_preimage: PaymentPreimage,
+        payment_hash: PaymentHash,
+        fee_paid_msat: Option<u64>,
+    ) {
         let mut outbound_payments = self.outbound_payments.lock();
         for (hash, payment) in outbound_payments.iter_mut() {
             if *hash == payment_hash {
                 payment.preimage = Some(payment_preimage);
                 payment.status = HTLCStatus::Succeeded;
+                payment.fee_paid_msat = fee_paid_msat;
                 log::info!(
                     "Successfully sent payment of {} millisatoshis with payment hash {}",
                     payment.amt_msat.unwrap_or_default(),
@@ -288,7 +294,6 @@ impl LightningEventHandler {
             },
         };
         let change_destination_script = Builder::build_witness_script(&my_address.hash).to_bytes().take().into();
-        // Todo: find a better way to do this
         let feerate_sat_per_1000_weight = self.filter.get_est_sat_per_1000_weight(ConfirmationTarget::Normal);
         let output_descriptors = &outputs.iter().collect::<Vec<_>>();
         let spending_tx = match self.keys_manager.spend_spendable_outputs(

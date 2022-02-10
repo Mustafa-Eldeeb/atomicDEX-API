@@ -49,7 +49,7 @@ cfg_native! {
 
 cfg_native! {
     const CHECK_FOR_NEW_BEST_BLOCK_INTERVAL: u64 = 60;
-    const BROADCAST_NODE_ANNOUNCEMENT_INTERVAL: u64 = 60;
+    const BROADCAST_NODE_ANNOUNCEMENT_INTERVAL: u64 = 600;
     const NETWORK_GRAPH_PERSIST_INTERVAL: u64 = 600;
     const SCORER_PERSIST_INTERVAL: u64 = 600;
 }
@@ -405,9 +405,6 @@ pub async fn start_lightning(
 
     // Persist ChannelManager
     // Note: if the ChannelManager is not persisted properly to disk, there is risk of channels force closing the next time LN starts up
-    // TODO: for some reason the persister doesn't persist the current best block when best_block_updated is called although it does
-    // persist the channel_manager which should have the current best block in it, when other operations that requires persisting occurs
-    // The current best block get persisted
     let persist_channel_manager_callback =
         move |node: &ChannelManager| FilesystemPersister::persist_manager(ln_data_dir.clone(), &*node);
 
@@ -840,10 +837,9 @@ async fn ln_node_announcement_loop(
             // Right now if the node is behind NAT the external ip is fetched on every loop
             // If the node does not announce a public IP, it will not be displayed on the network graph,
             // and other nodes will not be able to open a channel with it. But it can open channels with other nodes.
-            // TODO: Fetch external ip on reconnection only
             match fetch_external_ip().await {
                 Ok(ip) => {
-                    log::info!("Fetch real IP successfully: {}:{}", ip, port);
+                    log::debug!("Fetch real IP successfully: {}:{}", ip, port);
                     netaddress_from_ipaddr(ip, port)
                 },
                 Err(e) => {
