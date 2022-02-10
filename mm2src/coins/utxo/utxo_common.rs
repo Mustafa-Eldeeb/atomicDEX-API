@@ -1,8 +1,7 @@
 use super::*;
 use crate::coin_balance::{AddressBalanceStatus, HDAddressBalance, HDWalletCoinAndBalanceOps};
 use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
-use crate::hd_wallet::{AddressDerivingError, HDAccountMut, InvalidBip44ChainError, NewAccountCreatingError,
-                       NewAddressDerivingError};
+use crate::hd_wallet::{AddressDerivingError, HDAccountMut, NewAccountCreatingError, NewAddressDerivingError};
 use crate::init_withdraw::WithdrawTaskHandle;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
