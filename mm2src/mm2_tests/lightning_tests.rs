@@ -46,7 +46,21 @@ fn start_lightning_nodes() -> (MarketMakerIt, MarketMakerIt, String, String) {
             "protocol": {
               "type": "LIGHTNING",
               "protocol_data":{
-                "platform": "tBTC-TEST-segwit"
+                "platform": "tBTC-TEST-segwit",
+                "confirmations": {
+                  "background": {
+                    "default_feerate": 253,
+                    "n_blocks": 12
+                  },
+                  "normal": {
+                    "default_feerate": 2000,
+                    "n_blocks": 6
+                  },
+                  "high_priority": {
+                    "default_feerate": 5000,
+                    "n_blocks": 1
+                  }
+                }
               }
             }
           }
@@ -134,6 +148,20 @@ fn test_enable_lightning() {
               "type": "LIGHTNING",
               "protocol_data":{
                 "platform": "tBTC-TEST-segwit",
+                "confirmations": {
+                  "background": {
+                    "default_feerate": 253,
+                    "n_blocks": 12
+                  },
+                  "normal": {
+                    "default_feerate": 2000,
+                    "n_blocks": 6
+                  },
+                  "high_priority": {
+                    "default_feerate": 5000,
+                    "n_blocks": 1
+                  }
+                }
               }
             }
           }

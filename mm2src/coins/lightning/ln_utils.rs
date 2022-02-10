@@ -1,5 +1,5 @@
 use super::*;
-use crate::lightning::ln_conf::LightningCoinConf;
+use crate::lightning::ln_conf::{LightningCoinConf, LightningProtocolConf};
 use crate::utxo::utxo_standard::UtxoStandardCoin;
 use common::mm_ctx::MmArc;
 
@@ -59,20 +59,20 @@ pub type ChainMonitor = chainmonitor::ChainMonitor<
     InMemorySigner,
     Arc<PlatformFields>,
     Arc<UtxoStandardCoin>,
-    Arc<UtxoStandardCoin>,
+    Arc<PlatformFields>,
     Arc<LogState>,
     Arc<FilesystemPersister>,
 >;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type ChannelManager = SimpleArcChannelManager<ChainMonitor, UtxoStandardCoin, UtxoStandardCoin, LogState>;
+pub type ChannelManager = SimpleArcChannelManager<ChainMonitor, UtxoStandardCoin, PlatformFields, LogState>;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub type PeerManager = SimpleArcPeerManager<
     SocketDescriptor,
     ChainMonitor,
     UtxoStandardCoin,
-    UtxoStandardCoin,
+    PlatformFields,
     dyn Access + Send + Sync,
     LogState,
 >;
@@ -122,6 +122,7 @@ pub struct LightningParams {
 pub async fn start_lightning(
     _ctx: &MmArc,
     _platform_coin: UtxoStandardCoin,
+    _protocol_conf: LightningProtocolConf,
     _conf: LightningCoinConf,
     _params: LightningParams,
 ) -> EnableLightningResult<LightningCoin> {
@@ -135,6 +136,7 @@ pub async fn start_lightning(
 pub async fn start_lightning(
     ctx: &MmArc,
     platform_coin: UtxoStandardCoin,
+    protocol_conf: LightningProtocolConf,
     conf: LightningCoinConf,
     params: LightningParams,
 ) -> EnableLightningResult<LightningCoin> {
@@ -157,15 +159,23 @@ pub async fn start_lightning(
         .await
         .map_to_mm(|e| EnableLightningError::IOError(e.to_string()))?;
 
+    let platform_fields = Arc::new(PlatformFields {
+        platform_coin: platform_coin.clone(),
+        default_fees_and_confirmations: protocol_conf.confirmations,
+        registered_txs: PaMutex::new(HashMap::new()),
+        registered_outputs: PaMutex::new(Vec::new()),
+        unsigned_funding_txs: PaMutex::new(HashMap::new()),
+    });
+
     // Initialize the FeeEstimator. UtxoStandardCoin implements the FeeEstimator trait, so it'll act as our fee estimator.
-    let fee_estimator = Arc::new(platform_coin.clone());
+    let fee_estimator = platform_fields.clone();
 
     // Initialize the Logger
     let logger = ctx.log.0.clone();
 
     // Initialize the BroadcasterInterface. UtxoStandardCoin implements the BroadcasterInterface trait, so it'll act as our transaction
     // broadcaster.
-    let broadcaster = Arc::new(platform_coin.clone());
+    let broadcaster = Arc::new(platform_coin);
 
     // Initialize Persist
     let ticker = conf.ticker.clone();
@@ -177,12 +187,6 @@ pub async fn start_lightning(
         .to_string();
     let persister = Arc::new(FilesystemPersister::new(ln_data_dir.clone()));
 
-    let platform_fields = Arc::new(PlatformFields {
-        platform_coin,
-        registered_txs: PaMutex::new(HashMap::new()),
-        registered_outputs: PaMutex::new(Vec::new()),
-        unsigned_funding_txs: PaMutex::new(HashMap::new()),
-    });
     // Initialize the Filter. PlatformFields implements the Filter trait, we can use it to construct the filter.
     let filter = Some(platform_fields.clone());
 

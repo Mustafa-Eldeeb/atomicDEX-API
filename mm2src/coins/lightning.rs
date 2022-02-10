@@ -42,7 +42,7 @@ use lightning_background_processor::BackgroundProcessor;
 use lightning_invoice::utils::create_invoice_from_channelmanager;
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::Invoice;
-use ln_conf::{ChannelOptions, LightningCoinConf};
+use ln_conf::{ChannelOptions, LightningCoinConf, PlatformCoinConfirmations};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_connections::{connect_to_node, ConnectToNodeRes};
 use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelError, CloseChannelResult,
@@ -83,6 +83,9 @@ pub mod ln_utils;
 
 pub struct PlatformFields {
     pub platform_coin: UtxoStandardCoin,
+    // Default fees to and confirmation targets to be used for FeeEstimator. Default fees are used when the call for
+    // estimate_fee_sat fails.
+    pub default_fees_and_confirmations: PlatformCoinConfirmations,
     // This cache stores the transactions that the LN node has interest in.
     pub registered_txs: PaMutex<HashMap<Txid, HashSet<Script>>>,
     // This cache stores the outputs that the LN node has interest in.

@@ -100,6 +100,7 @@ use crate::utxo::qtum::{QtumDelegationOps, QtumDelegationRequest, QtumStakingInf
 use qrc20::{qrc20_coin_from_conf_and_params, Qrc20Coin, Qrc20FeeDetails};
 
 pub mod lightning;
+use crate::lightning::ln_conf::PlatformCoinConfirmations;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sql_tx_history_storage;
@@ -1565,6 +1566,7 @@ pub enum CoinProtocol {
     },
     LIGHTNING {
         platform: String,
+        confirmations: PlatformCoinConfirmations,
     },
     #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
     ZHTLC,

@@ -1,8 +1,22 @@
 use lightning::util::config::{ChannelConfig, ChannelHandshakeConfig, ChannelHandshakeLimits, UserConfig};
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DefaultFeesAndConfirmations {
+    pub default_feerate: u64,
+    pub n_blocks: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PlatformCoinConfirmations {
+    pub background: DefaultFeesAndConfirmations,
+    pub normal: DefaultFeesAndConfirmations,
+    pub high_priority: DefaultFeesAndConfirmations,
+}
+
 #[derive(Debug)]
 pub struct LightningProtocolConf {
     pub platform_coin_ticker: String,
+    pub confirmations: PlatformCoinConfirmations,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
