@@ -15,6 +15,7 @@ cfg_native! {
     use bitcoin::hash_types::{BlockHash, TxMerkleNode, Txid};
     use bitcoin_hashes::{sha256d, Hash};
     use common::executor::{spawn, Timer};
+    use common::fs::ensure_dir_is_writable;
     use common::ip_addr::fetch_external_ip;
     use common::jsonrpc_client::JsonRpcErrorType;
     use common::log;
@@ -180,12 +181,19 @@ pub async fn start_lightning(
 
     // Initialize Persist
     let ticker = conf.ticker.clone();
-    let ln_data_dir = ln_storage::my_ln_data_dir(ctx, &ticker)
+    let my_ln_data_dir = ln_storage::my_ln_data_dir(ctx, &ticker);
+    let ln_data_dir = my_ln_data_dir
         .as_path()
         .to_str()
         .ok_or("Data dir is a non-UTF-8 string")
         .map_to_mm(|e| EnableLightningError::InvalidPath(e.into()))?
         .to_string();
+    if !ensure_dir_is_writable(&my_ln_data_dir) {
+        return MmError::err(EnableLightningError::IOError(format!(
+            "{} db dir is not writable",
+            ln_data_dir
+        )));
+    }
     let persister = Arc::new(FilesystemPersister::new(ln_data_dir.clone()));
 
     // Initialize the Filter. PlatformFields implements the Filter trait, we can use it to construct the filter.

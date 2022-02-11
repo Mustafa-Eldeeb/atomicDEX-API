@@ -1121,6 +1121,8 @@ pub async fn get_payment_details(
 pub struct CloseChannelReq {
     pub coin: String,
     pub channel_id: String,
+    #[serde(default)]
+    pub force_close: bool,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1139,13 +1141,19 @@ pub async fn close_channel(ctx: MmArc, req: CloseChannelReq) -> CloseChannelResu
         _ => return MmError::err(CloseChannelError::UnsupportedCoin(coin.ticker().to_string())),
     };
     let mut channel_id = [0; 32];
-    channel_id.copy_from_slice(
-        &hex::decode(req.channel_id.clone()).map_to_mm(|e| CloseChannelError::DecodeError(format!("{}", e)))?,
-    );
-    ln_coin
-        .channel_manager
-        .close_channel(&channel_id)
-        .map_to_mm(|e| CloseChannelError::CloseChannelError(format!("{:?}", e)))?;
+    hex::decode_to_slice(req.channel_id.clone(), &mut channel_id)
+        .map_to_mm(|e| CloseChannelError::DecodeError(format!("{}", e)))?;
+    if req.force_close {
+        ln_coin
+            .channel_manager
+            .force_close_channel(&channel_id)
+            .map_to_mm(|e| CloseChannelError::CloseChannelError(format!("{:?}", e)))?;
+    } else {
+        ln_coin
+            .channel_manager
+            .close_channel(&channel_id)
+            .map_to_mm(|e| CloseChannelError::CloseChannelError(format!("{:?}", e)))?;
+    }
 
     Ok(format!("Initiated closing of channel: {}", req.channel_id))
 }
