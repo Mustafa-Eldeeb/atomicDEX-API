@@ -1309,7 +1309,8 @@ pub fn send_raw_tx(coin: &UtxoCoinFields, tx: &str) -> Box<dyn Future<Item = Str
 }
 
 
-pub fn get_raw_tx(coin: &UtxoCoinFields, tx_id: H256Json) -> Box<dyn Future<Item = String, Error = String> + Send> {
+pub fn get_raw_tx(coin: &UtxoCoinFields, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
+   let tx_id = try_fus!(H256Json::from_str(tx));
     Box::new(
         coin.rpc_client
             .get_transaction_bytes(tx_id)

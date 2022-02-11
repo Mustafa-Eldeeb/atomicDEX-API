@@ -853,6 +853,10 @@ impl MarketCoinOps for SlpToken {
         self.platform_utxo.send_raw_tx(tx)
     }
 
+    fn get_raw_tx(&self, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
+        self.platform_utxo.get_raw_tx(tx)
+    }
+
     fn wait_for_confirmations(
         &self,
         tx: &[u8],

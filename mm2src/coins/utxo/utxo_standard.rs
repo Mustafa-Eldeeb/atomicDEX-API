@@ -391,7 +391,9 @@ impl MarketCoinOps for UtxoStandardCoin {
     fn send_raw_tx(&self, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
         utxo_common::send_raw_tx(&self.utxo_arc, tx)
     }
-
+    fn get_raw_tx(&self, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
+        utxo_common::get_raw_tx(&self.utxo_arc, tx)
+    }
     fn wait_for_confirmations(
         &self,
         tx: &[u8],

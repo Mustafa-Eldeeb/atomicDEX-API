@@ -53,6 +53,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 // using custom copy of try_fus as futures crate was renamed to futures01
@@ -319,6 +320,7 @@ pub trait MarketCoinOps {
 
     /// Receives raw transaction bytes in hexadecimal format as input and returns tx hash in hexadecimal format
     fn send_raw_tx(&self, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send>;
+    fn get_raw_tx(&self, tx_id: &str) -> Box<dyn Future<Item = String, Error = String> + Send>;
 
     fn wait_for_confirmations(
         &self,
@@ -1383,6 +1385,19 @@ pub async fn send_raw_transaction(ctx: MmArc, req: Json) -> Result<Response<Vec<
     let bytes_string = try_s!(req["tx_hex"].as_str().ok_or("No 'tx_hex' field"));
     let res = try_s!(coin.send_raw_tx(bytes_string).compat().await);
     let body = try_s!(json::to_vec(&json!({ "tx_hash": res })));
+    Ok(try_s!(Response::builder().body(body)))
+}
+
+pub async fn get_raw_transaction(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
+    let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
+    let coin = match lp_coinfind(&ctx, &ticker).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return ERR!("No such coin: {}", ticker),
+        Err(err) => return ERR!("!lp_coinfind({}): {}", ticker, err),
+    };
+    let tx_hash = try_s!(req["tx_hash"].as_str().ok_or("No 'tx_hash' field"));
+    let res = try_s!(coin.get_raw_tx(tx_hash).compat().await);
+    let body = try_s!(json::to_vec(&json!({ "tx_hex": res })));
     Ok(try_s!(Response::builder().body(body)))
 }
 

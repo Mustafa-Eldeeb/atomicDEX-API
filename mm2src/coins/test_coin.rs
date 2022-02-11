@@ -39,6 +39,9 @@ impl MarketCoinOps for TestCoin {
     /// Receives raw transaction bytes in hexadecimal format as input and returns tx hash in hexadecimal format
     fn send_raw_tx(&self, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> { unimplemented!() }
 
+    /// Receives raw transaction hash as input and returns tx hex in hexadecimal format
+    fn get_raw_tx(&self, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> { unimplemented!() }
+
     fn wait_for_confirmations(
         &self,
         tx: &[u8],
