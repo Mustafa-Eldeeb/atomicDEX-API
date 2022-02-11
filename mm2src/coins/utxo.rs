@@ -1142,10 +1142,17 @@ pub struct UtxoHDAccount {
 }
 
 impl HDAccountOps for UtxoHDAccount {
-    fn number_of_used_account_addresses(&self, chain: Bip44Chain) -> MmResult<u32, InvalidBip44ChainError> {
+    fn known_addresses_number(&self, chain: Bip44Chain) -> MmResult<u32, InvalidBip44ChainError> {
         match chain {
             Bip44Chain::External => Ok(self.external_addresses_number),
             Bip44Chain::Internal => Ok(self.internal_addresses_number),
+        }
+    }
+
+    fn known_addresses_number_mut(&mut self, chain: Bip44Chain) -> MmResult<&mut u32, InvalidBip44ChainError> {
+        match chain {
+            Bip44Chain::External => Ok(&mut self.external_addresses_number),
+            Bip44Chain::Internal => Ok(&mut self.internal_addresses_number),
         }
     }
 

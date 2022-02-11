@@ -1,11 +1,10 @@
 use super::*;
-use crate::coin_balance::{self, AccountBalanceParams, AddressBalanceOps, CheckHDAccountBalanceParams,
-                          CheckHDAccountBalanceResponse, HDAccountBalance, HDAccountBalanceResponse,
-                          HDAccountBalanceRpcError, HDAddressBalance, HDWalletBalance, HDWalletBalanceOps,
-                          HDWalletBalanceRpcOps};
+use crate::coin_balance::{self, AccountBalanceParams, CheckHDAccountBalanceParams, CheckHDAccountBalanceResponse,
+                          HDAccountBalance, HDAccountBalanceResponse, HDAccountBalanceRpcError, HDAddressBalance,
+                          HDWalletBalance, HDWalletBalanceOps, HDWalletBalanceRpcOps};
 use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
 use crate::hd_wallet::{self, AddressDerivingError, GetNewHDAddressParams, GetNewHDAddressResponse, HDAccountMut,
-                       HDWalletRpcError, HDWalletRpcOps, NewAccountCreatingError, NewAddressDerivingError};
+                       HDWalletRpcError, HDWalletRpcOps, NewAccountCreatingError};
 use crate::init_create_account::{self, CreateNewAccountParams, InitCreateHDAccountRpcOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::utxo::utxo_builder::{MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
@@ -912,15 +911,6 @@ impl UtxoSignerOps for QtumCoin {
     fn tx_provider(&self) -> Self::TxGetter { self.utxo_arc.rpc_client.clone() }
 }
 
-#[async_trait]
-impl AddressBalanceOps for QtumCoin {
-    type Address = Address;
-
-    async fn address_balance(&self, address: &Self::Address) -> BalanceResult<CoinBalance> {
-        utxo_common::address_balance(self, address).await
-    }
-}
-
 impl CoinWithDerivationMethod for QtumCoin {
     type Address = Address;
     type HDWallet = UtxoHDWallet;
@@ -961,14 +951,6 @@ impl HDWalletCoinOps for QtumCoin {
         utxo_common::derive_address(self, hd_account, chain, address_id)
     }
 
-    fn generate_new_address(
-        &self,
-        hd_account: &mut Self::HDAccount,
-        chain: Bip44Chain,
-    ) -> MmResult<HDAddress<Self::Address>, NewAddressDerivingError> {
-        utxo_common::generate_address(self, hd_account, chain)
-    }
-
     async fn create_new_account<'a, XPubExtractor>(
         &self,
         hd_wallet: &'a Self::HDWallet,
@@ -983,8 +965,6 @@ impl HDWalletCoinOps for QtumCoin {
 
 #[async_trait]
 impl HDWalletBalanceOps for QtumCoin {
-    type HDWallet = UtxoHDWallet;
-    type HDAccount = UtxoHDAccount;
     type HDAddressChecker = UtxoAddressBalanceChecker;
 
     async fn produce_hd_address_checker(&self) -> BalanceResult<Self::HDAddressChecker> {
@@ -1002,6 +982,10 @@ impl HDWalletBalanceOps for QtumCoin {
         gap_limit: u32,
     ) -> BalanceResult<Vec<HDAddressBalance>> {
         utxo_common::scan_for_new_addresses(self, hd_account, address_checker, gap_limit).await
+    }
+
+    async fn known_address_balance(&self, address: &Self::Address) -> BalanceResult<CoinBalance> {
+        utxo_common::address_balance(self, address).await
     }
 }
 
