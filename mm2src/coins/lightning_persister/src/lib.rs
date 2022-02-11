@@ -37,6 +37,7 @@ use std::path::{Path, PathBuf};
 /// FilesystemPersister.
 pub struct FilesystemPersister {
     path_to_channel_data: String,
+    path_to_backup: Option<String>,
 }
 
 impl<Signer: Sign> DiskWriteable for ChannelMonitor<Signer> {
@@ -58,7 +59,12 @@ where
 impl FilesystemPersister {
     /// Initialize a new FilesystemPersister and set the path to the individual channels'
     /// files.
-    pub fn new(path_to_channel_data: String) -> Self { Self { path_to_channel_data } }
+    pub fn new(path_to_channel_data: String, path_to_backup: Option<String>) -> Self {
+        Self {
+            path_to_channel_data,
+            path_to_backup,
+        }
+    }
 
     /// Get the directory which was provided when this persister was initialized.
     pub fn get_data_dir(&self) -> String { self.path_to_channel_data.clone() }
@@ -69,10 +75,20 @@ impl FilesystemPersister {
         path
     }
 
+    pub(crate) fn path_to_monitor_data_backup(&self) -> Option<PathBuf> {
+        if let Some(backup_path) = self.path_to_backup.clone() {
+            let mut path = PathBuf::from(backup_path);
+            path.push("monitors");
+            return Some(path);
+        }
+        None
+    }
+
     /// Writes the provided `ChannelManager` to the path provided at `FilesystemPersister`
     /// initialization, within a file called "manager".
     pub fn persist_manager<Signer: Sign, M: Deref, T: Deref, K: Deref, F: Deref, L: Deref>(
         data_dir: String,
+        backup_dir: Option<String>,
         manager: &ChannelManager<Signer, M, T, K, F, L>,
     ) -> Result<(), std::io::Error>
     where
@@ -83,7 +99,12 @@ impl FilesystemPersister {
         L::Target: Logger,
     {
         let path = PathBuf::from(data_dir);
-        util::write_to_file(path, "manager".to_string(), manager)
+        util::write_to_file(path, "manager".to_string(), manager)?;
+        if let Some(path) = backup_dir {
+            let backup_path = PathBuf::from(path);
+            util::write_to_file(backup_path, "manager".to_string(), manager)?;
+        }
+        Ok(())
     }
 
     /// Read `ChannelMonitor`s from disk.
@@ -165,8 +186,13 @@ impl<ChannelSigner: Sign> chainmonitor::Persist<ChannelSigner> for FilesystemPer
         _update_id: chainmonitor::MonitorUpdateId,
     ) -> Result<(), chain::ChannelMonitorUpdateErr> {
         let filename = format!("{}_{}", funding_txo.txid.to_hex(), funding_txo.index);
-        util::write_to_file(self.path_to_monitor_data(), filename, monitor)
-            .map_err(|_| chain::ChannelMonitorUpdateErr::PermanentFailure)
+        util::write_to_file(self.path_to_monitor_data(), filename.clone(), monitor)
+            .map_err(|_| chain::ChannelMonitorUpdateErr::PermanentFailure)?;
+        if let Some(path) = self.path_to_monitor_data_backup() {
+            util::write_to_file(path, filename, monitor)
+                .map_err(|_| chain::ChannelMonitorUpdateErr::PermanentFailure)?;
+        }
+        Ok(())
     }
 
     fn update_persisted_channel(
@@ -177,7 +203,12 @@ impl<ChannelSigner: Sign> chainmonitor::Persist<ChannelSigner> for FilesystemPer
         _update_id: chainmonitor::MonitorUpdateId,
     ) -> Result<(), chain::ChannelMonitorUpdateErr> {
         let filename = format!("{}_{}", funding_txo.txid.to_hex(), funding_txo.index);
-        util::write_to_file(self.path_to_monitor_data(), filename, monitor)
-            .map_err(|_| chain::ChannelMonitorUpdateErr::PermanentFailure)
+        util::write_to_file(self.path_to_monitor_data(), filename.clone(), monitor)
+            .map_err(|_| chain::ChannelMonitorUpdateErr::PermanentFailure)?;
+        if let Some(path) = self.path_to_monitor_data_backup() {
+            util::write_to_file(path, filename, monitor)
+                .map_err(|_| chain::ChannelMonitorUpdateErr::PermanentFailure)?;
+        }
+        Ok(())
     }
 }

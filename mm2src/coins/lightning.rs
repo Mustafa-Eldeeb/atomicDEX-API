@@ -57,8 +57,8 @@ use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelErr
 #[cfg(not(target_arch = "wasm32"))]
 use ln_events::LightningEventHandler;
 #[cfg(not(target_arch = "wasm32"))]
-use ln_storage::{last_request_id_path, nodes_data_path, parse_node_info, read_last_request_id_from_file,
-                 read_nodes_addresses_from_file, save_last_request_id_to_file, write_nodes_addresses_to_file};
+use ln_storage::{nodes_data_backup_path, nodes_data_path, parse_node_info, read_nodes_addresses_from_file,
+                 write_nodes_addresses_to_file};
 #[cfg(not(target_arch = "wasm32"))]
 use ln_utils::{ChainMonitor, ChannelManager, InvoicePayer, PeerManager};
 use parking_lot::Mutex as PaMutex;
@@ -96,7 +96,7 @@ pub struct PlatformFields {
     // This cache stores the outputs that the LN node has interest in.
     pub registered_outputs: PaMutex<Vec<WatchedOutput>>,
     // This cache stores transactions to be broadcasted once the other node accepts the channel
-    pub unsigned_funding_txs: PaMutex<HashMap<u64, TransactionInputSigner>>,
+    pub unsigned_funding_txs: PaMutex<HashMap<[u8; 32], TransactionInputSigner>>,
 }
 
 impl PlatformFields {
@@ -590,6 +590,12 @@ pub async fn connect_to_lightning_node(ctx: MmArc, req: ConnectToNodeRequest) ->
         if let Entry::Occupied(mut entry) = nodes_addresses.entry(node_pubkey) {
             entry.insert(node_addr);
             write_nodes_addresses_to_file(&nodes_data_path(&ctx, ln_coin.ticker()), nodes_addresses.clone())?;
+            if let Some(path) = ln_coin.conf.backup_path.clone() {
+                write_nodes_addresses_to_file(
+                    &nodes_data_backup_path(path, ln_coin.ticker()),
+                    nodes_addresses.clone(),
+                )?;
+            }
         }
     }
 
@@ -622,7 +628,6 @@ pub struct OpenChannelRequest {
 pub struct OpenChannelResponse {
     temporary_channel_id: String,
     node_id: String,
-    request_id: u64,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -680,17 +685,6 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
 
     let (unsigned, _) = tx_builder.build().await?;
 
-    // Helps in tracking which FundingGenerationReady events corresponds to which open_channel call
-    let ticker = ln_coin.ticker();
-    let request_id = match read_last_request_id_from_file(&last_request_id_path(&ctx, ticker)) {
-        Ok(id) => id + 1,
-        Err(e) => match e.get_inner() {
-            OpenChannelError::InvalidPath(_) => 1,
-            _ => return Err(e),
-        },
-    };
-    save_last_request_id_to_file(&last_request_id_path(&ctx, ticker), request_id)?;
-
     let amount_in_sat = unsigned.outputs[0].value;
     let push_msat = req.push_msat;
     let channel_manager = ln_coin.channel_manager.clone();
@@ -713,27 +707,29 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
 
     let temp_channel_id = async_blocking(move || {
         channel_manager
-            .create_channel(node_pubkey, amount_in_sat, push_msat, request_id, Some(user_config))
+            .create_channel(node_pubkey, amount_in_sat, push_msat, 1, Some(user_config))
             .map_to_mm(|e| OpenChannelError::FailureToOpenChannel(node_pubkey.to_string(), format!("{:?}", e)))
     })
     .await?;
+
+    {
+        let mut unsigned_funding_txs = ln_coin.platform_fields.unsigned_funding_txs.lock();
+        unsigned_funding_txs.insert(temp_channel_id, unsigned);
+    }
 
     // Saving node data to reconnect to it on restart
     {
         let mut nodes_addresses = ln_coin.nodes_addresses.lock();
         nodes_addresses.insert(node_pubkey, node_addr);
-        write_nodes_addresses_to_file(&nodes_data_path(&ctx, ticker), nodes_addresses.clone())?;
-    }
-
-    {
-        let mut unsigned_funding_txs = ln_coin.platform_fields.unsigned_funding_txs.lock();
-        unsigned_funding_txs.insert(request_id, unsigned);
+        write_nodes_addresses_to_file(&nodes_data_path(&ctx, ln_coin.ticker()), nodes_addresses.clone())?;
+        if let Some(path) = ln_coin.conf.backup_path.clone() {
+            write_nodes_addresses_to_file(&nodes_data_backup_path(path, ln_coin.ticker()), nodes_addresses.clone())?;
+        }
     }
 
     Ok(OpenChannelResponse {
         temporary_channel_id: hex::encode(temp_channel_id),
         node_id: req.node_id,
-        request_id,
     })
 }
 

@@ -194,7 +194,30 @@ pub async fn start_lightning(
             ln_data_dir
         )));
     }
-    let persister = Arc::new(FilesystemPersister::new(ln_data_dir.clone()));
+    let ln_data_backup_dir = match conf.backup_path.clone() {
+        Some(backup_path) => {
+            let my_ln_data_backup_dir = ln_storage::my_ln_data_backup_dir(backup_path.clone(), &ticker);
+            if !ensure_dir_is_writable(&my_ln_data_backup_dir) {
+                return MmError::err(EnableLightningError::IOError(format!(
+                    "{} db dir is not writable",
+                    backup_path
+                )));
+            }
+            Some(
+                my_ln_data_backup_dir
+                    .as_path()
+                    .to_str()
+                    .ok_or("Data dir is a non-UTF-8 string")
+                    .map_to_mm(|e| EnableLightningError::InvalidPath(e.into()))?
+                    .to_string(),
+            )
+        },
+        None => None,
+    };
+    let persister = Arc::new(FilesystemPersister::new(
+        ln_data_dir.clone(),
+        ln_data_backup_dir.clone(),
+    ));
 
     // Initialize the Filter. PlatformFields implements the Filter trait, we can use it to construct the filter.
     let filter = Some(platform_fields.clone());
@@ -413,8 +436,9 @@ pub async fn start_lightning(
 
     // Persist ChannelManager
     // Note: if the ChannelManager is not persisted properly to disk, there is risk of channels force closing the next time LN starts up
-    let persist_channel_manager_callback =
-        move |node: &ChannelManager| FilesystemPersister::persist_manager(ln_data_dir.clone(), &*node);
+    let persist_channel_manager_callback = move |node: &ChannelManager| {
+        FilesystemPersister::persist_manager(ln_data_dir.clone(), ln_data_backup_dir.clone(), &*node)
+    };
 
     // Start Background Processing. Runs tasks periodically in the background to keep LN node operational.
     // InvoicePayer will act as our event handler as it handles some of the payments related events before
