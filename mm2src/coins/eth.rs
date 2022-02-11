@@ -1087,6 +1087,7 @@ impl MarketCoinOps for EthCoin {
                 .map_err(|e| ERRL!("{}", e)),
         )
     }
+    
     fn get_raw_tx(&self, mut tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
         
         let tx_id = try_fus!(H256Json::from_str(tx));
