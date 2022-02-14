@@ -1,13 +1,5 @@
-#[cfg(not(target_arch = "wasm32"))]
-use super::{lp_coinfind_or_err, MmCoinEnum};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::utxo::rpc_clients::UtxoRpcClientEnum;
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::utxo::utxo_common::UtxoTxBuilder;
 use crate::utxo::BlockchainNetwork;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::utxo::{sat_from_big_decimal, FeePolicy, UtxoCommonOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CoinBalance, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin,
             NegotiateSwapContractAddrErr, SwapOps, TradeFee, TradePreimageFut, TradePreimageValue, TransactionEnum,
             TransactionFut, UtxoStandardCoin, ValidateAddressResult, WithdrawError, WithdrawFut, WithdrawRequest};
@@ -15,74 +7,70 @@ use async_trait::async_trait;
 use bigdecimal::BigDecimal;
 use bitcoin::blockdata::script::Script;
 use bitcoin::hash_types::Txid;
-#[cfg(not(target_arch = "wasm32"))] use bitcoin::hashes::Hash;
-#[cfg(not(target_arch = "wasm32"))]
-use bitcoin_hashes::sha256::Hash as Sha256;
-#[cfg(not(target_arch = "wasm32"))] use chain::TransactionOutput;
-#[cfg(not(target_arch = "wasm32"))] use common::async_blocking;
-#[cfg(not(target_arch = "wasm32"))]
-use common::ip_addr::myipaddr;
-#[cfg(not(target_arch = "wasm32"))] use common::log;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::mm_number::MmNumber;
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
-#[cfg(not(target_arch = "wasm32"))] use keys::AddressHashEnum;
 use lightning::chain::channelmonitor::Balance;
 use lightning::chain::keysinterface::KeysInterface;
 use lightning::chain::keysinterface::KeysManager;
 use lightning::chain::WatchedOutput;
 use lightning::ln::channelmanager::ChannelDetails;
-#[cfg(not(target_arch = "wasm32"))]
-use lightning::ln::channelmanager::MIN_FINAL_CLTV_EXPIRY;
 use lightning::ln::{PaymentHash, PaymentPreimage, PaymentSecret};
-#[cfg(not(target_arch = "wasm32"))]
-use lightning::util::config::UserConfig;
-#[cfg(not(target_arch = "wasm32"))]
-use lightning_background_processor::BackgroundProcessor;
-#[cfg(not(target_arch = "wasm32"))]
-use lightning_invoice::utils::create_invoice_from_channelmanager;
-#[cfg(not(target_arch = "wasm32"))]
-use lightning_invoice::Invoice;
 use ln_conf::{ChannelOptions, LightningCoinConf, PlatformCoinConfirmations};
-#[cfg(not(target_arch = "wasm32"))]
-use ln_connections::{connect_to_node, ConnectToNodeRes};
 use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelError, CloseChannelResult,
                 ConnectToNodeError, ConnectToNodeResult, EnableLightningError, EnableLightningResult,
                 GenerateInvoiceError, GenerateInvoiceResult, GetChannelDetailsError, GetChannelDetailsResult,
                 GetPaymentDetailsError, GetPaymentDetailsResult, ListChannelsError, ListChannelsResult,
                 ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult, SendPaymentError,
                 SendPaymentResult};
-#[cfg(not(target_arch = "wasm32"))]
-use ln_events::LightningEventHandler;
-#[cfg(not(target_arch = "wasm32"))]
-use ln_storage::{nodes_data_backup_path, nodes_data_path, parse_node_info, read_nodes_addresses_from_file,
-                 write_nodes_addresses_to_file};
-#[cfg(not(target_arch = "wasm32"))]
-use ln_utils::{ChainMonitor, ChannelManager, InvoicePayer, PeerManager};
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::Bytes as BytesJson;
-#[cfg(not(target_arch = "wasm32"))] use script::Builder;
 use script::TransactionInputSigner;
 use secp256k1::PublicKey;
 use serde_json::Value as Json;
-#[cfg(not(target_arch = "wasm32"))]
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-#[cfg(not(target_arch = "wasm32"))] use std::convert::TryInto;
 use std::fmt;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
 pub mod ln_conf;
-#[cfg(not(target_arch = "wasm32"))] mod ln_connections;
 pub mod ln_errors;
-#[cfg(not(target_arch = "wasm32"))] mod ln_events;
 mod ln_rpc;
-#[cfg(not(target_arch = "wasm32"))] mod ln_storage;
 pub mod ln_utils;
+
+cfg_native! {
+    use super::{lp_coinfind_or_err, MmCoinEnum};
+    use crate::utxo::rpc_clients::UtxoRpcClientEnum;
+    use crate::utxo::utxo_common::UtxoTxBuilder;
+    use crate::utxo::{sat_from_big_decimal, FeePolicy, UtxoCommonOps, UtxoTxGenerationOps};
+    use bitcoin::hashes::Hash;
+    use bitcoin_hashes::sha256::Hash as Sha256;
+    use chain::TransactionOutput;
+    use common::async_blocking;
+    use common::ip_addr::myipaddr;
+    use common::log;
+    use keys::AddressHashEnum;
+    use lightning::ln::channelmanager::MIN_FINAL_CLTV_EXPIRY;
+    use lightning::util::config::UserConfig;
+    use lightning_background_processor::BackgroundProcessor;
+    use lightning_invoice::utils::create_invoice_from_channelmanager;
+    use lightning_invoice::Invoice;
+    use ln_connections::{connect_to_node, ConnectToNodeRes};
+    use ln_events::LightningEventHandler;
+    use ln_storage::{nodes_data_backup_path, nodes_data_path, parse_node_info, read_nodes_addresses_from_file,
+                     write_nodes_addresses_to_file};
+    use ln_utils::{ChainMonitor, ChannelManager, InvoicePayer, PeerManager};
+    use script::Builder;
+    use std::collections::hash_map::Entry;
+    use std::convert::TryInto;
+
+    mod ln_connections;
+    mod ln_events;
+    mod ln_storage;
+}
 
 pub struct PlatformFields {
     pub platform_coin: UtxoStandardCoin,
@@ -121,12 +109,10 @@ impl PlatformFields {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum HTLCStatus {
-    #[serde(rename = "pending")]
     Pending,
-    #[serde(rename = "succeeded")]
     Succeeded,
-    #[serde(rename = "failed")]
     Failed,
 }
 

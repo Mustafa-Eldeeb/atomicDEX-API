@@ -1,35 +1,30 @@
-#[cfg(not(target_arch = "wasm32"))] use super::*;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::utxo::rpc_clients::BlockHashOrHeight;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::utxo::rpc_clients::EstimateFeeMethod;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::utxo::rpc_clients::{ElectrumClient, UtxoRpcClientEnum};
 use crate::utxo::utxo_standard::UtxoStandardCoin;
 use crate::MarketCoinOps;
-#[cfg(not(target_arch = "wasm32"))] use crate::MmCoin;
-#[cfg(not(target_arch = "wasm32"))]
-use bitcoin::blockdata::block::BlockHeader;
-#[cfg(not(target_arch = "wasm32"))]
-use bitcoin::blockdata::script::Script;
 use bitcoin::blockdata::transaction::Transaction;
 use bitcoin::consensus::encode;
-#[cfg(not(target_arch = "wasm32"))]
-use bitcoin::hash_types::Txid;
-#[cfg(not(target_arch = "wasm32"))] use bitcoin_hashes::Hash;
 use common::executor::spawn;
 use common::log;
-#[cfg(not(target_arch = "wasm32"))] use derive_more::Display;
 use futures::compat::Future01CompatExt;
-#[cfg(not(target_arch = "wasm32"))] use keys::hash::H256;
 use lightning::chain::chaininterface::BroadcasterInterface;
-#[cfg(not(target_arch = "wasm32"))]
-use lightning::chain::{chaininterface::{ConfirmationTarget, FeeEstimator},
-                       Filter, WatchedOutput};
-#[cfg(not(target_arch = "wasm32"))]
-use rpc::v1::types::H256 as H256Json;
-#[cfg(not(target_arch = "wasm32"))] use std::cmp;
-#[cfg(not(target_arch = "wasm32"))] use std::convert::TryFrom;
+
+cfg_native! {
+    use super::*;
+    use crate::utxo::rpc_clients::BlockHashOrHeight;
+    use crate::utxo::rpc_clients::EstimateFeeMethod;
+    use crate::utxo::rpc_clients::{ElectrumClient, UtxoRpcClientEnum};
+    use crate::MmCoin;
+    use bitcoin::blockdata::block::BlockHeader;
+    use bitcoin::blockdata::script::Script;
+    use bitcoin::hash_types::Txid;
+    use bitcoin_hashes::Hash;
+    use derive_more::Display;
+    use keys::hash::H256;
+    use lightning::chain::{chaininterface::{ConfirmationTarget, FeeEstimator},
+                           Filter, WatchedOutput};
+    use rpc::v1::types::H256 as H256Json;
+    use std::cmp;
+    use std::convert::TryFrom;
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 impl FeeEstimator for PlatformFields {
