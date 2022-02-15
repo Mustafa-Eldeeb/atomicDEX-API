@@ -1,32 +1,24 @@
+use super::*;
+use crate::utxo::rpc_clients::{BlockHashOrHeight, ElectrumClient, EstimateFeeMethod, UtxoRpcClientEnum};
 use crate::utxo::utxo_standard::UtxoStandardCoin;
-use crate::MarketCoinOps;
+use crate::{MarketCoinOps, MmCoin};
+use bitcoin::blockdata::block::BlockHeader;
+use bitcoin::blockdata::script::Script;
 use bitcoin::blockdata::transaction::Transaction;
 use bitcoin::consensus::encode;
+use bitcoin::hash_types::Txid;
+use bitcoin_hashes::Hash;
 use common::executor::spawn;
 use common::log;
+use derive_more::Display;
 use futures::compat::Future01CompatExt;
-use lightning::chain::chaininterface::BroadcasterInterface;
+use keys::hash::H256;
+use lightning::chain::{chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator},
+                       Filter, WatchedOutput};
+use rpc::v1::types::H256 as H256Json;
+use std::cmp;
+use std::convert::TryFrom;
 
-cfg_native! {
-    use super::*;
-    use crate::utxo::rpc_clients::BlockHashOrHeight;
-    use crate::utxo::rpc_clients::EstimateFeeMethod;
-    use crate::utxo::rpc_clients::{ElectrumClient, UtxoRpcClientEnum};
-    use crate::MmCoin;
-    use bitcoin::blockdata::block::BlockHeader;
-    use bitcoin::blockdata::script::Script;
-    use bitcoin::hash_types::Txid;
-    use bitcoin_hashes::Hash;
-    use derive_more::Display;
-    use keys::hash::H256;
-    use lightning::chain::{chaininterface::{ConfirmationTarget, FeeEstimator},
-                           Filter, WatchedOutput};
-    use rpc::v1::types::H256 as H256Json;
-    use std::cmp;
-    use std::convert::TryFrom;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl FeeEstimator for PlatformFields {
     // Gets estimated satoshis of fee required per 1000 Weight-Units.
     fn get_est_sat_per_1000_weight(&self, confirmation_target: ConfirmationTarget) -> u32 {
@@ -78,7 +70,6 @@ impl BroadcasterInterface for UtxoStandardCoin {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Display)]
 pub enum FindWatchedOutputSpendError {
     #[display(fmt = "Can't convert transaction: {}", _0)]
@@ -87,7 +78,6 @@ pub enum FindWatchedOutputSpendError {
     BlockHeaderDeserializeErr(String),
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub async fn find_watched_output_spend_with_header(
     electrum_client: &ElectrumClient,
     output: &WatchedOutput,
@@ -125,7 +115,6 @@ pub async fn find_watched_output_spend_with_header(
     Ok(None)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl Filter for PlatformFields {
     // Watches for this transaction on-chain
     fn register_tx(&self, txid: &Txid, script_pubkey: &Script) { self.add_tx(txid, script_pubkey); }

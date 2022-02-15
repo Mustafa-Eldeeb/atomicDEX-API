@@ -73,15 +73,12 @@ pub enum ConnectToNodeError {
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
     NoSuchCoin(String),
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
 }
 
 impl HttpStatusCode for ConnectToNodeError {
     fn status_code(&self) -> StatusCode {
         match self {
             ConnectToNodeError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
-            ConnectToNodeError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             ConnectToNodeError::ParseError(_)
             | ConnectToNodeError::IOError(_)
             | ConnectToNodeError::ConnectionError(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -121,8 +118,6 @@ pub enum OpenChannelError {
     InternalError(String),
     #[display(fmt = "I/O error {}", _0)]
     IOError(String),
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     ConnectToNodeError(String),
     #[display(fmt = "No such coin {}", _0)]
     NoSuchCoin(String),
@@ -139,7 +134,6 @@ impl HttpStatusCode for OpenChannelError {
             OpenChannelError::UnsupportedCoin(_)
             | OpenChannelError::RpcError(_)
             | OpenChannelError::PrivKeyNotAllowed(_) => StatusCode::BAD_REQUEST,
-            OpenChannelError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             OpenChannelError::FailureToOpenChannel(_, _)
             | OpenChannelError::ConnectToNodeError(_)
             | OpenChannelError::InternalError(_)
@@ -195,8 +189,6 @@ impl From<PrivKeyNotAllowed> for OpenChannelError {
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum ListChannelsError {
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     #[display(fmt = "Lightning network is not supported for {}", _0)]
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
@@ -206,7 +198,6 @@ pub enum ListChannelsError {
 impl HttpStatusCode for ListChannelsError {
     fn status_code(&self) -> StatusCode {
         match self {
-            ListChannelsError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             ListChannelsError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             ListChannelsError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
         }
@@ -224,8 +215,6 @@ impl From<CoinFindError> for ListChannelsError {
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum GetChannelDetailsError {
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     #[display(fmt = "Lightning network is not supported for {}", _0)]
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
@@ -239,7 +228,6 @@ pub enum GetChannelDetailsError {
 impl HttpStatusCode for GetChannelDetailsError {
     fn status_code(&self) -> StatusCode {
         match self {
-            GetChannelDetailsError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             GetChannelDetailsError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             GetChannelDetailsError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
             GetChannelDetailsError::DecodeError(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -259,8 +247,6 @@ impl From<CoinFindError> for GetChannelDetailsError {
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum GenerateInvoiceError {
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     #[display(fmt = "Lightning network is not supported for {}", _0)]
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
@@ -272,7 +258,6 @@ pub enum GenerateInvoiceError {
 impl HttpStatusCode for GenerateInvoiceError {
     fn status_code(&self) -> StatusCode {
         match self {
-            GenerateInvoiceError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             GenerateInvoiceError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             GenerateInvoiceError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
             GenerateInvoiceError::SignOrCreationError(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -295,8 +280,6 @@ impl From<SignOrCreationError> for GenerateInvoiceError {
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum SendPaymentError {
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     #[display(fmt = "Lightning network is not supported for {}", _0)]
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
@@ -316,7 +299,6 @@ pub enum SendPaymentError {
 impl HttpStatusCode for SendPaymentError {
     fn status_code(&self) -> StatusCode {
         match self {
-            SendPaymentError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             SendPaymentError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             SendPaymentError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
             SendPaymentError::InvalidInvoice(_)
@@ -339,8 +321,6 @@ impl From<CoinFindError> for SendPaymentError {
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum ListPaymentsError {
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     #[display(fmt = "Lightning network is not supported for {}", _0)]
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
@@ -350,7 +330,6 @@ pub enum ListPaymentsError {
 impl HttpStatusCode for ListPaymentsError {
     fn status_code(&self) -> StatusCode {
         match self {
-            ListPaymentsError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             ListPaymentsError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             ListPaymentsError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
         }
@@ -368,8 +347,6 @@ impl From<CoinFindError> for ListPaymentsError {
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum GetPaymentDetailsError {
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     #[display(fmt = "Lightning network is not supported for {}", _0)]
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
@@ -385,7 +362,6 @@ pub enum GetPaymentDetailsError {
 impl HttpStatusCode for GetPaymentDetailsError {
     fn status_code(&self) -> StatusCode {
         match self {
-            GetPaymentDetailsError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             GetPaymentDetailsError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             GetPaymentDetailsError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
             GetPaymentDetailsError::DecodeError(_) | GetPaymentDetailsError::InvalidSize(_) => {
@@ -407,8 +383,6 @@ impl From<CoinFindError> for GetPaymentDetailsError {
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum CloseChannelError {
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     #[display(fmt = "Lightning network is not supported for {}", _0)]
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
@@ -422,7 +396,6 @@ pub enum CloseChannelError {
 impl HttpStatusCode for CloseChannelError {
     fn status_code(&self) -> StatusCode {
         match self {
-            CloseChannelError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             CloseChannelError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             CloseChannelError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
             CloseChannelError::CloseChannelError(_) | CloseChannelError::DecodeError(_) => {
@@ -443,8 +416,6 @@ impl From<CoinFindError> for CloseChannelError {
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum ClaimableBalancesError {
-    #[display(fmt = "{} is only supported in {} mode", _0, _1)]
-    UnsupportedMode(String, String),
     #[display(fmt = "Lightning network is not supported for {}", _0)]
     UnsupportedCoin(String),
     #[display(fmt = "No such coin {}", _0)]
@@ -454,7 +425,6 @@ pub enum ClaimableBalancesError {
 impl HttpStatusCode for ClaimableBalancesError {
     fn status_code(&self) -> StatusCode {
         match self {
-            ClaimableBalancesError::UnsupportedMode(_, _) => StatusCode::NOT_IMPLEMENTED,
             ClaimableBalancesError::UnsupportedCoin(_) => StatusCode::BAD_REQUEST,
             ClaimableBalancesError::NoSuchCoin(_) => StatusCode::PRECONDITION_REQUIRED,
         }

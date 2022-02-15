@@ -1,61 +1,55 @@
 use super::*;
 use crate::lightning::ln_conf::{LightningCoinConf, LightningProtocolConf};
+use crate::lightning::ln_connections::{connect_to_nodes_loop, ln_p2p_loop};
+use crate::utxo::rpc_clients::{electrum_script_hash, BestBlock as RpcBestBlock, ElectrumBlockHeader, ElectrumClient,
+                               ElectrumNonce, UtxoRpcError};
 use crate::utxo::utxo_standard::UtxoStandardCoin;
+use crate::DerivationMethod;
+use bitcoin::blockdata::block::BlockHeader;
+use bitcoin::blockdata::constants::genesis_block;
+use bitcoin::blockdata::transaction::Transaction;
+use bitcoin::consensus::encode::deserialize;
+use bitcoin::hash_types::{BlockHash, TxMerkleNode, Txid};
+use bitcoin_hashes::{sha256d, Hash};
+use common::executor::{spawn, Timer};
+use common::fs::ensure_dir_is_writable;
+use common::ip_addr::fetch_external_ip;
+use common::jsonrpc_client::JsonRpcErrorType;
+use common::log;
+use common::log::LogState;
 use common::mm_ctx::MmArc;
+use futures::compat::Future01CompatExt;
+use lightning::chain::keysinterface::{InMemorySigner, KeysInterface, KeysManager};
+use lightning::chain::{chainmonitor, Access, BestBlock, Confirm, Watch};
+use lightning::ln::channelmanager;
+use lightning::ln::channelmanager::{ChainParameters, ChannelManagerReadArgs, SimpleArcChannelManager};
+use lightning::ln::msgs::NetAddress;
+use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleArcPeerManager};
+use lightning::routing::network_graph::{NetGraphMsgHandler, NetworkGraph};
+use lightning::routing::scoring::Scorer;
+use lightning::util::ser::ReadableArgs;
+use lightning_background_processor::BackgroundProcessor;
+use lightning_invoice::payment;
+use lightning_invoice::utils::DefaultRouter;
+use lightning_net_tokio::SocketDescriptor;
+use lightning_persister::FilesystemPersister;
+use parking_lot::Mutex as PaMutex;
+use rand::RngCore;
+use rpc::v1::types::H256;
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fs::File;
+use std::net::{IpAddr, Ipv4Addr};
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
+use tokio::net::TcpListener;
 
-cfg_native! {
-    use crate::DerivationMethod;
-    use crate::lightning::ln_connections::{ln_p2p_loop, connect_to_nodes_loop};
-    use crate::utxo::rpc_clients::{electrum_script_hash, BestBlock as RpcBestBlock, ElectrumBlockHeader, ElectrumClient,
-                                   ElectrumNonce, UtxoRpcError};
-    use bitcoin::blockdata::block::BlockHeader;
-    use bitcoin::blockdata::constants::genesis_block;
-    use bitcoin::blockdata::transaction::{Transaction};
-    use bitcoin::consensus::encode::deserialize;
-    use bitcoin::hash_types::{BlockHash, TxMerkleNode, Txid};
-    use bitcoin_hashes::{sha256d, Hash};
-    use common::executor::{spawn, Timer};
-    use common::fs::ensure_dir_is_writable;
-    use common::ip_addr::fetch_external_ip;
-    use common::jsonrpc_client::JsonRpcErrorType;
-    use common::log;
-    use common::log::LogState;
-    use futures::compat::Future01CompatExt;
-    use lightning::chain::keysinterface::{InMemorySigner, KeysInterface, KeysManager};
-    use lightning::chain::{chainmonitor, Access, BestBlock, Confirm, Watch};
-    use lightning::ln::channelmanager;
-    use lightning::ln::channelmanager::{ChainParameters, ChannelManagerReadArgs, SimpleArcChannelManager};
-    use lightning::ln::msgs::NetAddress;
-    use lightning::ln::peer_handler::{IgnoringMessageHandler, MessageHandler, SimpleArcPeerManager};
-    use lightning::routing::network_graph::{NetworkGraph, NetGraphMsgHandler};
-    use lightning::routing::scoring::Scorer;
-    use lightning::util::ser::ReadableArgs;
-    use lightning_background_processor::BackgroundProcessor;
-    use lightning_invoice::payment;
-    use lightning_invoice::utils::DefaultRouter;
-    use lightning_net_tokio::SocketDescriptor;
-    use lightning_persister::FilesystemPersister;
-    use parking_lot::Mutex as PaMutex;
-    use rand::RngCore;
-    use rpc::v1::types::H256;
-    use std::cmp::Ordering;
-    use std::collections::HashMap;
-    use std::convert::TryInto;
-    use std::fs::File;
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::sync::{Arc, Mutex};
-    use std::time::SystemTime;
-    use tokio::net::TcpListener;
-}
+const CHECK_FOR_NEW_BEST_BLOCK_INTERVAL: u64 = 60;
+const BROADCAST_NODE_ANNOUNCEMENT_INTERVAL: u64 = 600;
+const NETWORK_GRAPH_PERSIST_INTERVAL: u64 = 600;
+const SCORER_PERSIST_INTERVAL: u64 = 600;
 
-cfg_native! {
-    const CHECK_FOR_NEW_BEST_BLOCK_INTERVAL: u64 = 60;
-    const BROADCAST_NODE_ANNOUNCEMENT_INTERVAL: u64 = 600;
-    const NETWORK_GRAPH_PERSIST_INTERVAL: u64 = 600;
-    const SCORER_PERSIST_INTERVAL: u64 = 600;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 pub type ChainMonitor = chainmonitor::ChainMonitor<
     InMemorySigner,
     Arc<PlatformFields>,
@@ -65,10 +59,8 @@ pub type ChainMonitor = chainmonitor::ChainMonitor<
     Arc<FilesystemPersister>,
 >;
 
-#[cfg(not(target_arch = "wasm32"))]
 pub type ChannelManager = SimpleArcChannelManager<ChainMonitor, UtxoStandardCoin, PlatformFields, LogState>;
 
-#[cfg(not(target_arch = "wasm32"))]
 pub type PeerManager = SimpleArcPeerManager<
     SocketDescriptor,
     ChainMonitor,
@@ -78,14 +70,11 @@ pub type PeerManager = SimpleArcPeerManager<
     LogState,
 >;
 
-#[cfg(not(target_arch = "wasm32"))]
 pub type InvoicePayer<E> = payment::InvoicePayer<Arc<ChannelManager>, Router, Arc<Mutex<Scorer>>, Arc<LogState>, E>;
 
-#[cfg(not(target_arch = "wasm32"))]
 type Router = DefaultRouter<Arc<NetworkGraph>, Arc<LogState>>;
 
 // TODO: add TOR address option
-#[cfg(not(target_arch = "wasm32"))]
 fn netaddress_from_ipaddr(addr: IpAddr, port: u16) -> Vec<NetAddress> {
     if addr == Ipv4Addr::new(0, 0, 0, 0) || addr == Ipv4Addr::new(127, 0, 0, 1) {
         return Vec::new();
@@ -119,21 +108,6 @@ pub struct LightningParams {
     pub payment_retries: Option<usize>,
 }
 
-#[cfg(target_arch = "wasm32")]
-pub async fn start_lightning(
-    _ctx: &MmArc,
-    _platform_coin: UtxoStandardCoin,
-    _protocol_conf: LightningProtocolConf,
-    _conf: LightningCoinConf,
-    _params: LightningParams,
-) -> EnableLightningResult<LightningCoin> {
-    MmError::err(EnableLightningError::UnsupportedMode(
-        "'connect_to_lightning_node'".into(),
-        "native".into(),
-    ))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 pub async fn start_lightning(
     ctx: &MmArc,
     platform_coin: UtxoStandardCoin,
@@ -498,7 +472,6 @@ pub async fn start_lightning(
     })
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 struct ConfirmedTransactionInfo {
     txid: Txid,
     header: BlockHeader,
@@ -507,7 +480,6 @@ struct ConfirmedTransactionInfo {
     height: u32,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl ConfirmedTransactionInfo {
     fn new(txid: Txid, header: BlockHeader, index: usize, transaction: Transaction, height: u32) -> Self {
         ConfirmedTransactionInfo {
@@ -520,7 +492,6 @@ impl ConfirmedTransactionInfo {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn process_tx_for_unconfirmation<T>(txid: Txid, filter: Arc<PlatformFields>, monitor: Arc<T>)
 where
     T: Confirm,
@@ -556,7 +527,6 @@ where
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn process_txs_unconfirmations(
     filter: Arc<PlatformFields>,
     chain_monitor: Arc<ChainMonitor>,
@@ -575,7 +545,6 @@ async fn process_txs_unconfirmations(
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn get_confirmed_registered_txs(
     filter: Arc<PlatformFields>,
     client: &ElectrumClient,
@@ -668,7 +637,6 @@ async fn get_confirmed_registered_txs(
     confirmed_registered_txs
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn append_spent_registered_output_txs(
     transactions_to_confirm: &mut Vec<ConfirmedTransactionInfo>,
     filter: Arc<PlatformFields>,
@@ -715,7 +683,6 @@ async fn append_spent_registered_output_txs(
         .retain(|output| !outputs_to_remove.contains(output));
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn process_txs_confirmations(
     filter: Arc<PlatformFields>,
     client: ElectrumClient,
@@ -754,7 +721,6 @@ async fn process_txs_confirmations(
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn get_best_header(best_header_listener: &ElectrumClient) -> EnableLightningResult<ElectrumBlockHeader> {
     best_header_listener
         .blockchain_headers_subscribe()
@@ -763,7 +729,6 @@ async fn get_best_header(best_header_listener: &ElectrumClient) -> EnableLightni
         .map_to_mm(|e| EnableLightningError::RpcError(e.to_string()))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn update_best_block(
     chain_monitor: Arc<ChainMonitor>,
     channel_manager: Arc<ChannelManager>,
@@ -820,7 +785,6 @@ async fn update_best_block(
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn ln_best_block_update_loop(
     filter: Arc<PlatformFields>,
     chain_monitor: Arc<ChainMonitor>,
@@ -855,7 +819,6 @@ async fn ln_best_block_update_loop(
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn ln_node_announcement_loop(
     channel_manager: Arc<ChannelManager>,
     node_name: [u8; 32],

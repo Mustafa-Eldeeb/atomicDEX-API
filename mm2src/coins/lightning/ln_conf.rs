@@ -44,7 +44,6 @@ pub struct ChannelOptions {
 }
 
 impl ChannelOptions {
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn update(&mut self, options: ChannelOptions) {
         if let Some(fee) = options.proportional_fee_in_millionths_sats {
             self.proportional_fee_in_millionths_sats = Some(fee);

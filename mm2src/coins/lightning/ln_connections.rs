@@ -5,7 +5,6 @@ use tokio::net::TcpListener;
 
 const TRY_RECONNECTING_TO_NODE_INTERVAL: u64 = 60;
 
-#[cfg(not(target_arch = "wasm32"))]
 pub async fn ln_p2p_loop(peer_manager: Arc<PeerManager>, listener: TcpListener) {
     loop {
         let peer_mgr = peer_manager.clone();
@@ -35,7 +34,6 @@ pub enum ConnectToNodeRes {
     ConnectedSuccessfully(String, String),
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub async fn connect_to_node(
     pubkey: PublicKey,
     node_addr: SocketAddr,
@@ -84,7 +82,6 @@ pub async fn connect_to_node(
     ))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub async fn connect_to_nodes_loop(
     nodes_addresses: Arc<PaMutex<HashMap<PublicKey, SocketAddr>>>,
     peer_manager: Arc<PeerManager>,
