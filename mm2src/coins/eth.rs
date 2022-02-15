@@ -1088,16 +1088,16 @@ impl MarketCoinOps for EthCoin {
         )
     }
     
-    fn get_raw_tx(&self, mut tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
-        
-        let tx_id = try_fus!(H256Json::from_str(tx));
+    fn get_raw_tx(&self, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
+        let tx_id = try_fus!(ethereum_types::H256::from_str(tx));
         Box::new(
             self.web3
-            .eth()
-            .get_raw_transaction(tx_id)
-            .map(|res| format!("{:02x}", res))
-            .map_err(|e| ERRL!("{}", e)),
+                .eth()
+                .transaction(TransactionId::Hash(tx_id))
+                .map(|res| format!("{:02x}", res.unwrap().hash))
+                .map_err(|e| ERRL!("{}", e)),
         )
+
     }
 
     fn wait_for_confirmations(
