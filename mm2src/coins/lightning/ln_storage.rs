@@ -19,7 +19,7 @@ pub fn my_ln_data_backup_dir(path: String, ticker: &str) -> PathBuf {
 
 pub fn nodes_data_path(ctx: &MmArc, ticker: &str) -> PathBuf { my_ln_data_dir(ctx, ticker).join("channel_nodes_data") }
 
-pub fn nodes_data_backup_path(path: String, ticker: &str) -> PathBuf {
+fn nodes_data_backup_path(path: String, ticker: &str) -> PathBuf {
     my_ln_data_backup_dir(path, ticker).join("channel_nodes_data")
 }
 
@@ -79,7 +79,7 @@ pub fn read_nodes_addresses_from_file(path: &Path) -> ConnectToNodeResult<HashMa
         .collect()
 }
 
-pub fn write_nodes_addresses_to_file(
+fn write_nodes_addresses_to_file(
     path: &Path,
     nodes_addresses: HashMap<PublicKey, SocketAddr>,
 ) -> ConnectToNodeResult<()> {
@@ -94,6 +94,19 @@ pub fn write_nodes_addresses_to_file(
         .open(path)
         .map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))?;
     serde_json::to_writer(file, &nodes_addresses).map_to_mm(|e| ConnectToNodeError::IOError(e.to_string()))
+}
+
+pub fn persist_nodes_addresses(
+    ctx: &MmArc,
+    ticker: &str,
+    backup_path: Option<String>,
+    nodes_addresses: HashMap<PublicKey, SocketAddr>,
+) -> ConnectToNodeResult<()> {
+    write_nodes_addresses_to_file(&nodes_data_path(ctx, ticker), nodes_addresses.clone())?;
+    if let Some(path) = backup_path {
+        write_nodes_addresses_to_file(&nodes_data_backup_path(path, ticker), nodes_addresses)?;
+    }
+    Ok(())
 }
 
 pub fn save_network_graph_to_file(path: &Path, network_graph: &NetworkGraph) -> EnableLightningResult<()> {

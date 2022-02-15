@@ -39,8 +39,7 @@ use ln_errors::{ClaimableBalancesError, ClaimableBalancesResult, CloseChannelErr
                 ListPaymentsError, ListPaymentsResult, OpenChannelError, OpenChannelResult, SendPaymentError,
                 SendPaymentResult};
 use ln_events::LightningEventHandler;
-use ln_storage::{nodes_data_backup_path, nodes_data_path, parse_node_info, read_nodes_addresses_from_file,
-                 write_nodes_addresses_to_file};
+use ln_storage::{nodes_data_path, parse_node_info, persist_nodes_addresses, read_nodes_addresses_from_file};
 use ln_utils::{ChainMonitor, ChannelManager, InvoicePayer, PeerManager};
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::Bytes as BytesJson;
@@ -424,13 +423,7 @@ impl MarketCoinOps for LightningCoin {
     // Todo: Implement this when implementing swaps for lightning as it's is used mainly for swaps
     fn tx_enum_from_bytes(&self, _bytes: &[u8]) -> Result<TransactionEnum, String> { unimplemented!() }
 
-    // Todo: When implementing swaps for lightning, maker_coin_start_block and taker_coin_start_block
-    // will not be used. So the return type for this function should be Option<u64> if we want to avoid
-    // unnecessary calls to get current_block. It can be kept as it is and won't cause a problem but we will do
-    // unnecessary calls to electrums/daemons.
-    fn current_block(&self) -> Box<dyn Future<Item = u64, Error = String> + Send> {
-        self.platform_coin().current_block()
-    }
+    fn current_block(&self) -> Box<dyn Future<Item = u64, Error = String> + Send> { Box::new(futures01::future::ok(0)) }
 
     fn display_priv_key(&self) -> Result<String, String> { Ok(self.keys_manager.get_node_secret().to_string()) }
 
@@ -542,13 +535,12 @@ pub async fn connect_to_lightning_node(ctx: MmArc, req: ConnectToNodeRequest) ->
         let mut nodes_addresses = ln_coin.nodes_addresses.lock();
         if let Entry::Occupied(mut entry) = nodes_addresses.entry(node_pubkey) {
             entry.insert(node_addr);
-            write_nodes_addresses_to_file(&nodes_data_path(&ctx, ln_coin.ticker()), nodes_addresses.clone())?;
-            if let Some(path) = ln_coin.conf.backup_path.clone() {
-                write_nodes_addresses_to_file(
-                    &nodes_data_backup_path(path, ln_coin.ticker()),
-                    nodes_addresses.clone(),
-                )?;
-            }
+            persist_nodes_addresses(
+                &ctx,
+                ln_coin.ticker(),
+                ln_coin.conf.backup_path.clone(),
+                nodes_addresses.clone(),
+            )?;
         }
     }
 
@@ -665,10 +657,12 @@ pub async fn open_channel(ctx: MmArc, req: OpenChannelRequest) -> OpenChannelRes
     {
         let mut nodes_addresses = ln_coin.nodes_addresses.lock();
         nodes_addresses.insert(node_pubkey, node_addr);
-        write_nodes_addresses_to_file(&nodes_data_path(&ctx, ln_coin.ticker()), nodes_addresses.clone())?;
-        if let Some(path) = ln_coin.conf.backup_path.clone() {
-            write_nodes_addresses_to_file(&nodes_data_backup_path(path, ln_coin.ticker()), nodes_addresses.clone())?;
-        }
+        persist_nodes_addresses(
+            &ctx,
+            ln_coin.ticker(),
+            ln_coin.conf.backup_path.clone(),
+            nodes_addresses.clone(),
+        )?;
     }
 
     Ok(OpenChannelResponse {
