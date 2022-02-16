@@ -35,6 +35,8 @@ pub mod utxo_standard;
 pub mod utxo_withdraw;
 
 #[cfg(not(target_arch = "wasm32"))] pub mod tx_cache;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod utxo_sql_block_header_storage;
 
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
