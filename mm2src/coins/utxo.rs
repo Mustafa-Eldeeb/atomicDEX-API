@@ -29,6 +29,7 @@ mod bchd_pb;
 pub mod qtum;
 pub mod rpc_clients;
 pub mod slp;
+pub mod utxo_block_header_storage;
 pub mod utxo_common;
 pub mod utxo_standard;
 pub mod utxo_withdraw;

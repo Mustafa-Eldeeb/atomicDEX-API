@@ -2709,7 +2709,7 @@ where
         .blockchain_transaction_get_merkle(tx.hash().reversed().into(), height)
         .compat()
         .await
-        .map_to_mm(|_e| SPVError::NetworkError)?;
+        .map_to_mm(|_e| SPVError::UnknownError)?;
     let intermediate_nodes: Vec<H256> = merkle_branch
         .merkle
         .into_iter()
