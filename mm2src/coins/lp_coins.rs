@@ -53,7 +53,6 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 
 // using custom copy of try_fus as futures crate was renamed to futures01

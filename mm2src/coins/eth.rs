@@ -64,7 +64,6 @@ pub use rlp;
 mod web3_transport;
 use common::mm_number::MmNumber;
 use web3_transport::{EthFeeHistoryNamespace, Web3Transport};
-use rpc::v1::types::H256 as H256Json;
 #[cfg(test)] mod eth_tests;
 #[cfg(target_arch = "wasm32")] mod eth_wasm_tests;
 
