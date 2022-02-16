@@ -1,8 +1,7 @@
 use crate::utxo::rpc_clients::ElectrumBlockHeader;
 use async_trait::async_trait;
 use chain::BlockHeader;
-use common::{mm_ctx::MmArc, mm_error::MmError, mm_error::NotMmError, NotSame};
-use std::path::PathBuf;
+use common::{mm_error::MmError, mm_error::NotMmError, NotSame};
 
 pub trait BlockHeaderStorageError: std::fmt::Debug + NotMmError + NotSame + Send {}
 
@@ -28,18 +27,4 @@ pub trait BlockHeaderStorage: Send + Sync + 'static {
 
     /// Gets the block header by height from the selected coin's storage as hex
     async fn get_block_header_raw(&self, for_coin: &str, height: u64) -> Result<Option<String>, MmError<Self::Error>>;
-}
-
-fn block_header_storage_dir(ctx: &MmArc, ticker: &str) -> PathBuf { ctx.dbdir().join("BLOCK_HEADERS").join(ticker) }
-
-mod tests {
-    use crate::utxo::utxo_block_header_storage::block_header_storage_dir;
-    use common::mm_ctx::MmCtxBuilder;
-
-    #[test]
-    #[cfg(not(target_arch = "wasm32"))]
-    fn test_block_header_storage_dir() {
-        let ctx = MmCtxBuilder::new().into_mm_arc();
-        assert_eq!(block_header_storage_dir(&ctx, "BTC").as_os_str().is_empty(), false)
-    }
 }
