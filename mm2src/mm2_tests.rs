@@ -8297,7 +8297,51 @@ fn test_get_orderbook_with_same_orderbook_ticker() {
     .unwrap();
     assert!(rc.0.is_success(), "!orderbook {}", rc.1);
 }
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn test_get_raw_transaction() {
+    let coins = json!([
+        {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"protocol":{"type":"UTXO"}},
+    ]);
 
+    let mm = MarketMakerIt::start(
+        json!({
+            "gui": "nogui",
+            "netid": 9998,
+            "passphrase": "bob passphrase",
+            "rpc_password": "password",
+            "coins": coins,
+            "i_am_seed": true,
+        }),
+        "password".into(),
+        None,
+    )
+    .unwrap();
+    let (_dump_log, _dump_dashboard) = mm.mm_dump();
+    log!({"Log path: {}", mm.log_path.display()});
+    fn get_raw_transaction_bot_rpc(mm: &MarketMakerIt) -> (StatusCode, String, HeaderMap) {
+        block_on(mm.rpc(json!({
+                 "userpass": "$userpass",
+                 "mmrpc": "2.0",
+                 "method": "get_raw_transaction",
+                 "params":{
+                    "coin":"RICK",
+                    "tx_hash": "989360b0225b4e05fa13643e2e306c8eb5c52fa611615dfd30195089010b1c7b"
+                  },
+                  "id": 0})))
+        .unwrap()
+    }
+    let resp = get_raw_transaction_bot_rpc(&mm);
+    let v: GetRawTxResponse = serde_json::from_str(&*resp.1).unwrap();
+    println!("get raw tx {:?}",v);
+    // Must be 200
+    assert_eq!(resp.0, 200);
+
+    assert_eq!(
+        v.result.tx_hex,
+        "0400008085202f89025655b6fec358091a4a6b34107e69b10bd7660056d8f2a1e5f8eef0db6aec960100000000494830450221008c89db5e2d93d7674fe152e37344dfd24a0b1d4d382a7e0bcfc5d8190a141d72022050ce4ef929429e7e1a6c4ebd3f72a1a2aa25da1e0df65553a2c657658077ed1d01feffffff79cc137b70c39c9c7c2b9230c818ec684ffe731bf1ae821f91ba9d3e526f55f00000000049483045022100868c71f4a8e1452a3bc8b1d053a846959ab7df63fb0d147e9173f69818bbb1f3022060c7e045a34cf6af61bc3a74dc2db7b8bfa4949bc5919acceed40fc07d8706d201feffffff0240043a0000000000232102afdbba3e3c90db5f0f4064118f79cf308f926c68afd64ea7afc930975663e4c4ac201efc01000000001976a914347f2aedf63bac168c2cc4f075a2850435e20ac188ac96d3c96036dd0e000000000000000000000000"
+    )
+}
 // HOWTO
 // 1. Install Firefox.
 // 2. Install wasm-bindgen-cli: cargo install wasm-bindgen-cli

@@ -600,3 +600,14 @@ pub struct GetPublicKeyResponse {
 pub struct GetPublicKeyResult {
     pub public_key: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct GetRawTxResponse {
+    pub mmrpc: String,
+    pub result: GetRawTxResult,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct GetRawTxResult {
+    pub tx_hex: String,
+}
