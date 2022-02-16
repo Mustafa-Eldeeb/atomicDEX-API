@@ -115,7 +115,7 @@ pub type TradePreimageFut<T> = Box<dyn Future<Item = T, Error = MmError<TradePre
 pub type CoinFindResult<T> = Result<T, MmError<CoinFindError>>;
 pub type TxHistoryFut<T> = Box<dyn Future<Item = T, Error = MmError<TxHistoryError>> + Send>;
 pub type TxHistoryDbLocked<'a> = AsyncMappedMutexGuard<'a, Option<TxHistoryDb>, TxHistoryDb>;
-
+pub type GetRawTxRpcResult<T> = Result<T, MmError<GetRawTxError>>;
 pub trait Transaction: fmt::Debug + 'static {
     /// Raw transaction bytes of the transaction
     fn tx_hex(&self) -> Vec<u8>;
@@ -789,6 +789,25 @@ impl WithdrawError {
     }
 }
 
+#[derive(Serialize, Display, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
+pub enum GetRawTxError {
+    Internal(String),
+}
+
+#[derive(Serialize)]
+pub struct GetRawTxResponse {
+    tx_hex: String,
+}
+
+impl HttpStatusCode for GetRawTxError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            GetRawTxError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
 /// NB: Implementations are expected to follow the pImpl idiom, providing cheap reference-counted cloning and garbage collection.
 pub trait MmCoin: SwapOps + MarketCoinOps + fmt::Debug + Send + Sync + 'static {
     // `MmCoin` is an extension fulcrum for something that doesn't fit the `MarketCoinOps`. Practical examples:
@@ -1388,7 +1407,15 @@ pub async fn send_raw_transaction(ctx: MmArc, req: Json) -> Result<Response<Vec<
     Ok(try_s!(Response::builder().body(body)))
 }
 
-pub async fn get_raw_transaction(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
+pub async fn get_raw_transaction(ctx: MmArc, req: Json) -> GetRawTxRpcResult<GetRawTxResponse>{
+    let tx_hex = match get_raw_transaction_for_coin(ctx, req).await{
+        Ok(r) => r,
+        Err(e) => return MmError::err(GetRawTxError::Internal(e))
+       };
+    Ok(GetRawTxResponse { tx_hex })
+} 
+
+async fn get_raw_transaction_for_coin(ctx: MmArc, req: Json) -> Result<String,String>{
     let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
     let coin = match lp_coinfind(&ctx, &ticker).await {
         Ok(Some(t)) => t,
@@ -1397,9 +1424,9 @@ pub async fn get_raw_transaction(ctx: MmArc, req: Json) -> Result<Response<Vec<u
     };
     let tx_hash = try_s!(req["tx_hash"].as_str().ok_or("No 'tx_hash' field"));
     let res = try_s!(coin.get_raw_tx(tx_hash).compat().await);
-    let body = try_s!(json::to_vec(&json!({ "tx_hex": res })));
-    Ok(try_s!(Response::builder().body(body)))
+    Ok(res)
 }
+
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "state", content = "additional_info")]
