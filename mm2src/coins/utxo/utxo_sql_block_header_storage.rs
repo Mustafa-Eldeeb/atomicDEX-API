@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 const CHECK_TABLE_EXISTS_SQL: &str = "SELECT name FROM sqlite_master WHERE type='table' AND name=?1;";
 
 fn block_headers_cache_table(ticker: &str) -> String { ticker.to_owned() + "_block_headers_cache" }
+
 fn create_block_header_cache_table_sql(for_coin: &str) -> Result<String, MmError<SqlError>> {
     let table_name = block_headers_cache_table(for_coin);
     validate_table_name(&table_name)?;
@@ -32,7 +33,6 @@ fn insert_block_header_in_cache_sql(for_coin: &str) -> Result<String, MmError<Sq
 
     // We can simply ignore the repetitive attempt to insert the same block_height
     let sql = "INSERT OR IGNORE INTO ".to_owned() + &table_name + " (block_height, hex) VALUES (?1, ?2);";
-
     Ok(sql)
 }
 
@@ -101,7 +101,25 @@ impl BlockHeaderStorage for SqliteBlockHeadersStorage {
         for_coin: &str,
         headers: Vec<ElectrumBlockHeader>,
     ) -> Result<(), MmError<Self::Error>> {
-        todo!()
+        let for_coin = for_coin.to_owned();
+        let selfi = self.clone();
+        async_blocking(move || {
+            let mut conn = selfi.0.lock().unwrap();
+            let sql_transaction = conn.transaction()?;
+            for header in headers {
+                match header {
+                    ElectrumBlockHeader::V12(_) => {},
+                    ElectrumBlockHeader::V14(h) => {
+                        let block_hex = format!("{:02x}", h.hex);
+                        let block_cache_params = [&h.height.to_string(), &block_hex];
+                        sql_transaction.execute(&insert_block_header_in_cache_sql(&for_coin)?, block_cache_params)?;
+                    },
+                }
+            }
+            sql_transaction.commit()?;
+            Ok(())
+        })
+        .await
     }
 
     async fn get_block_header(&self, for_coin: &str, height: u64) -> Result<Option<BlockHeader>, MmError<Self::Error>> {
@@ -118,13 +136,21 @@ impl SqliteBlockHeadersStorage {
     pub fn in_memory() -> Self {
         SqliteBlockHeadersStorage(Arc::new(Mutex::new(Connection::open_in_memory().unwrap())))
     }
+
+    fn is_table_empty(&self, table_name: &str) -> bool {
+        validate_table_name(table_name).unwrap();
+        let sql = "SELECT COUNT(block_height) FROM ".to_owned() + table_name + ";";
+        let conn = self.0.lock().unwrap();
+        let rows_count: u32 = conn.query_row(&sql, NO_PARAMS, |row| row.get(0)).unwrap();
+        rows_count == 0
+    }
 }
 
 #[cfg(test)]
 mod sql_block_headers_storage_tests {
     use super::*;
+    use crate::utxo::rpc_clients::ElectrumBlockHeaderV14;
     use common::block_on;
-    use std::num::NonZeroUsize;
 
     #[test]
     fn test_init_collection() {
@@ -139,5 +165,24 @@ mod sql_block_headers_storage_tests {
 
         let initialized = block_on(storage.is_initialized_for(for_coin)).unwrap();
         assert!(initialized);
+    }
+
+    #[test]
+    fn test_add_block_headers() {
+        let for_coin = "insert";
+        let storage = SqliteBlockHeadersStorage::in_memory();
+        let table = block_headers_cache_table(for_coin);
+        block_on(storage.init(for_coin)).unwrap();
+
+        let initialized = block_on(storage.is_initialized_for(for_coin)).unwrap();
+        assert!(initialized);
+
+        let block_header = ElectrumBlockHeaderV14 {
+            height: 520481,
+            hex: "00000020890208a0ae3a3892aa047c5468725846577cfcd9b512b50000000000000000005dc2b02f2d297a9064ee103036c14d678f9afc7e3d9409cf53fd58b82e938e8ecbeca05a2d2103188ce804c4".into(),
+        }.into();
+        let headers = vec![ElectrumBlockHeader::V14(block_header)];
+        block_on(storage.add_block_headers_to_storage(for_coin, headers)).unwrap();
+        assert!(!storage.is_table_empty(&table));
     }
 }
