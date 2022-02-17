@@ -92,6 +92,16 @@ async fn enable_native(mm: &MarketMakerIt, coin: &str, urls: &[&str]) -> EnableE
     json::from_value(value).unwrap()
 }
 
+async fn enable_coins_rick_morty_electrum(mm: &MarketMakerIt) -> HashMap<&'static str, EnableElectrumResponse> {
+    let mut replies = HashMap::new();
+    replies.insert("RICK", enable_electrum_json(mm, "RICK", false, rick_electrums()).await);
+    replies.insert(
+        "MORTY",
+        enable_electrum_json(mm, "MORTY", false, morty_electrums()).await,
+    );
+    replies
+}
+
 async fn enable_coins_eth_electrum(
     mm: &MarketMakerIt,
     eth_urls: &[&str],
@@ -8319,4 +8329,86 @@ fn test_get_orderbook_with_same_orderbook_ticker() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!orderbook {}", rc.1);
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn test_conf_settings_in_orderbook() {
+    let coins = json!([
+        {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"overwintered":1,"required_confirmations":10,"requires_notarization":true,"protocol":{"type":"UTXO"}},
+        {"coin":"MORTY","asset":"MORTY","rpcport":11608,"txversion":4,"overwintered":1,"required_confirmations":5,"requires_notarization":false,"protocol":{"type":"UTXO"}},
+    ]);
+
+    let mm_bob = MarketMakerIt::start(
+        json!({
+            "gui": "nogui",
+            "netid": 9998,
+            "passphrase": "bob passphrase",
+            "rpc_password": "password",
+            "coins": coins,
+            "i_am_seed": true,
+        }),
+        "password".into(),
+        None,
+    )
+    .unwrap();
+    let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
+    log!({"Log path: {}", mm_bob.log_path.display()});
+
+    log! ({"enable_coins (bob): {:?}", block_on (enable_coins_rick_morty_electrum(&mm_bob))});
+
+    log!("Issue sell request on Bob side");
+    let rc = block_on(mm_bob.rpc(json! ({
+        "userpass": mm_bob.userpass,
+        "method": "setprice",
+        "base": "RICK",
+        "rel": "MORTY",
+        "price": 0.9,
+        "volume": "0.9",
+    })))
+    .unwrap();
+    assert!(rc.0.is_success(), "!setprice: {}", rc.1);
+
+    let mm_alice = MarketMakerIt::start(
+        json!({
+            "gui": "nogui",
+            "netid": 9998,
+            "passphrase": "alice passphrase",
+            "rpc_password": "password",
+            "coins": coins,
+            "seednodes": [fomat!((mm_bob.ip))],
+        }),
+        "password".into(),
+        None,
+    )
+    .unwrap();
+    let (_dump_log, _dump_dashboard) = mm_alice.mm_dump();
+    log!({"Log path: {}", mm_alice.log_path.display()});
+
+    log! ({"enable_coins (alice): {:?}", block_on (enable_coins_rick_morty_electrum(&mm_alice))});
+
+    log!("Get RICK/MORTY orderbook on Alice side");
+    let rc = block_on(mm_alice.rpc(json! ({
+        "userpass": mm_alice.userpass,
+        "method": "orderbook",
+        "base": "RICK",
+        "rel": "MORTY",
+    })))
+    .unwrap();
+    assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
+
+    let alice_orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
+    log!("Alice orderbook "[alice_orderbook]);
+    assert_eq!(
+        alice_orderbook.asks.len(),
+        1,
+        "Alice RICK/MORTY orderbook must have exactly 1 ask"
+    );
+    assert_eq!(alice_orderbook.asks[0].base_confs, 10);
+    assert_eq!(alice_orderbook.asks[0].base_nota, true);
+    assert_eq!(alice_orderbook.asks[0].rel_confs, 5);
+    assert_eq!(alice_orderbook.asks[0].rel_nota, false);
+
+    block_on(mm_bob.stop()).unwrap();
+    block_on(mm_alice.stop()).unwrap();
 }

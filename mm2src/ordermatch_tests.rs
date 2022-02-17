@@ -1708,7 +1708,13 @@ fn test_process_get_orderbook_request() {
         let mut actual: Vec<OrderbookItem> = item
             .orders
             .iter()
-            .map(|(_uuid, order)| OrderbookItem::from_p2p_and_proto_info(order.clone(), BaseRelProtocolInfo::default()))
+            .map(|(_uuid, order)| {
+                OrderbookItem::from_p2p_and_info(
+                    order.clone(),
+                    BaseRelProtocolInfo::default(),
+                    Some(OrderConfirmationsSettings::default()),
+                )
+            })
             .collect();
         actual.sort_unstable_by(|x, y| x.uuid.cmp(&y.uuid));
         log!([pubkey]"-"[actual.len()]);
@@ -1802,6 +1808,7 @@ fn test_request_and_fill_orderbook() {
         assert_eq!(actual, expected_request);
 
         let result = orders
+            .clone()
             .into_iter()
             .map(|(pubkey, orders)| {
                 let item = GetOrderbookPubkeyItem {
@@ -1812,9 +1819,18 @@ fn test_request_and_fill_orderbook() {
                 (pubkey, item)
             })
             .collect();
+        let mut conf_infos = HashMap::new();
+        for (_, pubkey_orders) in orders {
+            for (uuid, order) in pubkey_orders {
+                if let Some(conf_settings) = order.conf_settings {
+                    conf_infos.insert(uuid, conf_settings);
+                }
+            }
+        }
         let orderbook = GetOrderbookRes {
             pubkey_orders: result,
             protocol_infos: HashMap::new(),
+            conf_infos,
         };
         let encoded = encode_message(&orderbook).unwrap();
 
@@ -2270,7 +2286,7 @@ fn test_process_sync_pubkey_orderbook_state_after_new_orders_added() {
             (
                 *uuid.as_bytes(),
                 order.map(|o| {
-                    let o = OrderbookItem::from_p2p_and_proto_info(o, BaseRelProtocolInfo::default());
+                    let o = OrderbookItem::from_p2p_and_info(o, BaseRelProtocolInfo::default(), None);
                     o.trie_state_bytes()
                 }),
             )
@@ -2708,6 +2724,7 @@ fn test_orderbook_sync_trie_diff_time_cache() {
             .map(|(uuid, order)| (uuid, order.into()))
             .collect(),
         &HashMap::new(),
+        &HashMap::new(),
     );
 
     assert_eq!(new_alice_root, *bob_root);
@@ -2755,6 +2772,7 @@ fn test_orderbook_sync_trie_diff_time_cache() {
             .into_iter()
             .map(|(uuid, order)| (uuid, order.map(From::from)))
             .collect(),
+        &HashMap::new(),
         &HashMap::new(),
     );
     assert_eq!(new_alice_root, *bob_root);
@@ -2881,6 +2899,12 @@ fn test_trie_state_bytes() {
         created_at,
         base_protocol_info: vec![1, 2, 3],
         rel_protocol_info: vec![4, 5, 6],
+        conf_settings: Some(OrderConfirmationsSettings {
+            base_confs: 6,
+            base_nota: false,
+            rel_confs: 3,
+            rel_nota: true,
+        }),
     };
 
     let new_bytes = new.trie_state_bytes();
@@ -2939,25 +2963,72 @@ fn check_get_orderbook_p2p_res_serde() {
     let item = GetOrderbookPubkeyItemV1 {
         last_keep_alive: 100,
         last_signed_pubkey_payload: vec![1, 2, 3],
-        orders: orders.into_iter().map(|order| (order.uuid, order.into())).collect(),
+        orders: orders
+            .clone()
+            .into_iter()
+            .map(|order| (order.uuid, order.into()))
+            .collect(),
     };
 
-    let old = GetOrderbookResV1 {
+    let v1 = GetOrderbookResV1 {
         pubkey_orders: HashMap::from_iter(std::iter::once(("pubkey".into(), item))),
     };
 
-    let old_serialized = rmp_serde::to_vec(&old).unwrap();
+    let v1_serialized = rmp_serde::to_vec(&v1).unwrap();
 
-    let mut new: GetOrderbookRes = rmp_serde::from_read_ref(&old_serialized).unwrap();
+    let mut new: GetOrderbookRes = rmp_serde::from_read_ref(&v1_serialized).unwrap();
     new.protocol_infos.insert(Uuid::new_v4(), BaseRelProtocolInfo {
         base: vec![1],
         rel: vec![2],
     });
+    new.conf_infos.insert(Uuid::new_v4(), OrderConfirmationsSettings {
+        base_confs: 6,
+        base_nota: false,
+        rel_confs: 3,
+        rel_nota: true,
+    });
 
     let new_serialized = rmp_serde::to_vec(&new).unwrap();
 
-    let old_from_new: GetOrderbookResV1 = rmp_serde::from_read_ref(&new_serialized).unwrap();
-    assert_eq!(old, old_from_new);
+    let v1_from_new: GetOrderbookResV1 = rmp_serde::from_read_ref(&new_serialized).unwrap();
+    assert_eq!(v1, v1_from_new);
+
+    #[derive(Debug, Deserialize, PartialEq, Serialize)]
+    struct GetOrderbookResV2 {
+        /// Asks and bids grouped by pubkey.
+        pubkey_orders: HashMap<String, GetOrderbookPubkeyItem>,
+        #[serde(default)]
+        protocol_infos: HashMap<Uuid, BaseRelProtocolInfo>,
+    }
+
+    let item = GetOrderbookPubkeyItem {
+        last_keep_alive: 100,
+        last_signed_pubkey_payload: vec![1, 2, 3],
+        orders: orders.into_iter().map(|order| (order.uuid, order.into())).collect(),
+    };
+
+    let v2 = GetOrderbookResV2 {
+        pubkey_orders: HashMap::from_iter(std::iter::once(("pubkey".into(), item))),
+        protocol_infos: HashMap::from_iter(std::iter::once((Uuid::new_v4(), BaseRelProtocolInfo {
+            base: vec![1],
+            rel: vec![2],
+        }))),
+    };
+
+    let v2_serialized = rmp_serde::to_vec(&v2).unwrap();
+
+    let mut new: GetOrderbookRes = rmp_serde::from_read_ref(&v2_serialized).unwrap();
+    new.conf_infos.insert(Uuid::new_v4(), OrderConfirmationsSettings {
+        base_confs: 6,
+        base_nota: false,
+        rel_confs: 3,
+        rel_nota: true,
+    });
+
+    let new_serialized = rmp_serde::to_vec(&new).unwrap();
+
+    let v2_from_new: GetOrderbookResV2 = rmp_serde::from_read_ref(&new_serialized).unwrap();
+    assert_eq!(v2, v2_from_new);
 }
 
 #[test]
@@ -2998,23 +3069,70 @@ fn check_sync_pubkey_state_p2p_res_serde() {
 
     let orders = make_random_orders("".into(), &[1; 32], "RICK".into(), "MORTY".into(), 10);
 
-    let old = SyncPubkeyOrderbookStateResV1 {
+    let v1 = SyncPubkeyOrderbookStateResV1 {
+        last_signed_pubkey_payload: vec![1, 2, 3, 4],
+        pair_orders_diff: HashMap::from_iter(iter::once((
+            alb_ordered_pair("RICK", "MORTY"),
+            DeltaOrFullTrie::FullTrie(
+                orders
+                    .clone()
+                    .into_iter()
+                    .map(|order| (order.uuid, order.into()))
+                    .collect(),
+            ),
+        ))),
+    };
+
+    let v1_serialized = rmp_serde::to_vec(&v1).unwrap();
+
+    let mut new: SyncPubkeyOrderbookStateRes = rmp_serde::from_read_ref(&v1_serialized).unwrap();
+    new.protocol_infos.insert(Uuid::new_v4(), BaseRelProtocolInfo {
+        base: vec![1],
+        rel: vec![2],
+    });
+    new.conf_infos.insert(Uuid::new_v4(), OrderConfirmationsSettings {
+        base_confs: 6,
+        base_nota: false,
+        rel_confs: 3,
+        rel_nota: true,
+    });
+
+    let new_serialized = rmp_serde::to_vec(&new).unwrap();
+
+    let _v1_from_new: SyncPubkeyOrderbookStateResV1 = rmp_serde::from_read_ref(&new_serialized).unwrap();
+
+    #[derive(Debug, Deserialize, Serialize)]
+    struct SyncPubkeyOrderbookStateResV2 {
+        /// last signed OrdermatchMessage payload from pubkey
+        last_signed_pubkey_payload: Vec<u8>,
+        pair_orders_diff: HashMap<AlbOrderedOrderbookPair, DeltaOrFullTrie<Uuid, OrderbookP2PItem>>,
+        #[serde(default)]
+        protocol_infos: HashMap<Uuid, BaseRelProtocolInfo>,
+    }
+
+    let v2 = SyncPubkeyOrderbookStateResV2 {
         last_signed_pubkey_payload: vec![1, 2, 3, 4],
         pair_orders_diff: HashMap::from_iter(iter::once((
             alb_ordered_pair("RICK", "MORTY"),
             DeltaOrFullTrie::FullTrie(orders.into_iter().map(|order| (order.uuid, order.into())).collect()),
         ))),
+        protocol_infos: HashMap::from_iter(std::iter::once((Uuid::new_v4(), BaseRelProtocolInfo {
+            base: vec![1],
+            rel: vec![2],
+        }))),
     };
 
-    let old_serialized = rmp_serde::to_vec(&old).unwrap();
+    let v2_serialized = rmp_serde::to_vec(&v2).unwrap();
 
-    let mut new: SyncPubkeyOrderbookStateRes = rmp_serde::from_read_ref(&old_serialized).unwrap();
-    new.protocol_infos.insert(Uuid::new_v4(), BaseRelProtocolInfo {
-        base: vec![1],
-        rel: vec![2],
+    let mut new: SyncPubkeyOrderbookStateRes = rmp_serde::from_read_ref(&v2_serialized).unwrap();
+    new.conf_infos.insert(Uuid::new_v4(), OrderConfirmationsSettings {
+        base_confs: 6,
+        base_nota: false,
+        rel_confs: 3,
+        rel_nota: true,
     });
 
     let new_serialized = rmp_serde::to_vec(&new).unwrap();
 
-    let _old_from_new: SyncPubkeyOrderbookStateResV1 = rmp_serde::from_read_ref(&new_serialized).unwrap();
+    let _v2_from_new: SyncPubkeyOrderbookStateResV2 = rmp_serde::from_read_ref(&new_serialized).unwrap();
 }

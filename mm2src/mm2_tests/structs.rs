@@ -328,6 +328,10 @@ pub struct OrderbookEntryAggregate {
     pub rel_max_volume_aggr: BigDecimal,
     pub rel_max_volume_aggr_rat: BigRational,
     pub rel_max_volume_aggr_fraction: Fraction,
+    pub base_confs: u64,
+    pub base_nota: bool,
+    pub rel_confs: u64,
+    pub rel_nota: bool,
 }
 
 #[derive(Deserialize)]
