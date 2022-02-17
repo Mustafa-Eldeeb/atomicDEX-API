@@ -1,11 +1,11 @@
 use crate::hd_wallet::{AddressDerivingError, HDWalletCoinOps, InvalidBip44ChainError};
-use crate::{lp_coinfind_or_err, BalanceError, BalanceResult, Bip44Chain, CoinBalance, CoinFindError,
-            CoinWithDerivationMethod, DerivationMethod, MarketCoinOps, MmCoinEnum};
+use crate::{lp_coinfind_or_err, BalanceError, BalanceResult, CoinBalance, CoinFindError, CoinWithDerivationMethod,
+            DerivationMethod, MarketCoinOps, MmCoinEnum};
 use async_trait::async_trait;
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::{HttpStatusCode, PagingOptionsEnum};
-use crypto::RpcDerivationPath;
+use crypto::{Bip44Chain, RpcDerivationPath};
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use http::StatusCode;
@@ -377,6 +377,7 @@ pub mod common_impl {
             let HDAddress {
                 address,
                 derivation_path,
+                ..
             } = coin.derive_address(&hd_account, chain, address_id)?;
             let balance = coin.known_address_balance(&address).await?;
 

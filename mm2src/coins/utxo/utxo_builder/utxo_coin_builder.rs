@@ -4,8 +4,8 @@ use crate::utxo::rpc_clients::{ElectrumClient, ElectrumClientImpl, ElectrumRpcRe
                                UtxoRpcClientEnum};
 use crate::utxo::utxo_builder::utxo_conf_builder::{UtxoConfBuilder, UtxoConfError, UtxoConfResult};
 use crate::utxo::{output_script, utxo_common, ElectrumBuilderArgs, ElectrumProtoVerifier, RecentlySpentOutPoints,
-                  TxFee, UtxoCoinConf, UtxoCoinFields, UtxoHDAccount, UtxoHDWallet, UtxoRpcMode, BIP44_PURPOSE,
-                  DEFAULT_GAP_LIMIT, UTXO_DUST_AMOUNT};
+                  TxFee, UtxoCoinConf, UtxoCoinFields, UtxoHDAccount, UtxoHDWallet, UtxoRpcMode, DEFAULT_GAP_LIMIT,
+                  UTXO_DUST_AMOUNT};
 use crate::{BlockchainNetwork, CoinTransportMetrics, DerivationMethod, HistorySyncState, PrivKeyBuildPolicy,
             PrivKeyPolicy, RpcClientType, UtxoActivationParams};
 use async_trait::async_trait;
@@ -15,7 +15,8 @@ use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use common::small_rng;
 use crypto::trezor::TrezorError;
-use crypto::{ChildNumber, CryptoInitError, DerivationPath, HwError, Secp256k1ExtendedPublicKey};
+use crypto::{Bip32DerPathError, Bip32DerPathOps, Bip44DerPathError, Bip44PathToCoin, ChildNumber, CryptoInitError,
+             DerivationPath, HwError, Secp256k1ExtendedPublicKey};
 use derive_more::Display;
 use futures::channel::mpsc;
 use futures::compat::Future01CompatExt;
@@ -27,7 +28,6 @@ pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, Key
 use primitives::hash::H256;
 use rand::seq::SliceRandom;
 use serde_json::{self as json, Value as Json};
-use std::str::FromStr;
 use std::sync::{Arc, Mutex, Weak};
 
 cfg_native! {
@@ -106,6 +106,10 @@ impl From<HDExtractPubkeyError> for UtxoCoinBuildError {
             HDExtractPubkeyError::Internal(internal) => UtxoCoinBuildError::Internal(internal),
         }
     }
+}
+
+impl From<Bip32DerPathError> for UtxoCoinBuildError {
+    fn from(e: Bip32DerPathError) -> Self { UtxoCoinBuildError::Internal(Bip44DerPathError::from(e).to_string()) }
 }
 
 #[async_trait]
@@ -254,21 +258,21 @@ where
         &self,
         xpub_extractor: &XPubExtractor,
         conf: &UtxoCoinConf,
-        mut derivation_path: DerivationPath,
+        derivation_path: Bip44PathToCoin,
     ) -> UtxoCoinBuildResult<HDAccountsMap<UtxoHDAccount>> {
         let initial_account_id = 0;
         let account_child_hardened = true;
         let account_child =
             ChildNumber::new(initial_account_id, account_child_hardened).expect("'initial_account_id' < HARDENED_FLAG");
-        derivation_path.push(account_child);
+        let account_derivation_path = derivation_path.derive(account_child)?;
         let extended_pubkey = self
-            .extract_hd_account_pubkey(conf, xpub_extractor, derivation_path.clone())
+            .extract_hd_account_pubkey(conf, xpub_extractor, derivation_path.to_derivation_path())
             .await?;
 
         let hd_account = UtxoHDAccount {
             account_id: initial_account_id,
             extended_pubkey,
-            account_derivation_path: derivation_path,
+            account_derivation_path,
             // We don't know how many addresses are used by the user at this moment.
             external_addresses_number: 0,
             internal_addresses_number: 0,
@@ -278,26 +282,12 @@ where
         Ok(accounts)
     }
 
-    fn derivation_path(&self) -> UtxoConfResult<DerivationPath> {
+    fn derivation_path(&self) -> UtxoConfResult<Bip44PathToCoin> {
         if self.conf()["derivation_path"].is_null() {
             return MmError::err(UtxoConfError::DerivationPathIsNotSet);
         }
-        let derivation_path: String = json::from_value(self.conf()["derivation_path"].clone())
-            .map_to_mm(|e| UtxoConfError::ErrorDeserializingDerivationPath(e.to_string()))?;
-        let derivation_path = DerivationPath::from_str(&derivation_path)?;
-        if derivation_path.len() != 2 {
-            return MmError::err(UtxoConfError::InvalidDerivationPathLen {
-                found_children: derivation_path.len(),
-            });
-        }
-
-        let bip44_purpose = ChildNumber::from(BIP44_PURPOSE);
-        match derivation_path.iter().next() {
-            Some(purpose) if purpose == bip44_purpose => (),
-            Some(purpose) => return MmError::err(UtxoConfError::InvalidDerivationPathPurpose { found: purpose }),
-            None => return MmError::err(UtxoConfError::InvalidDerivationPathLen { found_children: 0 }),
-        }
-        Ok(derivation_path)
+        json::from_value(self.conf()["derivation_path"].clone())
+            .map_to_mm(|e| UtxoConfError::ErrorDeserializingDerivationPath(e.to_string()))
     }
 
     fn gap_limit(&self) -> u32 { self.activation_params().gap_limit.unwrap_or(DEFAULT_GAP_LIMIT) }

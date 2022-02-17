@@ -50,7 +50,8 @@ use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsArc;
 use common::now_ms;
 use crypto::trezor::utxo::TrezorUtxoCoin;
-use crypto::{ChildNumber, DerivationPath, Secp256k1ExtendedPublicKey};
+use crypto::{Bip32DerPathOps, Bip44Chain, Bip44PathToAccount, Bip44PathToCoin, ChildNumber, DerivationPath,
+             Secp256k1ExtendedPublicKey};
 use derive_more::Display;
 #[cfg(not(target_arch = "wasm32"))] use dirs::home_dir;
 use futures::channel::mpsc;
@@ -85,12 +86,11 @@ use utxo_signer::{TxProvider, TxProviderError, UtxoSignTxError, UtxoSignTxResult
 
 use self::rpc_clients::{electrum_script_hash, ElectrumClient, ElectrumRpcRequest, EstimateFeeMethod, EstimateFeeMode,
                         NativeClient, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut, UtxoRpcResult};
-use super::{BalanceError, BalanceFut, BalanceResult, Bip44Chain, CoinsContext, DerivationMethod,
-            DerivationMethodNotSupported, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails,
-            MarketCoinOps, MmCoin, NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy,
-            RpcTransportEventHandler, RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut,
-            TradePreimageResult, Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError,
-            WithdrawRequest};
+use super::{BalanceError, BalanceFut, BalanceResult, CoinsContext, DerivationMethod, DerivationMethodNotSupported,
+            FeeApproxStage, FoundSwapTxSpend, HistorySyncState, KmdRewardsDetails, MarketCoinOps, MmCoin,
+            NumConversError, NumConversResult, PrivKeyNotAllowed, PrivKeyPolicy, RpcTransportEventHandler,
+            RpcTransportEventHandlerShared, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
+            Transaction, TransactionDetails, TransactionEnum, TransactionFut, WithdrawError, WithdrawRequest};
 use crate::coin_balance::HDAddressBalanceChecker;
 use crate::hd_wallet::{HDAccountOps, HDAccountsMutex, HDAddress, HDWalletCoinOps, HDWalletOps, InvalidBip44ChainError};
 
@@ -110,8 +110,6 @@ const UTXO_DUST_AMOUNT: u64 = 1000;
 /// 11 > 0
 const KMD_MTP_BLOCK_COUNT: NonZeroU64 = unsafe { NonZeroU64::new_unchecked(11u64) };
 const DEFAULT_DYNAMIC_FEE_VOLATILITY_PERCENT: f64 = 0.5;
-/// BIP44 purpose is always hardened.
-const BIP44_PURPOSE: u32 = 44 | ChildNumber::HARDENED_FLAG;
 const DEFAULT_GAP_LIMIT: u32 = 20;
 
 pub type GenerateTxResult = Result<(TransactionInputSigner, AdditionalTxData), MmError<GenerateTxError>>;
@@ -1109,10 +1107,10 @@ impl Default for ElectrumBuilderArgs {
 pub struct UtxoHDWallet {
     pub address_format: UtxoAddressFormat,
     /// Derivation path of the coin.
-    /// This derivation path is expected to consist of `purpose` and `coin_type` only
+    /// This derivation path consists of `purpose` and `coin_type` only
     /// where the full `BIP44` address has the following structure:
     /// `m/purpose'/coin_type'/account'/change/address_index`.
-    pub derivation_path: DerivationPath,
+    pub derivation_path: Bip44PathToCoin,
     /// User accounts.
     pub accounts: HDAccountsMutex<UtxoHDAccount>,
     pub gap_limit: u32,
@@ -1120,6 +1118,8 @@ pub struct UtxoHDWallet {
 
 impl HDWalletOps for UtxoHDWallet {
     type HDAccount = UtxoHDAccount;
+
+    fn coin_type(&self) -> u32 { self.derivation_path.coin_type() }
 
     fn gap_limit(&self) -> u32 { self.gap_limit }
 
@@ -1133,7 +1133,7 @@ pub struct UtxoHDAccount {
     /// `m/purpose'/coin_type'/account'`.
     pub extended_pubkey: Secp256k1ExtendedPublicKey,
     /// [`UtxoHDWallet::derivation_path`] derived by [`UtxoHDAccount::account_id`].
-    pub account_derivation_path: DerivationPath,
+    pub account_derivation_path: Bip44PathToAccount,
     /// The number of addresses that we know have been used by the user.
     /// This is used in order not to check the transaction history for each address,
     /// but to request the balance of addresses whose index is less than `address_number`.
@@ -1156,7 +1156,7 @@ impl HDAccountOps for UtxoHDAccount {
         }
     }
 
-    fn account_derivation_path(&self) -> DerivationPath { self.account_derivation_path.clone() }
+    fn account_derivation_path(&self) -> DerivationPath { self.account_derivation_path.to_derivation_path() }
 
     fn account_id(&self) -> u32 { self.account_id }
 }

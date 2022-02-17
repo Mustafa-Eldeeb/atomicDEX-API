@@ -8,11 +8,13 @@ use crate::hd_wallet::{self, AddressDerivingError, GetNewHDAddressParams, GetNew
 use crate::init_create_account::{self, CreateNewAccountParams, InitCreateHDAccountRpcOps};
 use crate::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinWithIguanaPrivKeyBuilder};
-use crate::{Bip44Chain, CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, NegotiateSwapContractAddrErr, SwapOps,
-            TradePreimageValue, ValidateAddressResult, WithdrawFut};
+use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress,
+            NegotiateSwapContractAddrErr, SwapOps, TradePreimageValue, ValidateAddressResult, WithdrawFut,
+            WithdrawSenderAddress};
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use crypto::trezor::utxo::TrezorUtxoCoin;
+use crypto::Bip44Chain;
 use futures::{FutureExt, TryFutureExt};
 use serialization::CoinVariant;
 use utxo_signer::UtxoSignerOps;
@@ -554,6 +556,19 @@ impl MmCoin for UtxoStandardCoin {
 }
 
 #[async_trait]
+impl GetWithdrawSenderAddress for UtxoStandardCoin {
+    type Address = Address;
+    type Pubkey = Public;
+
+    async fn get_withdraw_sender_address(
+        &self,
+        req: &WithdrawRequest,
+    ) -> MmResult<WithdrawSenderAddress<Self::Address, Self::Pubkey>, WithdrawError> {
+        utxo_common::get_withdraw_from_address(self, req).await
+    }
+}
+
+#[async_trait]
 impl InitWithdrawCoin for UtxoStandardCoin {
     async fn init_withdraw(
         &self,
@@ -612,6 +627,7 @@ impl ExtractExtendedPubkey for UtxoStandardCoin {
 #[async_trait]
 impl HDWalletCoinOps for UtxoStandardCoin {
     type Address = Address;
+    type Pubkey = Public;
     type HDWallet = UtxoHDWallet;
     type HDAccount = UtxoHDAccount;
 
@@ -620,7 +636,7 @@ impl HDWalletCoinOps for UtxoStandardCoin {
         hd_account: &Self::HDAccount,
         chain: Bip44Chain,
         address_id: u32,
-    ) -> MmResult<HDAddress<Self::Address>, AddressDerivingError> {
+    ) -> MmResult<HDAddress<Self::Address, Self::Pubkey>, AddressDerivingError> {
         utxo_common::derive_address(self, hd_account, chain, address_id)
     }
 

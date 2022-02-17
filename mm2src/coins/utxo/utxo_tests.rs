@@ -10,14 +10,14 @@ use crate::utxo::utxo_builder::{UtxoArcWithIguanaPrivKeyBuilder, UtxoCoinBuilder
 use crate::utxo::utxo_common::UtxoTxBuilder;
 use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 #[cfg(not(target_arch = "wasm32"))] use crate::WithdrawFee;
-use crate::{Bip44Chain, CoinBalance, StakingInfosDetails, SwapOps, TradePreimageValue, TxFeeDetails};
+use crate::{CoinBalance, StakingInfosDetails, SwapOps, TradePreimageValue, TxFeeDetails};
 use bigdecimal::{BigDecimal, Signed};
 use chain::OutPoint;
 use common::executor::Timer;
 use common::mm_ctx::MmCtxBuilder;
 use common::privkey::key_pair_from_seed;
 use common::{block_on, now_ms, OrdRange, PagingOptionsEnum, DEX_FEE_ADDR_RAW_PUBKEY};
-use crypto::RpcDerivationPath;
+use crypto::{Bip44Chain, RpcDerivationPath};
 use futures::future::join_all;
 use futures::TryFutureExt;
 use mocktopus::mocking::*;
@@ -3441,20 +3441,20 @@ fn test_account_balance_rpc() {
     hd_accounts.insert(0, UtxoHDAccount {
         account_id: 0,
         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
-        account_derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap(),
+        account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/0'").unwrap(),
         external_addresses_number: 7,
         internal_addresses_number: 3,
     });
     hd_accounts.insert(1, UtxoHDAccount {
         account_id: 1,
         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
-        account_derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap(),
+        account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/1'").unwrap(),
         external_addresses_number: 0,
         internal_addresses_number: 1,
     });
     fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
         address_format: UtxoAddressFormat::Standard,
-        derivation_path: DerivationPath::from_str("m/44'/141'").unwrap(),
+        derivation_path: Bip44PathToCoin::from_str("m/44'/141'").unwrap(),
         accounts: HDAccountsMutex::new(hd_accounts),
         gap_limit: 3,
     });
@@ -3726,20 +3726,20 @@ fn test_scan_for_new_addresses() {
     hd_accounts.insert(0, UtxoHDAccount {
         account_id: 0,
         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPM59RPw7Eg6PKdU7E2ehxJWtYdrfQ6JFmMGBsrR6jA78ANCLgzKYm4s5UqQ4ydLEYPbh3TRVvn5oAZVtWfi4qJLMntpZ8uGJ").unwrap(),
-        account_derivation_path: DerivationPath::from_str("m/44'/141'/0'").unwrap(),
+        account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/0'").unwrap(),
         external_addresses_number: 3,
         internal_addresses_number: 1,
     });
     hd_accounts.insert(1, UtxoHDAccount {
         account_id: 1,
         extended_pubkey: Secp256k1ExtendedPublicKey::from_str("xpub6DEHSksajpRPQq2FdGT6JoieiQZUpTZ3WZn8fcuLJhFVmtCpXbuXxp5aPzaokwcLV2V9LE55Dwt8JYkpuMv7jXKwmyD28WbHYjBH2zhbW2p").unwrap(),
-        account_derivation_path: DerivationPath::from_str("m/44'/141'/1'").unwrap(),
+        account_derivation_path: Bip44PathToAccount::from_str("m/44'/141'/1'").unwrap(),
         external_addresses_number: 0,
         internal_addresses_number: 2,
     });
     fields.derivation_method = DerivationMethod::HDWallet(UtxoHDWallet {
         address_format: UtxoAddressFormat::Standard,
-        derivation_path: DerivationPath::from_str("m/44'/141'").unwrap(),
+        derivation_path: Bip44PathToCoin::from_str("m/44'/141'").unwrap(),
         accounts: HDAccountsMutex::new(hd_accounts),
         gap_limit: 3,
     });

@@ -39,7 +39,7 @@ use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsWeak;
 use common::mm_number::MmNumber;
 use common::{calc_total_pages, now_ms, ten, HttpStatusCode};
-use crypto::{Bip32Error, ChildNumber, CryptoCtx};
+use crypto::{Bip32Error, CryptoCtx, DerivationPath};
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
@@ -117,9 +117,10 @@ pub mod utxo;
 #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
 pub mod z_coin;
 
-use crate::init_create_account::{CreateAccountTaskManager, CreateAccountTaskManagerShared};
 use crate::lightning::LightningCoin;
 use eth::{eth_coin_from_conf_and_request, EthCoin, EthTxFeeDetails, SignedEthTx};
+use hd_wallet::{HDAddress, HDAddressId};
+use init_create_account::{CreateAccountTaskManager, CreateAccountTaskManagerShared};
 use init_withdraw::{WithdrawTaskManager, WithdrawTaskManagerShared};
 use qrc20::Qrc20ActivationParams;
 use qrc20::{qrc20_coin_from_conf_and_params, Qrc20Coin, Qrc20FeeDetails};
@@ -452,17 +453,51 @@ pub enum WithdrawFee {
     },
 }
 
-#[derive(Deserialize)]
+pub struct WithdrawSenderAddress<Address, Pubkey> {
+    address: Address,
+    pubkey: Pubkey,
+    derivation_path: Option<DerivationPath>,
+}
+
+impl<Address, Pubkey> From<HDAddress<Address, Pubkey>> for WithdrawSenderAddress<Address, Pubkey> {
+    fn from(addr: HDAddress<Address, Pubkey>) -> Self {
+        WithdrawSenderAddress {
+            address: addr.address,
+            pubkey: addr.pubkey,
+            derivation_path: Some(addr.derivation_path),
+        }
+    }
+}
+
+/// Rename to `GetWithdrawSenderAddresses` when withdraw supports multiple `from` addresses.
+#[async_trait]
+pub trait GetWithdrawSenderAddress {
+    type Address;
+    type Pubkey;
+
+    async fn get_withdraw_sender_address(
+        &self,
+        req: &WithdrawRequest,
+    ) -> MmResult<WithdrawSenderAddress<Self::Address, Self::Pubkey>, WithdrawError>;
+}
+
+#[derive(Clone, Deserialize)]
 #[serde(untagged)]
-pub enum WithdrawFromAddress {
-    DerivationPath { derivation_path: String },
-    // Address { address: String },
+pub enum WithdrawFrom {
+    // AccountId { account_id: u32 },
+    AddressId(HDAddressId),
+    /// Don't use `Bip44DerivationPath` or `RpcDerivationPath` because if there is an error in the path,
+    /// `serde::Deserialize` returns "data did not match any variant of untagged enum WithdrawFrom".
+    /// It's better to show the user an informative error.
+    DerivationPath {
+        derivation_path: String,
+    },
 }
 
 #[derive(Deserialize)]
 pub struct WithdrawRequest {
     coin: String,
-    from: Option<WithdrawFromAddress>,
+    from: Option<WithdrawFrom>,
     to: String,
     #[serde(default)]
     amount: BigDecimal,
@@ -498,7 +533,7 @@ pub struct GetStakingInfosRequest {
 impl WithdrawRequest {
     pub fn new(
         coin: String,
-        from: Option<WithdrawFromAddress>,
+        from: Option<WithdrawFrom>,
         to: String,
         amount: BigDecimal,
         max: bool,
@@ -1155,10 +1190,12 @@ pub enum WithdrawError {
     Timeout(Duration),
     #[display(fmt = "Unexpected user action. Expected '{}'", expected)]
     UnexpectedUserAction { expected: String },
-    #[display(fmt = "Request doesn't contain 'from' address")]
-    FromAddressIsNotSet,
-    #[display(fmt = "Error parsing 'from' address")]
-    ErrorParsingFromAddress(String),
+    #[display(fmt = "Request should contain a 'from' address/account")]
+    FromAddressNotFound,
+    #[display(fmt = "Unexpected 'from' address: {}", _0)]
+    UnexpectedFromAddress(String),
+    #[display(fmt = "Unknown '{}' account", account_id)]
+    UnknownAccount { account_id: u32 },
     #[display(fmt = "Transport error: {}", _0)]
     Transport(String),
     #[display(fmt = "Internal error: {}", _0)]
@@ -1177,8 +1214,9 @@ impl HttpStatusCode for WithdrawError {
             | WithdrawError::AmountTooLow { .. }
             | WithdrawError::InvalidAddress(_)
             | WithdrawError::InvalidFeePolicy(_)
-            | WithdrawError::FromAddressIsNotSet
-            | WithdrawError::ErrorParsingFromAddress(_) => StatusCode::BAD_REQUEST,
+            | WithdrawError::FromAddressNotFound
+            | WithdrawError::UnexpectedFromAddress(_)
+            | WithdrawError::UnknownAccount { .. } => StatusCode::BAD_REQUEST,
             WithdrawError::NoTrezorDeviceAvailable
             | WithdrawError::TrezorDisconnected
             | WithdrawError::FoundUnexpectedDevice(_) => StatusCode::GONE,
@@ -1548,21 +1586,6 @@ impl<'a> PrivKeyBuildPolicy<'a> {
                 PrivKeyBuildPolicy::IguanaPrivKey(key_pair_ctx.secp256k1_privkey_bytes())
             },
             CryptoCtx::HardwareWallet(_) => PrivKeyBuildPolicy::HardwareWallet,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Deserialize, PartialEq, Serialize)]
-pub enum Bip44Chain {
-    Internal,
-    External,
-}
-
-impl Bip44Chain {
-    pub fn to_child_number(&self) -> ChildNumber {
-        match self {
-            Bip44Chain::Internal => ChildNumber::from(1),
-            Bip44Chain::External => ChildNumber::from(0),
         }
     }
 }

@@ -6,8 +6,9 @@ use crate::init_withdraw::WithdrawTaskHandle;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
 use crate::utxo::utxo_withdraw::{InitUtxoWithdraw, StandardUtxoWithdraw, UtxoWithdraw};
-use crate::{Bip44Chain, CanRefundHtlc, CoinBalance, TradePreimageValue, TxFeeDetails, ValidateAddressResult,
-            WithdrawResult};
+use crate::{CanRefundHtlc, CoinBalance, CoinWithDerivationMethod, GetWithdrawSenderAddress, HDAddressId,
+            TradePreimageValue, TxFeeDetails, ValidateAddressResult, WithdrawFrom, WithdrawResult,
+            WithdrawSenderAddress};
 use bigdecimal::{BigDecimal, Zero};
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
 use chain::constants::SEQUENCE_FINAL;
@@ -20,7 +21,7 @@ use common::mm_error::prelude::*;
 use common::mm_metrics::MetricsArc;
 use common::mm_number::MmNumber;
 use common::now_ms;
-use crypto::RpcDerivationPath;
+use crypto::{Bip32DerPathOps, Bip44Chain, Bip44DerPathError, Bip44DerivationPath, RpcDerivationPath};
 use futures::compat::Future01CompatExt;
 use futures::future::{FutureExt, TryFutureExt};
 use futures01::future::Either;
@@ -83,7 +84,7 @@ pub fn derive_address<T>(
     hd_account: &UtxoHDAccount,
     chain: Bip44Chain,
     address_id: u32,
-) -> MmResult<HDAddress<Address>, AddressDerivingError>
+) -> MmResult<HDAddress<Address, Public>, AddressDerivingError>
 where
     T: UtxoCommonOps,
 {
@@ -95,12 +96,14 @@ where
         .derive_child(change_child)?
         .derive_child(address_id_child)?;
     let address = coin.address_from_extended_pubkey(&derived_pubkey);
+    let pubkey = Public::Compressed(H264::from(derived_pubkey.public_key().serialize()));
 
-    let mut derivation_path = hd_account.account_derivation_path.clone();
+    let mut derivation_path = hd_account.account_derivation_path.to_derivation_path();
     derivation_path.push(change_child);
     derivation_path.push(address_id_child);
     Ok(HDAddress {
         address,
+        pubkey,
         derivation_path,
     })
 }
@@ -134,11 +137,9 @@ where
     let account_child = ChildNumber::new(new_account_id, account_child_hardened)
         .map_to_mm(|e| NewAccountCreatingError::Internal(e.to_string()))?;
 
-    let mut account_derivation_path = hd_wallet.derivation_path.clone();
-    account_derivation_path.push(account_child);
-
+    let account_derivation_path: Bip44PathToAccount = hd_wallet.derivation_path.derive(account_child)?;
     let account_pubkey = coin
-        .extract_extended_pubkey(xpub_extractor, account_derivation_path.clone())
+        .extract_extended_pubkey(xpub_extractor, account_derivation_path.to_derivation_path())
         .await?;
 
     let new_account = UtxoHDAccount {
@@ -217,6 +218,7 @@ where
         let HDAddress {
             address: checking_address,
             derivation_path: checking_address_der_path,
+            ..
         } = coin.derive_address(hd_account, chain, checking_address_id)?;
 
         match coin.is_address_used(&checking_address, address_checker).await? {
@@ -1671,7 +1673,7 @@ pub async fn withdraw<T>(coin: T, req: WithdrawRequest) -> WithdrawResult
 where
     T: AsRef<UtxoCoinFields> + UtxoCommonOps + MarketCoinOps + Send + Sync + 'static,
 {
-    StandardUtxoWithdraw::init(coin, req)?.build().await
+    StandardUtxoWithdraw::new(coin, req)?.build().await
 }
 
 pub async fn init_withdraw<T>(
@@ -1681,9 +1683,102 @@ pub async fn init_withdraw<T>(
     task_handle: &WithdrawTaskHandle,
 ) -> WithdrawResult
 where
-    T: AsRef<UtxoCoinFields> + UtxoCommonOps + MarketCoinOps + UtxoSignerOps + Send + Sync + 'static,
+    T: AsRef<UtxoCoinFields>
+        + UtxoCommonOps
+        + MarketCoinOps
+        + UtxoSignerOps
+        + GetWithdrawSenderAddress<Address = Address, Pubkey = Public>
+        + Send
+        + Sync
+        + 'static,
 {
-    InitUtxoWithdraw::init(ctx, coin, req, task_handle).await?.build().await
+    InitUtxoWithdraw::new(ctx, coin, req, task_handle).await?.build().await
+}
+
+pub async fn get_withdraw_from_address<T>(
+    coin: &T,
+    req: &WithdrawRequest,
+) -> MmResult<WithdrawSenderAddress<Address, Public>, WithdrawError>
+where
+    T: CoinWithDerivationMethod<Address = Address, HDWallet = <T as HDWalletCoinOps>::HDWallet>
+        + HDWalletCoinOps<Address = Address, Pubkey = Public>
+        + UtxoCommonOps,
+{
+    match coin.derivation_method() {
+        DerivationMethod::Iguana(my_address) => get_withdraw_iguana_sender(coin, req, my_address),
+        DerivationMethod::HDWallet(hd_wallet) => get_withdraw_hd_sender(coin, req, hd_wallet).await,
+    }
+}
+
+pub fn get_withdraw_iguana_sender<T>(
+    coin: &T,
+    req: &WithdrawRequest,
+    my_address: &Address,
+) -> MmResult<WithdrawSenderAddress<Address, Public>, WithdrawError>
+where
+    T: UtxoCommonOps,
+{
+    if req.from.is_some() {
+        let error = "'from' is not supported if the coin is initialized with an Iguana private key";
+        return MmError::err(WithdrawError::UnexpectedFromAddress(error.to_owned()));
+    }
+    let pubkey = coin
+        .my_public_key()
+        .mm_err(|e| WithdrawError::InternalError(e.to_string()))?;
+    Ok(WithdrawSenderAddress {
+        address: my_address.clone(),
+        pubkey: *pubkey,
+        derivation_path: None,
+    })
+}
+
+pub async fn get_withdraw_hd_sender<T>(
+    coin: &T,
+    req: &WithdrawRequest,
+    hd_wallet: &T::HDWallet,
+) -> MmResult<WithdrawSenderAddress<Address, Public>, WithdrawError>
+where
+    T: HDWalletCoinOps<Address = Address, Pubkey = Public>,
+{
+    let HDAddressId {
+        account_id,
+        chain,
+        address_id,
+    } = match req.from.clone().or_mm_err(|| WithdrawError::FromAddressNotFound)? {
+        WithdrawFrom::AddressId(id) => id,
+        WithdrawFrom::DerivationPath { derivation_path } => {
+            let derivation_path = Bip44DerivationPath::from_str(&derivation_path)
+                .map_to_mm(Bip44DerPathError::from)
+                .mm_err(|e| WithdrawError::UnexpectedFromAddress(e.to_string()))?;
+            let coin_type = derivation_path.coin_type();
+            let expected_coin_type = hd_wallet.coin_type();
+            if coin_type != expected_coin_type {
+                let error = format!(
+                    "Derivation path '{}' must has '{}' coin type",
+                    derivation_path, expected_coin_type
+                );
+                return MmError::err(WithdrawError::UnexpectedFromAddress(error));
+            }
+            HDAddressId::from(derivation_path)
+        },
+    };
+
+    let hd_account = hd_wallet
+        .get_account(account_id)
+        .await
+        .or_mm_err(|| WithdrawError::UnknownAccount { account_id })?;
+    let hd_address = coin.derive_address(&hd_account, chain, address_id)?;
+
+    let is_address_activated = hd_account
+        .is_address_activated(chain, address_id)
+        // If [`HDWalletCoinOps::derive_address`] succeeds, [`HDAccountOps::is_address_activated`] shouldn't fails with an `InvalidBip44ChainError`.
+        .mm_err(|e| WithdrawError::InternalError(e.to_string()))?;
+    if !is_address_activated {
+        let error = format!("'{}' address is not activated", hd_address.address);
+        return MmError::err(WithdrawError::UnexpectedFromAddress(error));
+    }
+
+    Ok(WithdrawSenderAddress::from(hd_address))
 }
 
 pub fn decimals(coin: &UtxoCoinFields) -> u8 { coin.decimals }
