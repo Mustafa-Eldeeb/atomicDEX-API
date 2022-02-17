@@ -4,9 +4,11 @@ use async_trait::async_trait;
 use chain::BlockHeader;
 use common::async_blocking;
 use common::mm_error::MmError;
+use db_common::sqlite::rusqlite::types::Type;
 use db_common::sqlite::rusqlite::Error as SqlError;
 use db_common::sqlite::rusqlite::{Connection, Row, ToSql, NO_PARAMS};
 use db_common::sqlite::validate_table_name;
+use serialization::deserialize;
 use std::sync::{Arc, Mutex};
 
 const CHECK_TABLE_EXISTS_SQL: &str = "SELECT name FROM sqlite_master WHERE type='table' AND name=?1;";
@@ -33,6 +35,15 @@ fn insert_block_header_in_cache_sql(for_coin: &str) -> Result<String, MmError<Sq
 
     // We can simply ignore the repetitive attempt to insert the same block_height
     let sql = "INSERT OR IGNORE INTO ".to_owned() + &table_name + " (block_height, hex) VALUES (?1, ?2);";
+    Ok(sql)
+}
+
+fn get_block_header_by_height(for_coin: &str) -> Result<String, MmError<SqlError>> {
+    let table_name = block_headers_cache_table(for_coin);
+    validate_table_name(&table_name)?;
+
+    let sql = "SELECT hex FROM ".to_owned() + &table_name + " WHERE block_height=?1;";
+
     Ok(sql)
 }
 
@@ -123,11 +134,26 @@ impl BlockHeaderStorage for SqliteBlockHeadersStorage {
     }
 
     async fn get_block_header(&self, for_coin: &str, height: u64) -> Result<Option<BlockHeader>, MmError<Self::Error>> {
-        todo!()
+        if let Some(header_raw) = self.get_block_header_raw(for_coin, height).await? {
+            let header_bytes =
+                hex::decode(header_raw).map_err(|e| SqlError::FromSqlConversionFailure(0, Type::Text, Box::new(e)))?;
+            let header: BlockHeader = deserialize(header_bytes.as_slice())
+                .map_err(|e| SqlError::FromSqlConversionFailure(0, Type::Text, Box::new(e)))?;
+            return Ok(Some(header));
+        }
+        Ok(None)
     }
 
     async fn get_block_header_raw(&self, for_coin: &str, height: u64) -> Result<Option<String>, MmError<Self::Error>> {
-        todo!()
+        let params = [height.to_string()];
+        let sql = get_block_header_by_height(for_coin)?;
+        let selfi = self.clone();
+
+        async_blocking(move || {
+            let conn = selfi.0.lock().unwrap();
+            query_single_row(&conn, &sql, params, string_from_row)
+        })
+        .await
     }
 }
 
@@ -151,6 +177,8 @@ mod sql_block_headers_storage_tests {
     use super::*;
     use crate::utxo::rpc_clients::ElectrumBlockHeaderV14;
     use common::block_on;
+    use hex::FromHex;
+    use primitives::hash::H256;
 
     #[test]
     fn test_init_collection() {
@@ -179,10 +207,40 @@ mod sql_block_headers_storage_tests {
 
         let block_header = ElectrumBlockHeaderV14 {
             height: 520481,
-            hex: "00000020890208a0ae3a3892aa047c5468725846577cfcd9b512b50000000000000000005dc2b02f2d297a9064ee103036c14d678f9afc7e3d9409cf53fd58b82e938e8ecbeca05a2d2103188ce804c4".into(),
+            hex: "0000002076d41d3e4b0bfd4c0d3b30aa69fdff3ed35d85829efd04000000000000000000b386498b583390959d9bac72346986e3015e83ac0b54bc7747a11a494ac35c94bb3ce65a53fb45177f7e311c".into(),
         }.into();
         let headers = vec![ElectrumBlockHeader::V14(block_header)];
         block_on(storage.add_block_headers_to_storage(for_coin, headers)).unwrap();
         assert!(!storage.is_table_empty(&table));
+    }
+
+    #[test]
+    fn test_get_block_header() {
+        let for_coin = "get";
+        let storage = SqliteBlockHeadersStorage::in_memory();
+        let table = block_headers_cache_table(for_coin);
+        block_on(storage.init(for_coin)).unwrap();
+
+        let initialized = block_on(storage.is_initialized_for(for_coin)).unwrap();
+        assert!(initialized);
+
+        let block_header = ElectrumBlockHeaderV14 {
+            height: 520481,
+            hex: "0000002076d41d3e4b0bfd4c0d3b30aa69fdff3ed35d85829efd04000000000000000000b386498b583390959d9bac72346986e3015e83ac0b54bc7747a11a494ac35c94bb3ce65a53fb45177f7e311c".into(),
+        }.into();
+        let headers = vec![ElectrumBlockHeader::V14(block_header)];
+        block_on(storage.add_block_headers_to_storage(for_coin, headers)).unwrap();
+        assert!(!storage.is_table_empty(&table));
+
+        let hex = block_on(storage.get_block_header_raw(for_coin, 520481))
+            .unwrap()
+            .unwrap();
+        assert_eq!(hex, "0000002076d41d3e4b0bfd4c0d3b30aa69fdff3ed35d85829efd04000000000000000000b386498b583390959d9bac72346986e3015e83ac0b54bc7747a11a494ac35c94bb3ce65a53fb45177f7e311c".to_string());
+
+        let block_header = block_on(storage.get_block_header(for_coin, 520481)).unwrap().unwrap();
+        assert_eq!(
+            block_header.hash(),
+            H256::from_reversed_str("0000000000000000002e31d0714a5ab23100945ff87ba2d856cd566a3c9344ec")
+        )
     }
 }
