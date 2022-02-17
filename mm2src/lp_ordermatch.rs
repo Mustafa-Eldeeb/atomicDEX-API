@@ -98,7 +98,10 @@ pub mod ordermatch_tests;
 mod ordermatch_wasm_db;
 
 pub const ORDERBOOK_PREFIX: TopicPrefix = "orbk";
-const MIN_ORDER_KEEP_ALIVE_INTERVAL: u64 = 30;
+#[cfg(not(test))]
+pub const MIN_ORDER_KEEP_ALIVE_INTERVAL: u64 = 30;
+#[cfg(test)]
+pub const MIN_ORDER_KEEP_ALIVE_INTERVAL: u64 = 5;
 const MAKER_ORDER_TIMEOUT: u64 = MIN_ORDER_KEEP_ALIVE_INTERVAL * 3;
 const TAKER_ORDER_TIMEOUT: u64 = 30;
 const ORDER_MATCH_TIMEOUT: u64 = 30;
@@ -168,11 +171,11 @@ pub fn addr_format_from_protocol_info(protocol_info: &[u8]) -> AddressFormat {
     }
 }
 
-struct ProcessTrieParams {
-    pubkey: String,
-    alb_pair: String,
-    protocol_infos: HashMap<Uuid, BaseRelProtocolInfo>,
-    conf_infos: HashMap<Uuid, OrderConfirmationsSettings>,
+struct ProcessTrieParams<'a> {
+    pubkey: &'a str,
+    alb_pair: &'a str,
+    protocol_infos: &'a HashMap<Uuid, BaseRelProtocolInfo>,
+    conf_infos: &'a HashMap<Uuid, OrderConfirmationsSettings>,
 }
 
 fn process_pubkey_full_trie(
@@ -180,7 +183,7 @@ fn process_pubkey_full_trie(
     new_trie_orders: PubkeyOrders,
     params: ProcessTrieParams,
 ) -> H64 {
-    remove_pubkey_pair_orders(orderbook, &params.pubkey, &params.alb_pair);
+    remove_pubkey_pair_orders(orderbook, params.pubkey, params.alb_pair);
 
     for (uuid, order) in new_trie_orders {
         orderbook.insert_or_update_order_update_trie(OrderbookItem::from_p2p_and_info(
@@ -190,9 +193,9 @@ fn process_pubkey_full_trie(
         ));
     }
 
-    let new_root = pubkey_state_mut(&mut orderbook.pubkeys_state, &params.pubkey)
+    let new_root = pubkey_state_mut(&mut orderbook.pubkeys_state, params.pubkey)
         .trie_roots
-        .get(&params.alb_pair)
+        .get(params.alb_pair)
         .copied()
         .unwrap_or_default();
     new_root
@@ -216,10 +219,10 @@ fn process_trie_delta(
         }
     }
 
-    let new_root = match orderbook.pubkeys_state.get(&params.pubkey) {
+    let new_root = match orderbook.pubkeys_state.get(params.pubkey) {
         Some(pubkey_state) => pubkey_state
             .trie_roots
-            .get(&params.alb_pair)
+            .get(params.alb_pair)
             .copied()
             .unwrap_or_default(),
         None => H64::default(),
@@ -258,10 +261,10 @@ async fn process_orders_keep_alive(
     let mut orderbook = ordermatch_ctx.orderbook.lock();
     for (pair, diff) in response.pair_orders_diff {
         let params = ProcessTrieParams {
-            pubkey: from_pubkey.clone(),
-            alb_pair: pair,
-            protocol_infos: response.protocol_infos.clone(),
-            conf_infos: response.conf_infos.clone(),
+            pubkey: &from_pubkey,
+            alb_pair: &pair,
+            protocol_infos: &response.protocol_infos,
+            conf_infos: &response.conf_infos,
         };
         let _new_root = match diff {
             DeltaOrFullTrie::Delta(delta) => process_trie_delta(&mut orderbook, delta, params),
@@ -353,10 +356,10 @@ async fn request_and_fill_orderbook(ctx: &MmArc, base: &str, rel: &str) -> Resul
             continue;
         }
         let params = ProcessTrieParams {
-            pubkey,
-            alb_pair: alb_pair.clone(),
-            protocol_infos: protocol_infos.clone(),
-            conf_infos: conf_infos.clone(),
+            pubkey: &pubkey,
+            alb_pair: &alb_pair,
+            protocol_infos: &protocol_infos,
+            conf_infos: &conf_infos,
         };
         let _new_root = process_pubkey_full_trie(&mut orderbook, orders, params);
     }

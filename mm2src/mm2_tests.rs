@@ -1,4 +1,5 @@
 use super::{lp_main, LpMainParams};
+use crate::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
 use bigdecimal::BigDecimal;
 use common::executor::Timer;
 use common::for_tests::{check_my_swap_status, check_recent_swaps, check_stats_swap_status, enable_lightning,
@@ -7866,7 +7867,19 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
         assert!(rc.0.is_success(), "!setprice: {}", rc.1);
     }
 
-    let mm_alice = MarketMakerIt::start(
+    let rc = block_on(mm_bob.rpc(json! ({
+        "userpass": mm_bob.userpass,
+        "mmrpc": "2.0",
+        "method": "get_public_key",
+        "params": {},
+    })))
+    .unwrap();
+    assert!(rc.0.is_success(), "!get_public_key: {}", rc.1);
+    log!("GetPublicKeyResult "[rc.1]);
+    let get_public_key_res: Json = json::from_str(&rc.1).unwrap();
+    let bob_pubkey = get_public_key_res["result"]["public_key"].as_str().unwrap();
+
+    let mut mm_alice = MarketMakerIt::start(
         json! ({
             "gui": "nogui",
             "netid": 9998,
@@ -7937,8 +7950,12 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
     .unwrap();
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-    // Waiting for 62 seconds required for Alice to sync the orderbook
-    thread::sleep(Duration::from_secs(62));
+    block_on(
+        mm_alice.wait_for_log((MIN_ORDER_KEEP_ALIVE_INTERVAL * 2) as f64, |log| {
+            log.contains(&format!("Inserting order OrderbookItem {{ pubkey: \"{}\"", bob_pubkey))
+        }),
+    )
+    .unwrap();
 
     // checking orderbook on alice side
     let rc = block_on(mm_alice.rpc(json! ({
@@ -8390,6 +8407,137 @@ fn test_conf_settings_in_orderbook() {
     assert_eq!(alice_orderbook.asks[0].base_nota, true);
     assert_eq!(alice_orderbook.asks[0].rel_confs, 5);
     assert_eq!(alice_orderbook.asks[0].rel_nota, false);
+
+    block_on(mm_bob.stop()).unwrap();
+    block_on(mm_alice.stop()).unwrap();
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn alice_can_see_confs_in_orderbook_after_sync() {
+    let bob_coins = json!([
+        {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"overwintered":1,"required_confirmations":10,"requires_notarization":true,"protocol":{"type":"UTXO"}},
+        {"coin":"MORTY","asset":"MORTY","rpcport":11608,"txversion":4,"overwintered":1,"required_confirmations":5,"requires_notarization":false,"protocol":{"type":"UTXO"}},
+    ]);
+
+    let mm_bob = MarketMakerIt::start(
+        json!({
+            "gui": "nogui",
+            "netid": 9998,
+            "passphrase": "bob passphrase",
+            "rpc_password": "password",
+            "coins": bob_coins,
+            "i_am_seed": true,
+        }),
+        "password".into(),
+        None,
+    )
+    .unwrap();
+    // let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
+    log!({"Bob log path: {}", mm_bob.log_path.display()});
+
+    log! ({"enable_coins (bob): {:?}", block_on (enable_coins_rick_morty_electrum(&mm_bob))});
+
+    log!("Issue sell request on Bob side");
+    let rc = block_on(mm_bob.rpc(json! ({
+        "userpass": mm_bob.userpass,
+        "method": "setprice",
+        "base": "RICK",
+        "rel": "MORTY",
+        "price": 0.9,
+        "volume": "0.9",
+    })))
+    .unwrap();
+    assert!(rc.0.is_success(), "!setprice: {}", rc.1);
+
+    let rc = block_on(mm_bob.rpc(json! ({
+        "userpass": mm_bob.userpass,
+        "mmrpc": "2.0",
+        "method": "get_public_key",
+        "params": {},
+    })))
+    .unwrap();
+    assert!(rc.0.is_success(), "!get_public_key: {}", rc.1);
+    log!("GetPublicKeyResult "[rc.1]);
+    let get_public_key_res: Json = json::from_str(&rc.1).unwrap();
+    let bob_pubkey = get_public_key_res["result"]["public_key"].as_str().unwrap();
+
+    // Alice coins don't have required_confirmations and requires_notarization set
+    let alice_coins = json!([
+        {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
+        {"coin":"MORTY","asset":"MORTY","rpcport":11608,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
+    ]);
+
+    let mut mm_alice = MarketMakerIt::start(
+        json!({
+            "gui": "nogui",
+            "netid": 9998,
+            "passphrase": "alice passphrase",
+            "rpc_password": "password",
+            "coins": alice_coins,
+            "seednodes": [fomat!((mm_bob.ip))],
+        }),
+        "password".into(),
+        None,
+    )
+    .unwrap();
+    let (_dump_log, _dump_dashboard) = mm_alice.mm_dump();
+    log!({"Alice log path: {}", mm_alice.log_path.display()});
+
+    log! ({"enable_coins (alice): {:?}", block_on (enable_coins_rick_morty_electrum(&mm_alice))});
+
+    // setting the price will trigger Alice's subscription to the orderbook topic
+    // but won't request the actual orderbook
+    let rc = block_on(mm_alice.rpc(json! ({
+        "userpass": mm_alice.userpass,
+        "method": "setprice",
+        "base": "RICK",
+        "rel": "MORTY",
+        "price": "1",
+        "volume": "0.1",
+        "cancel_previous": false,
+    })))
+    .unwrap();
+    assert!(rc.0.is_success(), "!setprice: {}", rc.1);
+
+    block_on(
+        mm_alice.wait_for_log((MIN_ORDER_KEEP_ALIVE_INTERVAL * 2) as f64, |log| {
+            log.contains(&format!("Inserting order OrderbookItem {{ pubkey: \"{}\"", bob_pubkey))
+        }),
+    )
+    .unwrap();
+
+    log!("Get RICK/MORTY orderbook on Alice side");
+    let rc = block_on(mm_alice.rpc(json! ({
+        "userpass": mm_alice.userpass,
+        "method": "orderbook",
+        "base": "RICK",
+        "rel": "MORTY",
+    })))
+    .unwrap();
+    assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
+
+    let alice_orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
+    log!("Alice orderbook "[alice_orderbook]);
+    assert_eq!(
+        alice_orderbook.asks.len(),
+        2,
+        "Alice RICK/MORTY orderbook must have exactly 2 ask"
+    );
+    let bob_orders_in_orderbook = alice_orderbook
+        .asks
+        .into_iter()
+        .filter(|entry| entry.pubkey == bob_pubkey)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        bob_orders_in_orderbook.len(),
+        1,
+        "Bob must have exactly 1 ask in RICK/MORTY orderbook"
+    );
+    assert_eq!(bob_orders_in_orderbook[0].base_confs, 10);
+    assert_eq!(bob_orders_in_orderbook[0].base_nota, true);
+    assert_eq!(bob_orders_in_orderbook[0].rel_confs, 5);
+    assert_eq!(bob_orders_in_orderbook[0].rel_nota, false);
 
     block_on(mm_bob.stop()).unwrap();
     block_on(mm_alice.stop()).unwrap();

@@ -2717,10 +2717,10 @@ fn test_orderbook_sync_trie_diff_time_cache() {
     };
 
     let params = ProcessTrieParams {
-        pubkey: pubkey_bob.clone(),
-        alb_pair: rick_morty_pair.clone(),
-        protocol_infos: HashMap::new(),
-        conf_infos: HashMap::new(),
+        pubkey: &pubkey_bob,
+        alb_pair: &rick_morty_pair,
+        protocol_infos: &HashMap::new(),
+        conf_infos: &HashMap::new(),
     };
     let new_alice_root = process_pubkey_full_trie(
         &mut orderbook_alice,
@@ -2769,10 +2769,10 @@ fn test_orderbook_sync_trie_diff_time_cache() {
     };
 
     let params = ProcessTrieParams {
-        pubkey: pubkey_bob,
-        alb_pair: rick_morty_pair,
-        protocol_infos: HashMap::new(),
-        conf_infos: HashMap::new(),
+        pubkey: &pubkey_bob,
+        alb_pair: &rick_morty_pair,
+        protocol_infos: &HashMap::new(),
+        conf_infos: &HashMap::new(),
     };
     let new_alice_root = process_trie_delta(
         &mut orderbook_alice,
