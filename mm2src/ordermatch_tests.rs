@@ -1807,26 +1807,27 @@ fn test_request_and_fill_orderbook() {
         let actual = decode_message::<P2PRequest>(&req).unwrap();
         assert_eq!(actual, expected_request);
 
+        let mut conf_infos = HashMap::new();
         let result = orders
-            .clone()
             .into_iter()
             .map(|(pubkey, orders)| {
+                let orders = orders
+                    .into_iter()
+                    .map(|(uuid, order)| {
+                        if let Some(conf_settings) = order.conf_settings {
+                            conf_infos.insert(uuid, conf_settings);
+                        }
+                        (uuid, order.into())
+                    })
+                    .collect();
                 let item = GetOrderbookPubkeyItem {
-                    orders: orders.into_iter().map(|(uuid, order)| (uuid, order.into())).collect(),
+                    orders,
                     last_keep_alive: now_ms() / 1000,
                     last_signed_pubkey_payload: vec![],
                 };
                 (pubkey, item)
             })
             .collect();
-        let mut conf_infos = HashMap::new();
-        for (_, pubkey_orders) in orders {
-            for (uuid, order) in pubkey_orders {
-                if let Some(conf_settings) = order.conf_settings {
-                    conf_infos.insert(uuid, conf_settings);
-                }
-            }
-        }
         let orderbook = GetOrderbookRes {
             pubkey_orders: result,
             protocol_infos: HashMap::new(),
@@ -2715,16 +2716,19 @@ fn test_orderbook_sync_trie_diff_time_cache() {
         _ => panic!("Expected DeltaOrFullTrie::FullTrie"),
     };
 
+    let params = ProcessTrieParams {
+        pubkey: pubkey_bob.clone(),
+        alb_pair: rick_morty_pair.clone(),
+        protocol_infos: HashMap::new(),
+        conf_infos: HashMap::new(),
+    };
     let new_alice_root = process_pubkey_full_trie(
         &mut orderbook_alice,
-        &pubkey_bob,
-        &rick_morty_pair,
         full_trie
             .into_iter()
             .map(|(uuid, order)| (uuid, order.into()))
             .collect(),
-        &HashMap::new(),
-        &HashMap::new(),
+        params,
     );
 
     assert_eq!(new_alice_root, *bob_root);
@@ -2764,16 +2768,19 @@ fn test_orderbook_sync_trie_diff_time_cache() {
         _ => panic!("Expected DeltaOrFullTrie::Delta"),
     };
 
+    let params = ProcessTrieParams {
+        pubkey: pubkey_bob,
+        alb_pair: rick_morty_pair,
+        protocol_infos: HashMap::new(),
+        conf_infos: HashMap::new(),
+    };
     let new_alice_root = process_trie_delta(
         &mut orderbook_alice,
-        &pubkey_bob,
-        &rick_morty_pair,
         trie_delta
             .into_iter()
             .map(|(uuid, order)| (uuid, order.map(From::from)))
             .collect(),
-        &HashMap::new(),
-        &HashMap::new(),
+        params,
     );
     assert_eq!(new_alice_root, *bob_root);
 }

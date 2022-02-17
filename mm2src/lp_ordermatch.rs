@@ -168,27 +168,31 @@ pub fn addr_format_from_protocol_info(protocol_info: &[u8]) -> AddressFormat {
     }
 }
 
+struct ProcessTrieParams {
+    pubkey: String,
+    alb_pair: String,
+    protocol_infos: HashMap<Uuid, BaseRelProtocolInfo>,
+    conf_infos: HashMap<Uuid, OrderConfirmationsSettings>,
+}
+
 fn process_pubkey_full_trie(
     orderbook: &mut Orderbook,
-    pubkey: &str,
-    alb_pair: &str,
     new_trie_orders: PubkeyOrders,
-    protocol_infos: &HashMap<Uuid, BaseRelProtocolInfo>,
-    conf_infos: &HashMap<Uuid, OrderConfirmationsSettings>,
+    params: ProcessTrieParams,
 ) -> H64 {
-    remove_pubkey_pair_orders(orderbook, pubkey, alb_pair);
+    remove_pubkey_pair_orders(orderbook, &params.pubkey, &params.alb_pair);
 
     for (uuid, order) in new_trie_orders {
         orderbook.insert_or_update_order_update_trie(OrderbookItem::from_p2p_and_info(
             order,
-            protocol_infos.get(&uuid).cloned().unwrap_or_default(),
-            conf_infos.get(&uuid).cloned(),
+            params.protocol_infos.get(&uuid).cloned().unwrap_or_default(),
+            params.conf_infos.get(&uuid).cloned(),
         ));
     }
 
-    let new_root = pubkey_state_mut(&mut orderbook.pubkeys_state, pubkey)
+    let new_root = pubkey_state_mut(&mut orderbook.pubkeys_state, &params.pubkey)
         .trie_roots
-        .get(alb_pair)
+        .get(&params.alb_pair)
         .copied()
         .unwrap_or_default();
     new_root
@@ -196,18 +200,15 @@ fn process_pubkey_full_trie(
 
 fn process_trie_delta(
     orderbook: &mut Orderbook,
-    pubkey: &str,
-    alb_pair: &str,
     delta_orders: HashMap<Uuid, Option<OrderbookP2PItem>>,
-    protocol_infos: &HashMap<Uuid, BaseRelProtocolInfo>,
-    conf_infos: &HashMap<Uuid, OrderConfirmationsSettings>,
+    params: ProcessTrieParams,
 ) -> H64 {
     for (uuid, order) in delta_orders {
         match order {
             Some(order) => orderbook.insert_or_update_order_update_trie(OrderbookItem::from_p2p_and_info(
                 order,
-                protocol_infos.get(&uuid).cloned().unwrap_or_default(),
-                conf_infos.get(&uuid).cloned(),
+                params.protocol_infos.get(&uuid).cloned().unwrap_or_default(),
+                params.conf_infos.get(&uuid).cloned(),
             )),
             None => {
                 orderbook.remove_order_trie_update(uuid);
@@ -215,8 +216,12 @@ fn process_trie_delta(
         }
     }
 
-    let new_root = match orderbook.pubkeys_state.get(pubkey) {
-        Some(pubkey_state) => pubkey_state.trie_roots.get(alb_pair).copied().unwrap_or_default(),
+    let new_root = match orderbook.pubkeys_state.get(&params.pubkey) {
+        Some(pubkey_state) => pubkey_state
+            .trie_roots
+            .get(&params.alb_pair)
+            .copied()
+            .unwrap_or_default(),
         None => H64::default(),
     };
     new_root
@@ -252,23 +257,15 @@ async fn process_orders_keep_alive(
 
     let mut orderbook = ordermatch_ctx.orderbook.lock();
     for (pair, diff) in response.pair_orders_diff {
+        let params = ProcessTrieParams {
+            pubkey: from_pubkey.clone(),
+            alb_pair: pair,
+            protocol_infos: response.protocol_infos.clone(),
+            conf_infos: response.conf_infos.clone(),
+        };
         let _new_root = match diff {
-            DeltaOrFullTrie::Delta(delta) => process_trie_delta(
-                &mut orderbook,
-                &from_pubkey,
-                &pair,
-                delta,
-                &response.protocol_infos,
-                &response.conf_infos,
-            ),
-            DeltaOrFullTrie::FullTrie(values) => process_pubkey_full_trie(
-                &mut orderbook,
-                &from_pubkey,
-                &pair,
-                values,
-                &response.protocol_infos,
-                &response.conf_infos,
-            ),
+            DeltaOrFullTrie::Delta(delta) => process_trie_delta(&mut orderbook, delta, params),
+            DeltaOrFullTrie::FullTrie(values) => process_pubkey_full_trie(&mut orderbook, values, params),
         };
     }
     true
@@ -355,8 +352,13 @@ async fn request_and_fill_orderbook(ctx: &MmArc, base: &str, rel: &str) -> Resul
             log::warn!("Pubkey {} is banned", pubkey);
             continue;
         }
-        let _new_root =
-            process_pubkey_full_trie(&mut orderbook, &pubkey, &alb_pair, orders, &protocol_infos, &conf_infos);
+        let params = ProcessTrieParams {
+            pubkey,
+            alb_pair: alb_pair.clone(),
+            protocol_infos: protocol_infos.clone(),
+            conf_infos: conf_infos.clone(),
+        };
+        let _new_root = process_pubkey_full_trie(&mut orderbook, orders, params);
     }
 
     let topic = orderbook_topic_from_base_rel(base, rel);
@@ -584,23 +586,20 @@ struct GetOrderbookRes {
     conf_infos: HashMap<Uuid, OrderConfirmationsSettings>,
 }
 
-#[allow(clippy::type_complexity)]
-fn get_pubkeys_orders(
-    orderbook: &Orderbook,
-    base: String,
-    rel: String,
-) -> (
-    usize,
-    HashMap<String, PubkeyOrders>,
-    HashMap<Uuid, BaseRelProtocolInfo>,
-    HashMap<Uuid, OrderConfirmationsSettings>,
-) {
+struct GetPubkeysOrdersRes {
+    total_number_of_orders: usize,
+    uuids_by_pubkey: HashMap<String, PubkeyOrders>,
+    protocol_infos: HashMap<Uuid, BaseRelProtocolInfo>,
+    conf_infos: HashMap<Uuid, OrderConfirmationsSettings>,
+}
+
+fn get_pubkeys_orders(orderbook: &Orderbook, base: String, rel: String) -> GetPubkeysOrdersRes {
     let asks = orderbook.unordered.get(&(base.clone(), rel.clone()));
     let bids = orderbook.unordered.get(&(rel, base));
 
     let asks_num = asks.map(|x| x.len()).unwrap_or(0);
     let bids_num = bids.map(|x| x.len()).unwrap_or(0);
-    let total_orders_number = asks_num + bids_num;
+    let total_number_of_orders = asks_num + bids_num;
 
     // flatten Option(asks) and Option(bids) to avoid cloning
     let orders = asks.iter().chain(bids.iter()).copied().flatten();
@@ -621,19 +620,25 @@ fn get_pubkeys_orders(
         uuids.push((*uuid, order.clone().into()))
     }
 
-    (total_orders_number, uuids_by_pubkey, protocol_infos, conf_infos)
+    GetPubkeysOrdersRes {
+        total_number_of_orders,
+        uuids_by_pubkey,
+        protocol_infos,
+        conf_infos,
+    }
 }
 
 fn process_get_orderbook_request(ctx: MmArc, base: String, rel: String) -> Result<Option<Vec<u8>>, String> {
     let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).unwrap();
     let orderbook = ordermatch_ctx.orderbook.lock();
 
-    let (total_orders_number, orders, protocol_infos, conf_infos) = get_pubkeys_orders(&orderbook, base, rel);
-    if total_orders_number > MAX_ORDERS_NUMBER_IN_ORDERBOOK_RESPONSE {
+    let pubkeys_orders = get_pubkeys_orders(&orderbook, base, rel);
+    if pubkeys_orders.total_number_of_orders > MAX_ORDERS_NUMBER_IN_ORDERBOOK_RESPONSE {
         return ERR!("Orderbook too large");
     }
 
-    let orders_to_send: Result<HashMap<_, _>, String> = orders
+    let orders_to_send = pubkeys_orders
+        .uuids_by_pubkey
         .into_iter()
         .map(|(pubkey, orders)| {
             let pubkey_state = orderbook.pubkeys_state.get(&pubkey).ok_or(ERRL!(
@@ -650,13 +655,12 @@ fn process_get_orderbook_request(ctx: MmArc, base: String, rel: String) -> Resul
 
             Ok((pubkey, item))
         })
-        .collect();
+        .collect::<Result<HashMap<_, _>, String>>()?;
 
-    let pubkey_orders = orders_to_send?;
     let response = GetOrderbookRes {
-        pubkey_orders,
-        protocol_infos,
-        conf_infos,
+        pubkey_orders: orders_to_send,
+        protocol_infos: pubkeys_orders.protocol_infos,
+        conf_infos: pubkeys_orders.conf_infos,
     };
     let encoded = try_s!(encode_message(&response));
     Ok(Some(encoded))
