@@ -1022,8 +1022,8 @@ pub struct ElectrumBlockHeaderV12 {
 }
 
 impl ElectrumBlockHeaderV12 {
-    pub fn hash(&self) -> H256Json {
-        let block_header = BlockHeader {
+    fn as_block_header(&self) -> BlockHeader {
+        BlockHeader {
             version: self.version as u32,
             previous_header_hash: self.prev_block_hash.clone().into(),
             merkle_root_hash: self.merkle_root.clone().into(),
@@ -1042,7 +1042,17 @@ impl ElectrumBlockHeaderV12 {
             n_height: None,
             n_nonce_u64: None,
             mix_hash: None,
-        };
+        }
+    }
+
+    pub fn as_hex(&self) -> String {
+        let block_header = self.as_block_header();
+        let serialized = serialize(&block_header);
+        hex::encode(serialized)
+    }
+
+    pub fn hash(&self) -> H256Json {
+        let block_header = self.as_block_header();
         BlockHeader::hash(&block_header).into()
     }
 }

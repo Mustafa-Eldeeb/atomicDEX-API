@@ -8,7 +8,8 @@ use db_common::sqlite::rusqlite::types::Type;
 use db_common::sqlite::rusqlite::Error as SqlError;
 use db_common::sqlite::rusqlite::{Connection, Row, ToSql, NO_PARAMS};
 use db_common::sqlite::validate_table_name;
-use serialization::deserialize;
+use serialization::{deserialize, serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 const CHECK_TABLE_EXISTS_SQL: &str = "SELECT name FROM sqlite_master WHERE type='table' AND name=?1;";
@@ -107,7 +108,7 @@ impl BlockHeaderStorage for SqliteBlockHeadersStorage {
         .await
     }
 
-    async fn add_block_headers_to_storage(
+    async fn add_electrum_block_headers_to_storage(
         &self,
         for_coin: &str,
         headers: Vec<ElectrumBlockHeader>,
@@ -119,13 +120,39 @@ impl BlockHeaderStorage for SqliteBlockHeadersStorage {
             let sql_transaction = conn.transaction()?;
             for header in headers {
                 match header {
-                    ElectrumBlockHeader::V12(_) => {},
+                    ElectrumBlockHeader::V12(h) => {
+                        let block_hex = h.as_hex();
+                        let block_cache_params = [&h.block_height.to_string(), &block_hex];
+                        sql_transaction.execute(&insert_block_header_in_cache_sql(&for_coin)?, block_cache_params)?;
+                    },
                     ElectrumBlockHeader::V14(h) => {
                         let block_hex = format!("{:02x}", h.hex);
                         let block_cache_params = [&h.height.to_string(), &block_hex];
                         sql_transaction.execute(&insert_block_header_in_cache_sql(&for_coin)?, block_cache_params)?;
                     },
                 }
+            }
+            sql_transaction.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn add_block_headers_to_storage(
+        &self,
+        for_coin: &str,
+        headers: HashMap<u64, BlockHeader>,
+    ) -> Result<(), MmError<Self::Error>> {
+        let for_coin = for_coin.to_owned();
+        let selfi = self.clone();
+        async_blocking(move || {
+            let mut conn = selfi.0.lock().unwrap();
+            let sql_transaction = conn.transaction()?;
+            for (height, header) in headers {
+                let serialized = serialize(&header);
+                let block_hex = hex::encode(&serialized);
+                let block_cache_params = [&height.to_string(), &block_hex];
+                sql_transaction.execute(&insert_block_header_in_cache_sql(&for_coin)?, block_cache_params)?;
             }
             sql_transaction.commit()?;
             Ok(())
@@ -177,7 +204,6 @@ mod sql_block_headers_storage_tests {
     use super::*;
     use crate::utxo::rpc_clients::ElectrumBlockHeaderV14;
     use common::block_on;
-    use hex::FromHex;
     use primitives::hash::H256;
 
     #[test]
@@ -210,7 +236,7 @@ mod sql_block_headers_storage_tests {
             hex: "0000002076d41d3e4b0bfd4c0d3b30aa69fdff3ed35d85829efd04000000000000000000b386498b583390959d9bac72346986e3015e83ac0b54bc7747a11a494ac35c94bb3ce65a53fb45177f7e311c".into(),
         }.into();
         let headers = vec![ElectrumBlockHeader::V14(block_header)];
-        block_on(storage.add_block_headers_to_storage(for_coin, headers)).unwrap();
+        block_on(storage.add_electrum_block_headers_to_storage(for_coin, headers)).unwrap();
         assert!(!storage.is_table_empty(&table));
     }
 
@@ -229,7 +255,7 @@ mod sql_block_headers_storage_tests {
             hex: "0000002076d41d3e4b0bfd4c0d3b30aa69fdff3ed35d85829efd04000000000000000000b386498b583390959d9bac72346986e3015e83ac0b54bc7747a11a494ac35c94bb3ce65a53fb45177f7e311c".into(),
         }.into();
         let headers = vec![ElectrumBlockHeader::V14(block_header)];
-        block_on(storage.add_block_headers_to_storage(for_coin, headers)).unwrap();
+        block_on(storage.add_electrum_block_headers_to_storage(for_coin, headers)).unwrap();
         assert!(!storage.is_table_empty(&table));
 
         let hex = block_on(storage.get_block_header_raw(for_coin, 520481))
