@@ -16,11 +16,17 @@ mod task;
 
 pub use handle::RpcTaskHandle;
 pub use manager::{RpcTaskManager, RpcTaskManagerShared};
-pub use task::RpcTask;
+pub use task::{RpcTask, RpcTaskTypes};
 
 pub type FinishedTaskResult<Item, Error> = MmRpcResult<Item, Error>;
 pub type RpcTaskResult<T> = Result<T, MmError<RpcTaskError>>;
 pub type TaskId = u64;
+pub type RpcTaskStatusAlias<Task> = RpcTaskStatus<
+    <Task as RpcTaskTypes>::Item,
+    <Task as RpcTaskTypes>::Error,
+    <Task as RpcTaskTypes>::InProgressStatus,
+    <Task as RpcTaskTypes>::AwaitingStatus,
+>;
 
 type UserActionSender<UserAction> = oneshot::Sender<UserAction>;
 type TaskAbortHandle = oneshot::Sender<()>;
@@ -58,6 +64,7 @@ impl From<TimeoutError> for RpcTaskError {
     fn from(e: TimeoutError) -> Self { RpcTaskError::Timeout(e.duration) }
 }
 
+/// We can't simplify the generic types because there are places where the [`RpcTaskStatus::map_err`] method is used.
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", content = "details")]
 pub enum RpcTaskStatus<Item, Error, InProgressStatus, AwaitingStatus>
@@ -88,15 +95,11 @@ where
     }
 }
 
-enum TaskStatus<Item, Error, InProgressStatus, AwaitingStatus, UserAction>
-where
-    Item: Serialize,
-    Error: SerMmErrorType,
-{
-    Ready(FinishedTaskResult<Item, Error>),
-    InProgress(InProgressStatus),
+enum TaskStatus<Task: RpcTaskTypes> {
+    Ready(FinishedTaskResult<Task::Item, Task::Error>),
+    InProgress(Task::InProgressStatus),
     UserActionRequired {
-        awaiting_status: AwaitingStatus,
-        user_action_tx: UserActionSender<UserAction>,
+        awaiting_status: Task::AwaitingStatus,
+        user_action_tx: UserActionSender<Task::UserAction>,
     },
 }

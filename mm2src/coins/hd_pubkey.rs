@@ -8,8 +8,7 @@ use crypto::trezor::utxo::TrezorUtxoCoin;
 use crypto::trezor::{ProcessTrezorResponse, TrezorError, TrezorPinMatrix3x3Response, TrezorProcessingError};
 use crypto::{Bip32Error, CryptoCtx, CryptoInitError, DerivationPath, EcdsaCurve, HardwareWalletArc, HwError,
              HwProcessingError, XPub};
-use rpc_task::{RpcTaskError, RpcTaskHandle};
-use serde::Serialize;
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle};
 use std::convert::TryInto;
 
 #[derive(Clone)]
@@ -102,27 +101,19 @@ pub trait HDXPubExtractor {
     ) -> MmResult<XPub, HDExtractPubkeyError>;
 }
 
-pub enum RpcTaskXPubExtractor<'task, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
-where
-    Item: Serialize,
-    Error: SerMmErrorType,
-{
+pub enum RpcTaskXPubExtractor<'task, Task: RpcTask> {
     Trezor {
         hw_ctx: HardwareWalletArc,
-        task_handle: &'task RpcTaskHandle<Item, Error, InProgressStatus, AwaitingStatus, UserAction>,
-        statuses: HwConnectStatuses<InProgressStatus, AwaitingStatus>,
+        task_handle: &'task RpcTaskHandle<Task>,
+        statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
     },
 }
 
 #[async_trait]
-impl<'task, Item, Error, InProgressStatus, AwaitingStatus, UserAction> HDXPubExtractor
-    for RpcTaskXPubExtractor<'task, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
+impl<'task, Task> HDXPubExtractor for RpcTaskXPubExtractor<'task, Task>
 where
-    Item: Serialize + Send,
-    Error: SerMmErrorType + Send,
-    InProgressStatus: Clone + Send + Sync,
-    AwaitingStatus: Clone + Send + Sync,
-    UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError> + Send,
+    Task: RpcTask,
+    Task::UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError> + Send,
 {
     async fn extract_utxo_xpub(
         &self,
@@ -142,16 +133,15 @@ where
     }
 }
 
-impl<'task, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
-    RpcTaskXPubExtractor<'task, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
+impl<'task, Task> RpcTaskXPubExtractor<'task, Task>
 where
-    Item: Serialize,
-    Error: SerMmErrorType,
+    Task: RpcTask,
+    Task::UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError> + Send,
 {
     pub fn new(
         ctx: &MmArc,
-        task_handle: &'task RpcTaskHandle<Item, Error, InProgressStatus, AwaitingStatus, UserAction>,
-        statuses: HwConnectStatuses<InProgressStatus, AwaitingStatus>,
+        task_handle: &'task RpcTaskHandle<Task>,
+        statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
     ) -> MmResult<Self, HDExtractPubkeyError> {
         let crypto_ctx = CryptoCtx::from_ctx(ctx)?;
         // Don't use [`CryptoCtx::hw_ctx`] because we are planning to support HD master key.
@@ -168,26 +158,16 @@ where
     /// Constructs an Xpub extractor without checking if the MarketMaker is initialized with a hardware wallet.
     pub fn new_unchecked(
         ctx: &MmArc,
-        task_handle: &'task RpcTaskHandle<Item, Error, InProgressStatus, AwaitingStatus, UserAction>,
-        statuses: HwConnectStatuses<InProgressStatus, AwaitingStatus>,
+        task_handle: &'task RpcTaskHandle<Task>,
+        statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
     ) -> XPubExtractorUnchecked<Self> {
         XPubExtractorUnchecked(Self::new(ctx, task_handle, statuses))
     }
-}
 
-impl<'task, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
-    RpcTaskXPubExtractor<'task, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
-where
-    Item: Serialize + Send,
-    Error: SerMmErrorType + Send,
-    InProgressStatus: Clone + Send + Sync,
-    AwaitingStatus: Clone + Send + Sync,
-    UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError> + Send,
-{
     async fn extract_utxo_xpub_from_trezor(
         hw_ctx: &HardwareWalletArc,
-        task_handle: &RpcTaskHandle<Item, Error, InProgressStatus, AwaitingStatus, UserAction>,
-        statuses: &HwConnectStatuses<InProgressStatus, AwaitingStatus>,
+        task_handle: &RpcTaskHandle<Task>,
+        statuses: &HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
         trezor_coin: TrezorUtxoCoin,
         derivation_path: DerivationPath,
     ) -> MmResult<XPub, HDExtractPubkeyError> {

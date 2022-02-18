@@ -6,7 +6,7 @@ use common::mm_error::prelude::*;
 use common::SuccessResponse;
 use crypto::hw_rpc_task::{HwRpcTaskAwaitingStatus, HwRpcTaskUserAction, HwRpcTaskUserActionRequest};
 use rpc_task::rpc_common::{InitRpcTaskResponse, RpcTaskStatusError, RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus};
+use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatusAlias, RpcTaskTypes};
 
 pub type WithdrawAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type WithdrawUserAction = HwRpcTaskUserAction;
@@ -15,29 +15,10 @@ pub type WithdrawUserActionError = RpcTaskUserActionError;
 pub type InitWithdrawResponse = InitRpcTaskResponse;
 pub type WithdrawStatusRequest = RpcTaskStatusRequest;
 pub type WithdrawUserActionRequest = HwRpcTaskUserActionRequest;
-pub type WithdrawTaskManager = RpcTaskManager<
-    TransactionDetails,
-    WithdrawError,
-    WithdrawInProgressStatus,
-    WithdrawAwaitingStatus,
-    WithdrawUserAction,
->;
-pub type WithdrawTaskManagerShared = RpcTaskManagerShared<
-    TransactionDetails,
-    WithdrawError,
-    WithdrawInProgressStatus,
-    WithdrawAwaitingStatus,
-    WithdrawUserAction,
->;
-pub type WithdrawTaskHandle = RpcTaskHandle<
-    TransactionDetails,
-    WithdrawError,
-    WithdrawInProgressStatus,
-    WithdrawAwaitingStatus,
-    WithdrawUserAction,
->;
-pub type WithdrawRpcStatus =
-    RpcTaskStatus<TransactionDetails, WithdrawError, WithdrawInProgressStatus, WithdrawAwaitingStatus>;
+pub type WithdrawTaskManager = RpcTaskManager<WithdrawTask>;
+pub type WithdrawTaskManagerShared = RpcTaskManagerShared<WithdrawTask>;
+pub type WithdrawTaskHandle = RpcTaskHandle<WithdrawTask>;
+pub type WithdrawRpcStatus = RpcTaskStatusAlias<WithdrawTask>;
 pub type WithdrawInitResult<T> = Result<T, MmError<WithdrawError>>;
 
 #[async_trait]
@@ -117,14 +98,16 @@ pub struct WithdrawTask {
     request: WithdrawRequest,
 }
 
-#[async_trait]
-impl RpcTask for WithdrawTask {
+impl RpcTaskTypes for WithdrawTask {
     type Item = TransactionDetails;
     type Error = WithdrawError;
     type InProgressStatus = WithdrawInProgressStatus;
     type AwaitingStatus = WithdrawAwaitingStatus;
     type UserAction = WithdrawUserAction;
+}
 
+#[async_trait]
+impl RpcTask for WithdrawTask {
     fn initial_status(&self) -> Self::InProgressStatus { WithdrawInProgressStatus::Preparing }
 
     async fn run(self, task_handle: &WithdrawTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {

@@ -279,7 +279,7 @@ where
         });
     }
 
-    let unspendable = address_unspendable_balanace(coin, address, &balance).await?;
+    let unspendable = address_unspendable_balance(coin, address, &balance).await?;
     let spendable = &balance - &unspendable;
     Ok(CoinBalance { spendable, unspendable })
 }
@@ -2794,7 +2794,7 @@ pub async fn cache_transaction_if_possible(_coin: &UtxoCoinFields, _tx: &RpcTran
     Ok(())
 }
 
-pub async fn address_unspendable_balanace<T>(
+pub async fn address_unspendable_balance<T>(
     coin: &T,
     address: &Address,
     total_balance: &BigDecimal,

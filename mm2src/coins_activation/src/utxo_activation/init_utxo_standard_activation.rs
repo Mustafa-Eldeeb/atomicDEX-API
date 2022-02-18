@@ -1,6 +1,7 @@
 use crate::context::CoinsActivationContext;
 use crate::prelude::TryFromCoinProtocol;
-use crate::standalone_coin::InitStandaloneCoinActivationOps;
+use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandle,
+                             InitStandaloneCoinTaskManagerShared};
 use crate::utxo_activation::init_utxo_standard_activation_error::InitUtxoStandardError;
 use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingStatus, UtxoStandardInProgressStatus,
                                                           UtxoStandardUserAction};
@@ -14,25 +15,10 @@ use coins::{lp_register_coin, CoinProtocol, MmCoinEnum, PrivKeyBuildPolicy, Regi
 use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use crypto::hw_rpc_task::HwConnectStatuses;
-use crypto::trezor::trezor_rpc_task::RpcTaskHandle;
-use rpc_task::RpcTaskManagerShared;
 use serde_json::Value as Json;
 
-pub type UtxoStandardTaskManagerShared = RpcTaskManagerShared<
-    UtxoStandardActivationResult,
-    InitUtxoStandardError,
-    UtxoStandardInProgressStatus,
-    UtxoStandardAwaitingStatus,
-    UtxoStandardUserAction,
->;
-
-pub type UtxoStandardRpcTaskHandle = RpcTaskHandle<
-    UtxoStandardActivationResult,
-    InitUtxoStandardError,
-    UtxoStandardInProgressStatus,
-    UtxoStandardAwaitingStatus,
-    UtxoStandardUserAction,
->;
+pub type UtxoStandardTaskManagerShared = InitStandaloneCoinTaskManagerShared<UtxoStandardCoin>;
+pub type UtxoStandardRpcTaskHandle = InitStandaloneCoinTaskHandle<UtxoStandardCoin>;
 
 pub struct UtxoStandardProtocolInfo;
 

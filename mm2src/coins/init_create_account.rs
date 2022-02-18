@@ -9,42 +9,17 @@ use common::SuccessResponse;
 use crypto::hw_rpc_task::{HwConnectStatuses, HwRpcTaskAwaitingStatus, HwRpcTaskUserAction, HwRpcTaskUserActionRequest};
 use crypto::RpcDerivationPath;
 use rpc_task::rpc_common::{InitRpcTaskResponse, RpcTaskStatusError, RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus};
+use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 
 pub type CreateAccountUserAction = HwRpcTaskUserAction;
 pub type CreateAccountAwaitingStatus = HwRpcTaskAwaitingStatus;
-pub type CreateAccountTaskManager = RpcTaskManager<
-    HDAccountBalance,
-    HDWalletRpcError,
-    CreateAccountInProgressStatus,
-    CreateAccountAwaitingStatus,
-    CreateAccountUserAction,
->;
-pub type CreateAccountTaskManagerShared = RpcTaskManagerShared<
-    HDAccountBalance,
-    HDWalletRpcError,
-    CreateAccountInProgressStatus,
-    CreateAccountAwaitingStatus,
-    CreateAccountUserAction,
->;
-pub type CreateAccountTaskHandle = RpcTaskHandle<
-    HDAccountBalance,
-    HDWalletRpcError,
-    CreateAccountInProgressStatus,
-    CreateAccountAwaitingStatus,
-    CreateAccountUserAction,
->;
+pub type CreateAccountTaskManager = RpcTaskManager<InitCreateAccountTask>;
+pub type CreateAccountTaskManagerShared = RpcTaskManagerShared<InitCreateAccountTask>;
+pub type CreateAccountTaskHandle = RpcTaskHandle<InitCreateAccountTask>;
 pub type CreateAccountRpcTaskStatus =
     RpcTaskStatus<HDAccountBalance, HDWalletRpcError, CreateAccountInProgressStatus, CreateAccountAwaitingStatus>;
 
-type CreateAccountXPubExtractor<'task> = RpcTaskXPubExtractor<
-    'task,
-    HDAccountBalance,
-    HDWalletRpcError,
-    CreateAccountInProgressStatus,
-    CreateAccountAwaitingStatus,
-    CreateAccountUserAction,
->;
+type CreateAccountXPubExtractor<'task> = RpcTaskXPubExtractor<'task, InitCreateAccountTask>;
 
 #[derive(Deserialize)]
 pub struct CreateNewAccountRequest {
@@ -80,38 +55,55 @@ pub trait InitCreateHDAccountRpcOps {
         XPubExtractor: HDXPubExtractor + Sync;
 }
 
-pub struct InitCreateAccountTask<Coin> {
+pub struct InitCreateAccountTask {
     ctx: MmArc,
-    coin: Coin,
+    coin: MmCoinEnum,
     req: CreateNewAccountRequest,
 }
 
-#[async_trait]
-impl<Coin> RpcTask for InitCreateAccountTask<Coin>
-where
-    Coin: InitCreateHDAccountRpcOps + Send + Sync,
-{
+impl RpcTaskTypes for InitCreateAccountTask {
     type Item = HDAccountBalance;
     type Error = HDWalletRpcError;
     type InProgressStatus = CreateAccountInProgressStatus;
     type AwaitingStatus = CreateAccountAwaitingStatus;
     type UserAction = CreateAccountUserAction;
+}
 
+#[async_trait]
+impl RpcTask for InitCreateAccountTask {
     fn initial_status(&self) -> Self::InProgressStatus { CreateAccountInProgressStatus::Preparing }
 
     async fn run(self, task_handle: &CreateAccountTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
-        let hw_statuses = HwConnectStatuses {
-            on_connect: CreateAccountInProgressStatus::WaitingForTrezorToConnect,
-            on_connected: CreateAccountInProgressStatus::Preparing,
-            on_connection_failed: CreateAccountInProgressStatus::Finishing,
-            on_button_request: CreateAccountInProgressStatus::WaitingForUserToConfirmPubkey,
-            on_pin_request: CreateAccountAwaitingStatus::WaitForTrezorPin,
-            on_ready: CreateAccountInProgressStatus::RequestingAccountBalance,
-        };
-        let xpub_extractor = CreateAccountXPubExtractor::new(&self.ctx, task_handle, hw_statuses)?;
-        self.coin
-            .init_create_account_rpc(self.req.params, &xpub_extractor)
-            .await
+        async fn create_new_account_helper<Coin>(
+            ctx: &MmArc,
+            coin: Coin,
+            params: CreateNewAccountParams,
+            task_handle: &CreateAccountTaskHandle,
+        ) -> MmResult<HDAccountBalance, HDWalletRpcError>
+        where
+            Coin: InitCreateHDAccountRpcOps + Send + Sync,
+        {
+            let hw_statuses = HwConnectStatuses {
+                on_connect: CreateAccountInProgressStatus::WaitingForTrezorToConnect,
+                on_connected: CreateAccountInProgressStatus::Preparing,
+                on_connection_failed: CreateAccountInProgressStatus::Finishing,
+                on_button_request: CreateAccountInProgressStatus::WaitingForUserToConfirmPubkey,
+                on_pin_request: CreateAccountAwaitingStatus::WaitForTrezorPin,
+                on_ready: CreateAccountInProgressStatus::RequestingAccountBalance,
+            };
+            let xpub_extractor = CreateAccountXPubExtractor::new(ctx, task_handle, hw_statuses)?;
+            coin.init_create_account_rpc(params, &xpub_extractor).await
+        }
+
+        match self.coin {
+            MmCoinEnum::UtxoCoin(utxo) => {
+                create_new_account_helper(&self.ctx, utxo, self.req.params, task_handle).await
+            },
+            MmCoinEnum::QtumCoin(qtum) => {
+                create_new_account_helper(&self.ctx, qtum, self.req.params, task_handle).await
+            },
+            _ => MmError::err(HDWalletRpcError::ExpectedHDWalletDerivationMethod { coin: self.req.coin }),
+        }
     }
 }
 
@@ -119,26 +111,11 @@ pub async fn init_create_new_account(
     ctx: MmArc,
     req: CreateNewAccountRequest,
 ) -> MmResult<InitRpcTaskResponse, HDWalletRpcError> {
-    async fn init_create_new_account_helper<Coin>(
-        ctx: MmArc,
-        coin: Coin,
-        req: CreateNewAccountRequest,
-    ) -> MmResult<InitRpcTaskResponse, HDWalletRpcError>
-    where
-        Coin: InitCreateHDAccountRpcOps + Send + Sync + 'static,
-    {
-        let coins_ctx = CoinsContext::from_ctx(&ctx).map_to_mm(HDWalletRpcError::Internal)?;
-        let task = InitCreateAccountTask { ctx, coin, req };
-        let task_id = CreateAccountTaskManager::spawn_rpc_task(&coins_ctx.create_account_manager, task)?;
-        Ok(InitRpcTaskResponse { task_id })
-    }
-
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
-    match coin {
-        MmCoinEnum::UtxoCoin(utxo) => init_create_new_account_helper(ctx, utxo, req).await,
-        MmCoinEnum::QtumCoin(qtum) => init_create_new_account_helper(ctx, qtum, req).await,
-        _ => MmError::err(HDWalletRpcError::ExpectedHDWalletDerivationMethod { coin: req.coin }),
-    }
+    let coins_ctx = CoinsContext::from_ctx(&ctx).map_to_mm(HDWalletRpcError::Internal)?;
+    let task = InitCreateAccountTask { ctx, coin, req };
+    let task_id = CreateAccountTaskManager::spawn_rpc_task(&coins_ctx.create_account_manager, task)?;
+    Ok(InitRpcTaskResponse { task_id })
 }
 
 pub async fn init_create_new_account_status(

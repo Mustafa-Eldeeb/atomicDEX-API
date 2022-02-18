@@ -10,7 +10,7 @@ use common::{NotSame, SuccessResponse};
 use crypto::trezor::trezor_rpc_task::RpcTaskHandle;
 use crypto::CryptoCtx;
 use rpc_task::rpc_common::{InitRpcTaskResponse, RpcTaskStatusRequest, RpcTaskUserActionRequest};
-use rpc_task::{RpcTask, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus};
+use rpc_task::{RpcTask, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 use serde_derive::Deserialize;
 use serde_json::Value as Json;
 use std::sync::Arc;
@@ -18,6 +18,8 @@ use std::sync::Arc;
 pub type InitStandaloneCoinResponse = InitRpcTaskResponse;
 pub type InitStandaloneCoinStatusRequest = RpcTaskStatusRequest;
 pub type InitStandaloneCoinUserActionRequest<UserAction> = RpcTaskUserActionRequest<UserAction>;
+pub type InitStandaloneCoinTaskManagerShared<Standalone> = RpcTaskManagerShared<InitStandaloneCoinTask<Standalone>>;
+pub type InitStandaloneCoinTaskHandle<Standalone> = RpcTaskHandle<InitStandaloneCoinTask<Standalone>>;
 
 #[derive(Debug, Deserialize)]
 pub struct InitStandaloneCoinReq<T> {
@@ -26,29 +28,19 @@ pub struct InitStandaloneCoinReq<T> {
 }
 
 #[async_trait]
-pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> {
+pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'static {
     type ActivationRequest: Send;
     type StandaloneProtocol: TryFromCoinProtocol + Send;
-    type ActivationResult: serde::Serialize + Clone + Send + Sync + 'static;
-    type ActivationError: SerMmErrorType + NotMmError + Clone + Send + Sync + 'static;
     // The following types are related to `RpcTask` management.
+    type ActivationResult: serde::Serialize + Clone + Send + Sync + 'static;
+    type ActivationError: Into<InitStandaloneCoinError> + SerMmErrorType + NotMmError + Clone + Send + Sync + 'static;
     type InProgressStatus: InitStandaloneCoinInitialStatus + serde::Serialize + Clone + Send + Sync + 'static;
     type AwaitingStatus: serde::Serialize + Clone + Send + Sync + 'static;
     type UserAction: serde::de::DeserializeOwned + NotMmError + Send + Sync + 'static;
 
-    #[allow(clippy::type_complexity)]
-    fn rpc_task_manager(
-        activation_ctx: &CoinsActivationContext,
-    ) -> &RpcTaskManagerShared<
-        Self::ActivationResult,
-        Self::ActivationError,
-        Self::InProgressStatus,
-        Self::AwaitingStatus,
-        Self::UserAction,
-    >;
+    fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &InitStandaloneCoinTaskManagerShared<Self>;
 
     /// Initialization of the standalone coin spawned as `RpcTask`.
-    #[allow(clippy::type_complexity)]
     async fn init_standalone_coin(
         ctx: MmArc,
         ticker: String,
@@ -56,25 +48,12 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> {
         activation_request: Self::ActivationRequest,
         protocol_info: Self::StandaloneProtocol,
         priv_key_policy: PrivKeyBuildPolicy<'_>,
-        task_handle: &RpcTaskHandle<
-            Self::ActivationResult,
-            Self::ActivationError,
-            Self::InProgressStatus,
-            Self::AwaitingStatus,
-            Self::UserAction,
-        >,
+        task_handle: &InitStandaloneCoinTaskHandle<Self>,
     ) -> Result<Self, MmError<Self::ActivationError>>;
 
-    #[allow(clippy::type_complexity)]
     async fn get_activation_result(
         &self,
-        task_handle: &RpcTaskHandle<
-            Self::ActivationResult,
-            Self::ActivationError,
-            Self::InProgressStatus,
-            Self::AwaitingStatus,
-            Self::UserAction,
-        >,
+        task_handle: &InitStandaloneCoinTaskHandle<Self>,
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>>;
 }
 
@@ -106,14 +85,8 @@ where
     };
     let task_manager = Standalone::rpc_task_manager(&coins_act_ctx);
 
-    let task_id = RpcTaskManager::<
-        Standalone::ActivationResult,
-        Standalone::ActivationError,
-        Standalone::InProgressStatus,
-        Standalone::AwaitingStatus,
-        Standalone::UserAction,
-    >::spawn_rpc_task(task_manager, task)
-    .mm_err(|e| InitStandaloneCoinError::Internal(e.to_string()))?;
+    let task_id = RpcTaskManager::spawn_rpc_task(task_manager, task)
+        .mm_err(|e| InitStandaloneCoinError::Internal(e.to_string()))?;
 
     Ok(InitStandaloneCoinResponse { task_id })
 }
@@ -156,7 +129,7 @@ pub async fn init_standalone_coin_user_action<Standalone: InitStandaloneCoinActi
     Ok(SuccessResponse::new())
 }
 
-struct InitStandaloneCoinTask<Standalone: InitStandaloneCoinActivationOps> {
+pub struct InitStandaloneCoinTask<Standalone: InitStandaloneCoinActivationOps> {
     ctx: MmArc,
     crypto_ctx: Arc<CryptoCtx>,
     request: InitStandaloneCoinReq<Standalone::ActivationRequest>,
@@ -164,33 +137,24 @@ struct InitStandaloneCoinTask<Standalone: InitStandaloneCoinActivationOps> {
     protocol_info: Standalone::StandaloneProtocol,
 }
 
-#[async_trait]
-impl<Standalone> RpcTask for InitStandaloneCoinTask<Standalone>
-where
-    Standalone: InitStandaloneCoinActivationOps + Send + Sync,
-    InitStandaloneCoinError: From<Standalone::ActivationError>,
-{
+impl<Standalone: InitStandaloneCoinActivationOps> RpcTaskTypes for InitStandaloneCoinTask<Standalone> {
     type Item = Standalone::ActivationResult;
     type Error = Standalone::ActivationError;
     type InProgressStatus = Standalone::InProgressStatus;
     type AwaitingStatus = Standalone::AwaitingStatus;
     type UserAction = Standalone::UserAction;
+}
 
+#[async_trait]
+impl<Standalone> RpcTask for InitStandaloneCoinTask<Standalone>
+where
+    Standalone: InitStandaloneCoinActivationOps,
+{
     fn initial_status(&self) -> Self::InProgressStatus {
         <Standalone::InProgressStatus as InitStandaloneCoinInitialStatus>::initial_status()
     }
 
-    #[allow(clippy::type_complexity)]
-    async fn run(
-        self,
-        task_handle: &RpcTaskHandle<
-            Self::Item,
-            Self::Error,
-            Self::InProgressStatus,
-            Self::AwaitingStatus,
-            Self::UserAction,
-        >,
-    ) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(self, task_handle: &RpcTaskHandle<Self>) -> Result<Self::Item, MmError<Self::Error>> {
         let priv_key_policy = PrivKeyBuildPolicy::from_crypto_ctx(&self.crypto_ctx);
         let coin = Standalone::init_standalone_coin(
             self.ctx,

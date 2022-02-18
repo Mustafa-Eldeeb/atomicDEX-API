@@ -6,7 +6,7 @@ use rpc_task::rpc_common::RpcTaskUserActionRequest;
 use serde::Serialize;
 use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
-use trezor::trezor_rpc_task::{RpcTaskError, RpcTaskHandle, TrezorRequestStatuses, TrezorRpcTaskProcessor};
+use trezor::trezor_rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, TrezorRequestStatuses, TrezorRpcTaskProcessor};
 use trezor::{TrezorProcessingError, TrezorRequestProcessor};
 
 const CONNECT_DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -62,27 +62,19 @@ where
     }
 }
 
-pub struct TrezorRpcTaskConnectProcessor<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
-where
-    Item: Serialize,
-    Error: SerMmErrorType,
-{
-    request_processor: TrezorRpcTaskProcessor<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction>,
-    on_connect: InProgressStatus,
-    on_connected: InProgressStatus,
-    on_connection_failed: InProgressStatus,
+pub struct TrezorRpcTaskConnectProcessor<'a, Task: RpcTask> {
+    request_processor: TrezorRpcTaskProcessor<'a, Task>,
+    on_connect: Task::InProgressStatus,
+    on_connected: Task::InProgressStatus,
+    on_connection_failed: Task::InProgressStatus,
     connect_timeout: Duration,
 }
 
 #[async_trait]
-impl<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction> TrezorRequestProcessor
-    for TrezorRpcTaskConnectProcessor<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
+impl<'a, Task> TrezorRequestProcessor for TrezorRpcTaskConnectProcessor<'a, Task>
 where
-    Item: Serialize + Send,
-    Error: SerMmErrorType + Send,
-    InProgressStatus: Clone + Send + Sync,
-    AwaitingStatus: Clone + Send + Sync,
-    UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError> + Send,
+    Task: RpcTask,
+    Task::UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError>,
 {
     type Error = RpcTaskError;
 
@@ -100,14 +92,10 @@ where
 }
 
 #[async_trait]
-impl<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction> TrezorConnectProcessor
-    for TrezorRpcTaskConnectProcessor<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
+impl<'a, Task> TrezorConnectProcessor for TrezorRpcTaskConnectProcessor<'a, Task>
 where
-    Item: Serialize + Send,
-    Error: SerMmErrorType + Send,
-    InProgressStatus: Clone + Send + Sync,
-    AwaitingStatus: Clone + Send + Sync,
-    UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError> + Send,
+    Task: RpcTask,
+    Task::UserAction: TryInto<TrezorPinMatrix3x3Response, Error = RpcTaskError>,
 {
     async fn on_connect(&self) -> MmResult<Duration, HwProcessingError<RpcTaskError>> {
         self.request_processor
@@ -128,15 +116,10 @@ where
     }
 }
 
-impl<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
-    TrezorRpcTaskConnectProcessor<'a, Item, Error, InProgressStatus, AwaitingStatus, UserAction>
-where
-    Item: Serialize,
-    Error: SerMmErrorType,
-{
+impl<'a, Task: RpcTask> TrezorRpcTaskConnectProcessor<'a, Task> {
     pub fn new(
-        task_handle: &'a RpcTaskHandle<Item, Error, InProgressStatus, AwaitingStatus, UserAction>,
-        statuses: HwConnectStatuses<InProgressStatus, AwaitingStatus>,
+        task_handle: &'a RpcTaskHandle<Task>,
+        statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
     ) -> Self {
         let request_statuses = TrezorRequestStatuses {
             on_button_request: statuses.on_button_request,

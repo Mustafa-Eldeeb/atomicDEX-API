@@ -1,7 +1,7 @@
 use crate::context::CoinsActivationContext;
 use crate::prelude::TryFromCoinProtocol;
-use crate::standalone_coin::InitStandaloneCoinActivationOps;
-use crate::utxo_activation::init_utxo_standard_activation::{UtxoStandardRpcTaskHandle, UtxoStandardTaskManagerShared};
+use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandle,
+                             InitStandaloneCoinTaskManagerShared};
 use crate::utxo_activation::init_utxo_standard_activation_error::InitUtxoStandardError;
 use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingStatus, UtxoStandardInProgressStatus,
                                                           UtxoStandardUserAction};
@@ -16,6 +16,9 @@ use common::mm_ctx::MmArc;
 use common::mm_error::prelude::*;
 use crypto::hw_rpc_task::HwConnectStatuses;
 use serde_json::Value as Json;
+
+pub type QtumTaskManagerShared = InitStandaloneCoinTaskManagerShared<QtumCoin>;
+pub type QtumRpcTaskHandle = InitStandaloneCoinTaskHandle<QtumCoin>;
 
 pub struct QtumProtocolInfo;
 
@@ -41,8 +44,8 @@ impl InitStandaloneCoinActivationOps for QtumCoin {
     type AwaitingStatus = UtxoStandardAwaitingStatus;
     type UserAction = UtxoStandardUserAction;
 
-    fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &UtxoStandardTaskManagerShared {
-        &activation_ctx.init_utxo_standard_task_manager
+    fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &QtumTaskManagerShared {
+        &activation_ctx.init_qtum_task_manager
     }
 
     async fn init_standalone_coin(
@@ -52,7 +55,7 @@ impl InitStandaloneCoinActivationOps for QtumCoin {
         activation_request: Self::ActivationRequest,
         _protocol_info: Self::StandaloneProtocol,
         priv_key_policy: PrivKeyBuildPolicy<'_>,
-        task_handle: &UtxoStandardRpcTaskHandle,
+        task_handle: &QtumRpcTaskHandle,
     ) -> Result<Self, MmError<Self::ActivationError>> {
         // Construct an Xpub extractor without checking if the MarketMaker supports HD wallet ops.
         // If the coin builder tries to extract an extended public key despite HD wallet is not supported,
@@ -88,7 +91,7 @@ impl InitStandaloneCoinActivationOps for QtumCoin {
 
     async fn get_activation_result(
         &self,
-        task_handle: &UtxoStandardRpcTaskHandle,
+        task_handle: &QtumRpcTaskHandle,
     ) -> MmResult<Self::ActivationResult, InitUtxoStandardError> {
         crate::utxo_activation::utxo_common_impl::get_activation_result(self, task_handle).await
     }

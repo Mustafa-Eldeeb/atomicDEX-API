@@ -1,4 +1,4 @@
-use crate::utxo_activation::init_utxo_standard_activation::UtxoStandardRpcTaskHandle;
+use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandle};
 use crate::utxo_activation::init_utxo_standard_activation_error::InitUtxoStandardError;
 use crate::utxo_activation::init_utxo_standard_statuses::UtxoStandardInProgressStatus;
 use crate::utxo_activation::utxo_standard_activation_result::UtxoStandardActivationResult;
@@ -9,10 +9,14 @@ use futures::compat::Future01CompatExt;
 
 pub async fn get_activation_result<Coin>(
     coin: &Coin,
-    task_handle: &UtxoStandardRpcTaskHandle,
+    task_handle: &InitStandaloneCoinTaskHandle<Coin>,
 ) -> MmResult<UtxoStandardActivationResult, InitUtxoStandardError>
 where
-    Coin: EnableCoinBalanceOps + MarketCoinOps,
+    Coin: InitStandaloneCoinActivationOps<
+            ActivationError = InitUtxoStandardError,
+            InProgressStatus = UtxoStandardInProgressStatus,
+        > + EnableCoinBalanceOps
+        + MarketCoinOps,
 {
     let current_block =
         coin.current_block()
