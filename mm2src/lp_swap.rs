@@ -75,9 +75,7 @@ use num_rational::BigRational;
 use primitives::hash::{H160, H264};
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use serde_json::{self as json, Value as Json};
-use serialization::{Deserializable, Error, Reader, Serializable, Stream};
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, Weak};
@@ -572,9 +570,20 @@ pub struct NegotiationDataV2 {
     started_at: u64,
     payment_locktime: u64,
     secret_hash: Vec<u8>,
-    htlc_keys_data: Vec<u8>,
+    persistent_pubkey: Vec<u8>,
     maker_coin_swap_contract: Vec<u8>,
     taker_coin_swap_contract: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
+pub struct NegotiationDataV3 {
+    started_at: u64,
+    payment_locktime: u64,
+    secret_hash: Vec<u8>,
+    maker_coin_swap_contract: Vec<u8>,
+    taker_coin_swap_contract: Vec<u8>,
+    maker_coin_htlc_pub: Vec<u8>,
+    taker_coin_htlc_pub: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
@@ -582,6 +591,7 @@ pub struct NegotiationDataV2 {
 pub enum NegotiationDataMsg {
     V1(NegotiationDataV1),
     V2(NegotiationDataV2),
+    V3(NegotiationDataV3),
 }
 
 impl NegotiationDataMsg {
@@ -589,6 +599,7 @@ impl NegotiationDataMsg {
         match self {
             NegotiationDataMsg::V1(v1) => v1.started_at,
             NegotiationDataMsg::V2(v2) => v2.started_at,
+            NegotiationDataMsg::V3(v3) => v3.started_at,
         }
     }
 
@@ -596,6 +607,7 @@ impl NegotiationDataMsg {
         match self {
             NegotiationDataMsg::V1(v1) => v1.payment_locktime,
             NegotiationDataMsg::V2(v2) => v2.payment_locktime,
+            NegotiationDataMsg::V3(v3) => v3.payment_locktime,
         }
     }
 
@@ -603,13 +615,23 @@ impl NegotiationDataMsg {
         match self {
             NegotiationDataMsg::V1(v1) => &v1.secret_hash,
             NegotiationDataMsg::V2(v2) => &v2.secret_hash,
+            NegotiationDataMsg::V3(v3) => &v3.secret_hash,
         }
     }
 
-    pub fn htlc_keys_data(&self) -> &[u8] {
+    pub fn maker_coin_htlc_pub(&self) -> &[u8] {
         match self {
             NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
-            NegotiationDataMsg::V2(v2) => &v2.htlc_keys_data,
+            NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
+            NegotiationDataMsg::V3(v3) => &v3.maker_coin_htlc_pub,
+        }
+    }
+
+    pub fn taker_coin_htlc_pub(&self) -> &[u8] {
+        match self {
+            NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
+            NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
+            NegotiationDataMsg::V3(v3) => &v3.taker_coin_htlc_pub,
         }
     }
 
@@ -617,6 +639,7 @@ impl NegotiationDataMsg {
         match self {
             NegotiationDataMsg::V1(_) => None,
             NegotiationDataMsg::V2(v2) => Some(&v2.maker_coin_swap_contract),
+            NegotiationDataMsg::V3(v3) => Some(&v3.maker_coin_swap_contract),
         }
     }
 
@@ -624,6 +647,7 @@ impl NegotiationDataMsg {
         match self {
             NegotiationDataMsg::V1(_) => None,
             NegotiationDataMsg::V2(v2) => Some(&v2.taker_coin_swap_contract),
+            NegotiationDataMsg::V3(v3) => Some(&v3.taker_coin_swap_contract),
         }
     }
 }
@@ -1174,69 +1198,6 @@ pub async fn active_swaps_rpc(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>
     Ok(try_s!(Response::builder().body(res)))
 }
 
-pub enum HtlcPubkeyData {
-    SingleKey(H264),
-    PerCoin { for_maker_coin: H264, for_taker_coin: H264 },
-}
-
-impl HtlcPubkeyData {
-    pub fn single_key(&self) -> H264 {
-        match self {
-            HtlcPubkeyData::SingleKey(key) => *key,
-            HtlcPubkeyData::PerCoin { .. } => H264::default(),
-        }
-    }
-
-    pub fn maker_coin_key(&self) -> Option<H264> {
-        match self {
-            HtlcPubkeyData::SingleKey(_) => None,
-            HtlcPubkeyData::PerCoin { for_maker_coin, .. } => Some(*for_maker_coin),
-        }
-    }
-
-    pub fn taker_coin_key(&self) -> Option<H264> {
-        match self {
-            HtlcPubkeyData::SingleKey(_) => None,
-            HtlcPubkeyData::PerCoin { for_taker_coin, .. } => Some(*for_taker_coin),
-        }
-    }
-}
-
-impl Deserializable for HtlcPubkeyData {
-    fn deserialize<T>(reader: &mut Reader<T>) -> Result<Self, Error>
-    where
-        Self: Sized,
-        T: Read,
-    {
-        let first_key = reader.read()?;
-        if reader.is_finished() {
-            Ok(HtlcPubkeyData::SingleKey(first_key))
-        } else {
-            Ok(HtlcPubkeyData::PerCoin {
-                for_maker_coin: first_key,
-                for_taker_coin: reader.read()?,
-            })
-        }
-    }
-}
-
-impl Serializable for HtlcPubkeyData {
-    fn serialize(&self, s: &mut Stream) {
-        match self {
-            HtlcPubkeyData::SingleKey(key) => {
-                s.append(key);
-            },
-            HtlcPubkeyData::PerCoin {
-                for_maker_coin,
-                for_taker_coin,
-            } => {
-                s.append(for_maker_coin);
-                s.append(for_taker_coin);
-            },
-        }
-    }
-}
-
 #[cfg(test)]
 mod lp_swap_tests {
     use serialization::{deserialize, serialize};
@@ -1482,7 +1443,7 @@ mod lp_swap_tests {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: vec![0; 20],
-            htlc_keys_data: vec![1; 33],
+            persistent_pubkey: vec![1; 33],
             maker_coin_swap_contract: vec![1; 20],
             taker_coin_swap_contract: vec![1; 20],
         });
@@ -1505,7 +1466,7 @@ mod lp_swap_tests {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: vec![0; 20],
-            htlc_keys_data: vec![1; 33],
+            persistent_pubkey: vec![1; 33],
             maker_coin_swap_contract: vec![1; 20],
             taker_coin_swap_contract: vec![1; 20],
         });
@@ -1515,5 +1476,22 @@ mod lp_swap_tests {
         let deserialized: NegotiationDataMsg = rmp_serde::from_read_ref(serialized.as_slice()).unwrap();
 
         assert_eq!(deserialized, v2);
+
+        let v3 = NegotiationDataMsg::V3(NegotiationDataV3 {
+            started_at: 0,
+            payment_locktime: 0,
+            secret_hash: vec![0; 20],
+            maker_coin_swap_contract: vec![1; 20],
+            taker_coin_swap_contract: vec![1; 20],
+            maker_coin_htlc_pub: vec![1; 33],
+            taker_coin_htlc_pub: vec![1; 33],
+        });
+
+        // v3 must be deserialized to v3, backward compatibility is not required
+        let serialized = rmp_serde::to_vec(&v3).unwrap();
+
+        let deserialized: NegotiationDataMsg = rmp_serde::from_read_ref(serialized.as_slice()).unwrap();
+
+        assert_eq!(deserialized, v3);
     }
 }
