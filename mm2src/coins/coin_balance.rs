@@ -20,10 +20,10 @@ pub enum HDAccountBalanceRpcError {
     #[display(fmt = "No such coin {}", coin)]
     NoSuchCoin { coin: String },
     #[display(
-        fmt = "'{}' coin is expected to be enabled with the HD wallet derivation method",
+        fmt = "'{}' coin is expected to be activated with the HD wallet derivation method",
         coin
     )]
-    ExpectedHDWalletDerivationMethod { coin: String },
+    CoinIsActivatedNotWithHDWallet { coin: String },
     #[display(fmt = "HD account '{}' is not activated", account_id)]
     UnknownAccount { account_id: u32 },
     #[display(fmt = "Coin doesn't support the given BIP44 chain: {:?}", chain)]
@@ -42,7 +42,7 @@ impl HttpStatusCode for HDAccountBalanceRpcError {
     fn status_code(&self) -> StatusCode {
         match self {
             HDAccountBalanceRpcError::NoSuchCoin { .. }
-            | HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod { .. }
+            | HDAccountBalanceRpcError::CoinIsActivatedNotWithHDWallet { .. }
             | HDAccountBalanceRpcError::UnknownAccount { .. }
             | HDAccountBalanceRpcError::InvalidBip44Chain { .. }
             | HDAccountBalanceRpcError::ErrorDerivingAddress(_) => StatusCode::BAD_REQUEST,
@@ -270,7 +270,7 @@ pub async fn account_balance(
     match coin {
         MmCoinEnum::UtxoCoin(utxo) => utxo.account_balance_rpc(req.params).await,
         MmCoinEnum::QtumCoin(qtum) => qtum.account_balance_rpc(req.params).await,
-        _ => MmError::err(HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {
+        _ => MmError::err(HDAccountBalanceRpcError::CoinIsActivatedNotWithHDWallet {
             coin: coin.ticker().to_owned(),
         }),
     }
@@ -284,7 +284,7 @@ pub async fn scan_for_new_addresses(
     match coin {
         MmCoinEnum::UtxoCoin(utxo) => utxo.scan_for_new_addresses_rpc(req.params).await,
         MmCoinEnum::QtumCoin(qtum) => qtum.scan_for_new_addresses_rpc(req.params).await,
-        _ => MmError::err(HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {
+        _ => MmError::err(HDAccountBalanceRpcError::CoinIsActivatedNotWithHDWallet {
             coin: coin.ticker().to_owned(),
         }),
     }
@@ -343,7 +343,7 @@ pub mod common_impl {
         <Coin as HDWalletCoinOps>::Address: fmt::Display,
     {
         let hd_wallet = coin.derivation_method().hd_wallet().or_mm_err(|| {
-            HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {
+            HDAccountBalanceRpcError::CoinIsActivatedNotWithHDWallet {
                 coin: coin.ticker().to_owned(),
             }
         })?;
@@ -404,7 +404,7 @@ pub mod common_impl {
         <Coin as HDWalletCoinOps>::Address: fmt::Display,
     {
         let hd_wallet = coin.derivation_method().hd_wallet().or_mm_err(|| {
-            HDAccountBalanceRpcError::ExpectedHDWalletDerivationMethod {
+            HDAccountBalanceRpcError::CoinIsActivatedNotWithHDWallet {
                 coin: coin.ticker().to_owned(),
             }
         })?;

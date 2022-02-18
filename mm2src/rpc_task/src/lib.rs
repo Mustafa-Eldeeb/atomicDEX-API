@@ -4,6 +4,7 @@ use common::mm_rpc_protocol::MmRpcResult;
 use derive_more::Display;
 use futures::channel::oneshot;
 use serde::Serialize;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 #[macro_use] extern crate ser_error_derive;
@@ -28,9 +29,10 @@ pub type RpcTaskStatusAlias<Task> = RpcTaskStatus<
     <Task as RpcTaskTypes>::AwaitingStatus,
 >;
 
-type UserActionSender<UserAction> = oneshot::Sender<UserAction>;
+type AtomicTaskId = AtomicU64;
 type TaskAbortHandle = oneshot::Sender<()>;
 type TaskAbortHandler = oneshot::Receiver<()>;
+type UserActionSender<UserAction> = oneshot::Sender<UserAction>;
 
 #[derive(Clone, Display)]
 pub enum RpcTaskError {

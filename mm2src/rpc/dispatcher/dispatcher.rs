@@ -110,6 +110,7 @@ async fn auth(request: &MmRpcRequest, ctx: &MmArc, client: &SocketAddr) -> Dispa
 async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Response<Vec<u8>>> {
     match request.method.as_str() {
         // "activate_bch_protocol_coin" => handle_mmrpc(ctx, request, activate_bch_protocol_coin).await,
+        "account_balance" => handle_mmrpc(ctx, request, account_balance).await,
         "add_delegation" => handle_mmrpc(ctx, request, add_delegation).await,
         "add_node_to_version_stat" => handle_mmrpc(ctx, request, add_node_to_version_stat).await,
         "connect_to_lightning_node" => handle_mmrpc(ctx, request, connect_to_lightning_node).await,
@@ -119,7 +120,6 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "get_new_address" => handle_mmrpc(ctx, request, get_new_address).await,
         "get_public_key" => handle_mmrpc(ctx, request, get_public_key).await,
         "get_staking_infos" => handle_mmrpc(ctx, request, get_staking_infos).await,
-        "account_balance" => handle_mmrpc(ctx, request, account_balance).await,
         "init_create_new_account" => handle_mmrpc(ctx, request, init_create_new_account).await,
         "init_create_new_account_status" => handle_mmrpc(ctx, request, init_create_new_account_status).await,
         "init_create_new_account_user_action" => handle_mmrpc(ctx, request, init_create_new_account_user_action).await,

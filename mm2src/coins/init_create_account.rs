@@ -102,7 +102,7 @@ impl RpcTask for InitCreateAccountTask {
             MmCoinEnum::QtumCoin(qtum) => {
                 create_new_account_helper(&self.ctx, qtum, self.req.params, task_handle).await
             },
-            _ => MmError::err(HDWalletRpcError::ExpectedHDWalletDerivationMethod { coin: self.req.coin }),
+            _ => MmError::err(HDWalletRpcError::CoinIsActivatedNotWithHDWallet { coin: self.req.coin }),
         }
     }
 }
@@ -167,7 +167,7 @@ pub(crate) mod common_impl {
         let hd_wallet =
             coin.derivation_method()
                 .hd_wallet()
-                .or_mm_err(|| HDWalletRpcError::ExpectedHDWalletDerivationMethod {
+                .or_mm_err(|| HDWalletRpcError::CoinIsActivatedNotWithHDWallet {
                     coin: coin.ticker().to_owned(),
                 })?;
 

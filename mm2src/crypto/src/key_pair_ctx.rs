@@ -11,6 +11,10 @@ impl Deref for KeyPairArc {
     fn deref(&self) -> &Self::Target { &self.0 }
 }
 
+impl From<KeyPair> for KeyPairArc {
+    fn from(secp256k1_key_pair: KeyPair) -> Self { KeyPairArc::new(KeyPairCtx { secp256k1_key_pair }) }
+}
+
 impl KeyPairArc {
     pub fn new(ctx: KeyPairCtx) -> KeyPairArc { KeyPairArc(Arc::new(ctx)) }
 

@@ -1,5 +1,5 @@
 use crate::task::RpcTaskTypes;
-use crate::{FinishedTaskResult, RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskResult, RpcTaskStatus,
+use crate::{AtomicTaskId, FinishedTaskResult, RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskResult, RpcTaskStatus,
             RpcTaskStatusAlias, TaskAbortHandle, TaskAbortHandler, TaskId, TaskStatus, TaskStatusError,
             UserActionSender};
 use common::executor::spawn;
@@ -9,23 +9,22 @@ use futures::channel::oneshot;
 use futures::future::{select, Either};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, Weak};
 
 pub type RpcTaskManagerShared<Task> = Arc<Mutex<RpcTaskManager<Task>>>;
 pub(crate) type RpcTaskManagerWeak<Task> = Weak<Mutex<RpcTaskManager<Task>>>;
 
+static NEXT_RPC_TASK_ID: AtomicTaskId = AtomicTaskId::new(0);
+
+fn next_rpc_task_id() -> TaskId { NEXT_RPC_TASK_ID.fetch_add(1, Ordering::Relaxed) }
+
 pub struct RpcTaskManager<Task: RpcTask> {
     tasks: HashMap<TaskId, TaskStatusExt<Task>>,
-    next_task_id: TaskId,
 }
 
 impl<Task: RpcTask> Default for RpcTaskManager<Task> {
-    fn default() -> Self {
-        RpcTaskManager {
-            tasks: HashMap::new(),
-            next_task_id: 0,
-        }
-    }
+    fn default() -> Self { RpcTaskManager { tasks: HashMap::new() } }
 }
 
 impl<Task: RpcTask> RpcTaskManager<Task> {
@@ -107,7 +106,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
         &mut self,
         task_initial_in_progress_status: Task::InProgressStatus,
     ) -> RpcTaskResult<(TaskId, TaskAbortHandler)> {
-        let task_id = self.next_task_id();
+        let task_id = next_rpc_task_id();
         let (abort_handle, abort_handler) = oneshot::channel();
         match self.tasks.entry(task_id) {
             Entry::Occupied(_entry) => MmError::err(RpcTaskError::UnexpectedTaskStatus {
@@ -148,12 +147,6 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
             actual,
             expected,
         }
-    }
-
-    fn next_task_id(&mut self) -> TaskId {
-        let id = self.next_task_id;
-        self.next_task_id += 1;
-        id
     }
 
     fn on_task_finished(

@@ -1,10 +1,11 @@
 use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandle};
 use crate::utxo_activation::init_utxo_standard_activation_error::InitUtxoStandardError;
-use crate::utxo_activation::init_utxo_standard_statuses::UtxoStandardInProgressStatus;
+use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingStatus, UtxoStandardInProgressStatus};
 use crate::utxo_activation::utxo_standard_activation_result::UtxoStandardActivationResult;
 use coins::coin_balance::EnableCoinBalanceOps;
 use coins::MarketCoinOps;
 use common::mm_error::prelude::*;
+use crypto::hw_rpc_task::HwConnectStatuses;
 use futures::compat::Future01CompatExt;
 
 pub async fn get_activation_result<Coin>(
@@ -42,4 +43,15 @@ where
         wallet_balance,
     };
     Ok(result)
+}
+
+pub fn xpub_extractor_rpc_statuses() -> HwConnectStatuses<UtxoStandardInProgressStatus, UtxoStandardAwaitingStatus> {
+    HwConnectStatuses {
+        on_connect: UtxoStandardInProgressStatus::WaitingForTrezorToConnect,
+        on_connected: UtxoStandardInProgressStatus::ActivatingCoin,
+        on_connection_failed: UtxoStandardInProgressStatus::Finishing,
+        on_button_request: UtxoStandardInProgressStatus::WaitingForUserToConfirmPubkey,
+        on_pin_request: UtxoStandardAwaitingStatus::WaitForTrezorPin,
+        on_ready: UtxoStandardInProgressStatus::ActivatingCoin,
+    }
 }

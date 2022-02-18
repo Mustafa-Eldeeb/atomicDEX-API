@@ -126,10 +126,10 @@ pub enum HDWalletRpcError {
     #[display(fmt = "Withdraw timed out {:?}", _0)]
     Timeout(Duration),
     #[display(
-        fmt = "'{}' coin is expected to be enabled with the HD wallet derivation method",
+        fmt = "'{}' coin is expected to be activated with the HD wallet derivation method",
         coin
     )]
-    ExpectedHDWalletDerivationMethod { coin: String },
+    CoinIsActivatedNotWithHDWallet { coin: String },
     #[display(fmt = "Cannot extract an extended public key from an Iguana key pair")]
     IguanaPrivKeyNotAllowed,
     #[display(fmt = "HD account '{}' is not activated", account_id)]
@@ -224,7 +224,7 @@ impl HttpStatusCode for HDWalletRpcError {
         match self {
             HDWalletRpcError::CoinDoesntSupportTrezor
             | HDWalletRpcError::NoSuchCoin { .. }
-            | HDWalletRpcError::ExpectedHDWalletDerivationMethod { .. }
+            | HDWalletRpcError::CoinIsActivatedNotWithHDWallet { .. }
             | HDWalletRpcError::IguanaPrivKeyNotAllowed
             | HDWalletRpcError::UnknownAccount { .. }
             | HDWalletRpcError::InvalidBip44Chain { .. }
@@ -403,7 +403,7 @@ pub async fn get_new_address(
     match coin {
         MmCoinEnum::UtxoCoin(utxo) => utxo.get_new_address_rpc(req.params).await,
         MmCoinEnum::QtumCoin(qtum) => qtum.get_new_address_rpc(req.params).await,
-        _ => MmError::err(HDWalletRpcError::ExpectedHDWalletDerivationMethod { coin: req.coin }),
+        _ => MmError::err(HDWalletRpcError::CoinIsActivatedNotWithHDWallet { coin: req.coin }),
     }
 }
 
@@ -433,7 +433,7 @@ pub mod common_impl {
         let hd_wallet =
             coin.derivation_method()
                 .hd_wallet()
-                .or_mm_err(|| HDWalletRpcError::ExpectedHDWalletDerivationMethod {
+                .or_mm_err(|| HDWalletRpcError::CoinIsActivatedNotWithHDWallet {
                     coin: coin.ticker().to_owned(),
                 })?;
         let mut hd_account = hd_wallet
