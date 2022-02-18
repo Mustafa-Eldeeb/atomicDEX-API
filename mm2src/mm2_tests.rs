@@ -8333,7 +8333,6 @@ fn test_get_raw_transaction() {
     }
     let resp = get_raw_transaction_bot_rpc(&mm);
     let v: GetRawTxResponse = serde_json::from_str(&*resp.1).unwrap();
-    println!("get raw tx {:?}",v);
     // Must be 200
     assert_eq!(resp.0, 200);
 
